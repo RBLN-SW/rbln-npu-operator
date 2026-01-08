@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 
 	"github.com/go-logr/logr"
 	v1 "k8s.io/api/apps/v1"
@@ -19,6 +20,12 @@ import (
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
+)
+
+const (
+	defaultHostBinPath = "/usr/bin"
+	hostBinVolumeName  = "host-bin"
+	rblnSMIBinaryName  = "rbln-smi"
 )
 
 type devicePluginPatcher struct {
@@ -194,6 +201,13 @@ func (h *devicePluginPatcher) ComponentNamespace() string {
 	return h.namespace
 }
 
+func (h *devicePluginPatcher) getHostBinPath() string {
+	if h.desiredSpec != nil && h.desiredSpec.HostBinPath != "" {
+		return h.desiredSpec.HostBinPath
+	}
+	return defaultHostBinPath
+}
+
 func (h *devicePluginPatcher) handleServiceAccount(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	builder := k8sutil.NewServiceAccountBuilder(h.name, h.namespace)
 	sa := builder.Build()
@@ -324,6 +338,8 @@ func (h *devicePluginPatcher) handleConfigMap(ctx context.Context, cp *rblnv1bet
 }
 
 func (h *devicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	hostRblnSMIPath := filepath.Join(h.getHostBinPath(), rblnSMIBinaryName)
+
 	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
 	ds := builder.Build()
 	dsRes, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
@@ -406,10 +422,10 @@ func (h *devicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1
 						},
 					},
 					{
-						Name: "host-usr-local-bin",
+						Name: hostBinVolumeName,
 						VolumeSource: corev1.VolumeSource{
 							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/usr/local/bin",
+								Path: h.getHostBinPath(),
 								Type: ptr(corev1.HostPathDirectory),
 							},
 						},
@@ -444,8 +460,9 @@ func (h *devicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1
 								MountPath: "/etc/pcidp",
 							},
 							{
-								Name:      "host-usr-local-bin",
-								MountPath: "/usr/local/bin",
+								Name:      hostBinVolumeName,
+								MountPath: hostRblnSMIPath,
+								SubPath:   rblnSMIBinaryName,
 								ReadOnly:  true,
 							},
 							{

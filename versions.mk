@@ -1,4 +1,4 @@
-VERSION ?= v0.0.2
+VERSION ?= v0.1.0
 
 GOLANG_VERSION ?= 1.23.10
 

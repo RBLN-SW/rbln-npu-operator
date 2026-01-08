@@ -76,8 +76,8 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    containerImage: docker.io/rebellions/rbln-npu-operator:sha256:88526a5ee2fc0332eca4810a44039c48ee5cd3f94a59a792d872274167e15bc3
-    createdAt: "2025-11-27T03:44:21Z"
+    containerImage: docker.io/rebellions/rbln-npu-operator:latest
+    createdAt: "2026-01-08T01:57:46Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -173,6 +173,12 @@ spec:
         path: devicePlugin.enabled
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: HostBinPath specifies the host directory that contains binaries
+          required by the device plugin
+        displayName: Host binary path
+        path: devicePlugin.hostBinPath
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
       - description: RBLN Device Plugin image name
         displayName: Image
         path: devicePlugin.image
@@ -707,16 +713,16 @@ spec:
                     fieldRef:
                       fieldPath: metadata.namespace
                 - name: OPERATOR_IMAGE_NAME
-                  value: docker.io/rebellions/rbln-npu-operator@sha256:88526a5ee2fc0332eca4810a44039c48ee5cd3f94a59a792d872274167e15bc3
+                  value: docker.io/rebellions/rbln-npu-operator@sha256:f3dfd53e159c0ab05d65ca93f8d783659b33acd0a015b38975c26106b14a1600
                 - name: RELATED_IMAGE_RBLN_K8S_DEVICE_PLUGIN
-                  value: docker.io/rebellions/k8s-device-plugin@sha256:c59a5e16a306c408995d7a83718c5f6faedca1b2d6a5f6bf5c05c8e552998bda
+                  value: docker.io/rebellions/k8s-device-plugin@sha256:d6a1b7653fa4978dc34e71a62d48a99537218f248c933871bbe5f8d5ff5a6e5d
                 - name: RELATED_IMAGE_RBLN_METRICS_EXPORTER
-                  value: docker.io/rebellions/rbln-metrics-exporter@sha256:05ee5ce1b770b558979fa92c246bbcfaea7a24061e7c07fafd59c176d7a93e07
+                  value: docker.io/rebellions/rbln-metrics-exporter@sha256:f696d75b40e948cad25a1bc14c43e256463acb55477a7787b1be4e7086908240
                 - name: RELATED_IMAGE_RBLN_NPU_FEATURE_DISCOVERY
-                  value: docker.io/rebellions/rbln-npu-feature-discovery@sha256:8eb02e6c4987766a0e2b1220a3ff740c6fb94a6b1d5e7e6ac7131e98e3e94ce8
+                  value: docker.io/rebellions/rbln-npu-feature-discovery@sha256:02ea11356b04e05d2dbbdd7b60286aec239e846e4beb26fdf515f61535b3e885
                 - name: RELATED_IMAGE_VFIO_MANAGER
                   value: docker.io/rebellions/rbln-vfio-manager@sha256:c9abcf882ddceb17a0f6b65463de1d4232d5d773994ff75e0aa2beef4c8ce87d
-                image: docker.io/rebellions/rbln-npu-operator@sha256:88526a5ee2fc0332eca4810a44039c48ee5cd3f94a59a792d872274167e15bc3
+                image: docker.io/rebellions/rbln-npu-operator:latest
                 imagePullPolicy: IfNotPresent
                 livenessProbe:
                   httpGet:
@@ -812,11 +818,11 @@ spec:
     name: rebellions
     url: https://rebellions.ai/
   relatedImages:
-  - image: docker.io/rebellions/k8s-device-plugin@sha256:c59a5e16a306c408995d7a83718c5f6faedca1b2d6a5f6bf5c05c8e552998bda
+  - image: docker.io/rebellions/k8s-device-plugin@sha256:d6a1b7653fa4978dc34e71a62d48a99537218f248c933871bbe5f8d5ff5a6e5d
     name: rbln-k8s-device-plugin
-  - image: docker.io/rebellions/rbln-metrics-exporter@sha256:05ee5ce1b770b558979fa92c246bbcfaea7a24061e7c07fafd59c176d7a93e07
+  - image: docker.io/rebellions/rbln-metrics-exporter@sha256:f696d75b40e948cad25a1bc14c43e256463acb55477a7787b1be4e7086908240
     name: rbln-metrics-exporter
-  - image: docker.io/rebellions/rbln-npu-feature-discovery@sha256:8eb02e6c4987766a0e2b1220a3ff740c6fb94a6b1d5e7e6ac7131e98e3e94ce8
+  - image: docker.io/rebellions/rbln-npu-feature-discovery@sha256:02ea11356b04e05d2dbbdd7b60286aec239e846e4beb26fdf515f61535b3e885
     name: rbln-npu-feature-discovery
   - image: docker.io/rebellions/rbln-vfio-manager@sha256:c9abcf882ddceb17a0f6b65463de1d4232d5d773994ff75e0aa2beef4c8ce87d
     name: vfio-manager

@@ -1968,6 +1968,11 @@ spec:
                     description: Enabled indicates if deployment of RBLN device plugin
                       is enabled
                     type: boolean
+                  hostBinPath:
+                    default: /usr/bin
+                    description: HostBinPath specifies the host directory that contains
+                      binaries required by the device plugin
+                    type: string
                   image:
                     default: rebellions/k8s-device-plugin
                     description: RBLN Device Plugin image name

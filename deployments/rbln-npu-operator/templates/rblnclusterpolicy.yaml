@@ -11,6 +11,7 @@ spec:
     image: {{ .Values.devicePlugin.image.repository }}
     version: {{ .Values.devicePlugin.image.tag | quote }}
     imagePullPolicy: {{ .Values.devicePlugin.image.pullPolicy }}
+    hostBinPath: {{ .Values.devicePlugin.hostBinPath | quote }}
     {{- if .Values.devicePlugin.resourceList }}
     resourceList:
       {{- toYaml .Values.devicePlugin.resourceList | nindent 4 }}

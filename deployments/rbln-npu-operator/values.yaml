@@ -71,6 +71,7 @@ devicePlugin:
     repository: rebellions/k8s-device-plugin
     tag: latest
     pullPolicy: IfNotPresent
+  hostBinPath: /usr/bin
 
   resourceList:
   - productCardNames:

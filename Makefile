@@ -62,9 +62,8 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 
 .PHONY: sync-crds
 sync-crds:
-	@echo "Syncing CRDs into Helm and OLM packages..."
+	@echo "Syncing CRDs into Helm packages..."
 	cp $(PROJECT_DIR)/config/crd/bases/* $(PROJECT_DIR)/deployments/rbln-npu-operator/crds
-	cp $(PROJECT_DIR)/config/crd/bases/* $(PROJECT_DIR)/bundle/manifests
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -160,7 +159,7 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMAGE}
+	cd config/manager && $(KUSTOMIZE) edit set image $(IMAGE_NAME)=${IMAGE}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
 .PHONY: undeploy

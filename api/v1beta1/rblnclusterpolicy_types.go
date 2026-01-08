@@ -264,6 +264,12 @@ type RBLNDevicePluginSpec struct {
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
 
+	// HostBinPath specifies the host directory that contains binaries required by the device plugin
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=/usr/bin
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Host binary path",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
+	HostBinPath string `json:"hostBinPath,omitempty"`
+
 	// PriorityClassName specifies the priority class for the DaemonSet pods
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="PriorityClassName",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"

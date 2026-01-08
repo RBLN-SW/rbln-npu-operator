@@ -100,6 +100,12 @@ spec:
         path: devicePlugin.enabled
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: HostBinPath specifies the host directory that contains binaries
+          required by the device plugin
+        displayName: Host binary path
+        path: devicePlugin.hostBinPath
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
       - description: RBLN Device Plugin image name
         displayName: Image
         path: devicePlugin.image
