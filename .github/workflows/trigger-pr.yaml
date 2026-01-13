@@ -91,5 +91,7 @@ jobs:
         env:
           KUBE_CONTEXT: ${{ secrets.E2E_KUBE_CONTEXT }}
           OPERATOR_VERSION: ${{ needs.image-build.outputs.operator-image-tag }}
+          PYPI_USERNAME: ${{ secrets.E2E_PYPI_USERNAME }}
+          PYPI_PASSWORD: ${{ secrets.E2E_PYPI_PASSWORD }}
         run: |
           make -C test/e2e e2e-test

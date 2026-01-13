@@ -35,6 +35,9 @@ type e2eTestConfig struct {
 	operatorRegistry   string
 	operatorRepository string
 	operatorVersion    string
+
+	pypiUsername string
+	pypiPassword string
 }
 
 var e2eCfg = e2eTestConfig{}
@@ -51,6 +54,19 @@ func TestMain(m *testing.M) {
 	flag.StringVar(&e2eCfg.operatorRegistry, "operator-registry", "", "NPU Operator image registry to use")
 	flag.StringVar(&e2eCfg.operatorRepository, "operator-repository", "", "NPU Operator image repository to use")
 	flag.StringVar(&e2eCfg.operatorVersion, "operator-version", "", "NPU Operator image tag to use")
+
+	flag.StringVar(
+		&e2eCfg.pypiUsername,
+		"pypi-username",
+		os.Getenv("PYPI_USERNAME"),
+		"PyPI username for pypi.rebellions.in",
+	)
+	flag.StringVar(
+		&e2eCfg.pypiPassword,
+		"pypi-password",
+		os.Getenv("PYPI_PASSWORD"),
+		"PyPI password for pypi.rebellions.in",
+	)
 	e2etestenv.RegisterContextFlags(flag.CommandLine)
 	flag.Parse()
 	os.Exit(m.Run())

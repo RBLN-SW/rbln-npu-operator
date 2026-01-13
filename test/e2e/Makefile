@@ -5,6 +5,8 @@ OPERATOR_REPOSITORY ?= rebellions/rbln-npu-operator
 
 HELM_CHART ?= $(CURDIR)/../../deployments/rbln-npu-operator
 KUBE_CONTEXT ?=
+PYPI_USERNAME ?=
+PYPI_PASSWORD ?=
 
 .PHONY: e2e-test
 e2e-test:
@@ -22,4 +24,6 @@ e2e-test:
 		-operator-registry=$(OPERATOR_REGISTRY) \
 		-operator-repository=$(OPERATOR_REPOSITORY) \
 		-operator-version=$(OPERATOR_VERSION) \
-		-helm-chart=$(HELM_CHART)
+		-helm-chart=$(HELM_CHART) \
+		-pypi-username=$(PYPI_USERNAME) \
+		-pypi-password=$(PYPI_PASSWORD)

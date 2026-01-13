@@ -25,6 +25,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	e2ek8s "github.com/rebellions-sw/rbln-npu-operator/test/e2e/kubernetes"
 	e2elog "github.com/rebellions-sw/rbln-npu-operator/test/e2e/logs"
@@ -94,6 +96,21 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 								"registry":   e2eCfg.operatorRegistry,
 								"repository": e2eCfg.operatorRepository,
 								"tag":        e2eCfg.operatorVersion,
+							},
+						},
+						"devicePlugin": map[string]interface{}{
+							"image": map[string]interface{}{
+								"pullPolicy": "Always",
+							},
+						},
+						"metricsExporter": map[string]interface{}{
+							"image": map[string]interface{}{
+								"pullPolicy": "Always",
+							},
+						},
+						"npuFeatureDiscovery": map[string]interface{}{
+							"image": map[string]interface{}{
+								"pullPolicy": "Always",
 							},
 						},
 					},
@@ -189,7 +206,117 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 					Within(defaultOperandWaitTimeout).
 					Should(BeTrue(), "no ready labeled node exposed rebellions.ai/ATOM")
 			})
+			It("should run model-zoo compile/inference on ubuntu 24.04", func(ctx context.Context) {
+				podName := "model-zoo-ubuntu-24-04"
+
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pypi-cred",
+						Namespace: testNamespace.Name,
+					},
+					StringData: map[string]string{
+						"username": e2eCfg.pypiUsername,
+						"password": e2eCfg.pypiPassword,
+					},
+				}
+				_, err := te.ClientSet.CoreV1().Secrets(testNamespace.Name).Create(ctx, secret, metav1.CreateOptions{})
+				Expect(err).NotTo(HaveOccurred())
+				DeferCleanup(func() {
+					_ = te.ClientSet.CoreV1().Secrets(testNamespace.Name).
+						Delete(context.Background(), "pypi-cred", metav1.DeleteOptions{})
+				})
+
+				script := `set -euo pipefail
+export TZ=Asia/Seoul
+ln -snf /usr/share/zoneinfo/$TZ /etc/localtime
+echo $TZ > /etc/timezone
+apt update
+apt-get install -y git python3 python3-pip python3-venv ca-certificates
+mkdir -p /workspace
+python3 -m venv /workspace/.venv
+. /workspace/.venv/bin/activate
+python -m pip install -U pip setuptools wheel
+
+cat <<EOF > ~/.netrc
+machine pypi.rebellions.in
+login ${PYPI_USER}
+password ${PYPI_PASS}
+EOF
+
+chmod 600 ~/.netrc
+
+git clone https://github.com/rebellions-sw/rbln-model-zoo.git
+cd rbln-model-zoo/pytorch/vision/detection/yolov10/
+git submodule update --init ultralytics/
+python -m pip install -r requirements.txt
+python -m pip install --pre -i https://pypi.rebellions.in/simple rebel-compiler
+python compile.py
+python inference.py`
+
+				pod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      podName,
+						Namespace: testNamespace.Name,
+						Labels: map[string]string{
+							"app": "model-zoo-smoke",
+						},
+					},
+					Spec: corev1.PodSpec{
+						RestartPolicy: corev1.RestartPolicyNever,
+						Containers: []corev1.Container{
+							{
+								Name:    "runner",
+								Image:   "ubuntu:24.04",
+								Command: []string{"/bin/bash", "-lc", script},
+								Env: []corev1.EnvVar{
+									{
+										Name: "PYPI_USER",
+										ValueFrom: &corev1.EnvVarSource{
+											SecretKeyRef: &corev1.SecretKeySelector{
+												LocalObjectReference: corev1.LocalObjectReference{Name: "pypi-cred"},
+												Key:                  "username",
+											},
+										},
+									},
+									{
+										Name: "PYPI_PASS",
+										ValueFrom: &corev1.EnvVarSource{
+											SecretKeyRef: &corev1.SecretKeySelector{
+												LocalObjectReference: corev1.LocalObjectReference{Name: "pypi-cred"},
+												Key:                  "password",
+											},
+										},
+									},
+								},
+								Resources: corev1.ResourceRequirements{
+									Limits: corev1.ResourceList{
+										NPUResourceName: resource.MustParse("1"),
+									},
+								},
+							},
+						},
+					},
+				}
+
+				_, err = te.ClientSet.CoreV1().Pods(testNamespace.Name).Create(ctx, pod, metav1.CreateOptions{})
+				Expect(err).NotTo(HaveOccurred())
+				DeferCleanup(func() {
+					_ = te.ClientSet.CoreV1().Pods(testNamespace.Name).Delete(context.Background(), podName, metav1.DeleteOptions{})
+				})
+
+				var lastPod *corev1.Pod
+				Eventually(func(g Gomega) corev1.PodPhase {
+					p, err := te.ClientSet.CoreV1().Pods(testNamespace.Name).Get(ctx, podName, metav1.GetOptions{})
+					g.Expect(err).NotTo(HaveOccurred())
+					lastPod = p
+					return p.Status.Phase
+				}).WithTimeout(10 * time.Minute).
+					WithPolling(10 * time.Second).
+					WithContext(ctx).
+					Should(BeElementOf(corev1.PodSucceeded, corev1.PodFailed))
+
+				Expect(lastPod.Status.Phase).To(Equal(corev1.PodSucceeded), "pod failed: %s", lastPod.Status.Message)
+			})
 		})
 	})
-	print(te)
 })
