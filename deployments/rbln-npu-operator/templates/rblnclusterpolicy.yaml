@@ -6,6 +6,28 @@ metadata:
   name: rbln-cluster-policy
 spec:
   name: {{ .Values.name }}
+  {{- if .Values.daemonsets }}
+  daemonsets:
+    {{- with .Values.daemonsets.labels }}
+    labels:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.daemonsets.annotations }}
+    annotations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.daemonsets.affinity }}
+    affinity:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.daemonsets.tolerations }}
+    tolerations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- if .Values.daemonsets.priorityClassName }}
+    priorityClassName: {{ .Values.daemonsets.priorityClassName | quote }}
+    {{- end }}
+  {{- end }}
   devicePlugin:
     enabled: {{ .Values.devicePlugin.enabled }}
     registry: {{ .Values.devicePlugin.image.registry }}
