@@ -11,8 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
-
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/scope/patch"
@@ -136,10 +134,6 @@ func (s *RBLNClusterPolicyScope) LabelRblnNodes() (bool, int, error) {
 	updateLabels := false
 	for _, node := range nodeList.Items {
 		labels := node.GetLabels()
-		if k8sutil.IsControlPlane(labels) {
-			s.log.Info("Skip control plane node", "Node", node.Name)
-			continue
-		}
 		if nfdInstalled {
 			nfdInstalled = hasNFDLabels(labels)
 		}
