@@ -85,6 +85,7 @@ jobs:
         run: |
           CURRENT_TAG=${GITHUB_REF_NAME}
           PREV_TAG=${previous_tag:-}
+          REPO="${GITHUB_REPOSITORY}"
 
           if [ -n "$PREV_TAG" ]; then
             RANGE="$PREV_TAG..$CURRENT_TAG"
@@ -92,18 +93,22 @@ jobs:
             RANGE="$CURRENT_TAG"
           fi
 
-          # 전체 커밋 제목만 뽑아둠
-          git log $RANGE --pretty=format:"%s" > commits.txt
+          # 전체 커밋 제목 + PR 번호 + 커밋 링크
+          git log $RANGE --pretty=format:"%s ([%h](https://github.com/${REPO}/commit/%H))" \
+            | sed -E "s/\\(#([0-9]+)\\)/([#\\1](https:\\/\\/github.com\\/${REPO}\\/pull\\/\\1))/" \
+            > commits.txt
 
-          FEATS=$(grep -E "^feat" commits.txt || true)
-          FIXES=$(grep -E "^fix" commits.txt || true)
-          DOCS=$(grep -E "^docs" commits.txt || true)
-          REFACTORS=$(grep -E "^refactor" commits.txt || true)
-          PERFS=$(grep -E "^perf" commits.txt || true)
-          STYLES=$(grep -E "^style" commits.txt || true)
-          BUILDS=$(grep -E "^build" commits.txt || true)
-          CHORES=$(grep -E "^chore" commits.txt || true)
-          TESTS=$(grep -E "^test" commits.txt || true)
+          get_commits() { grep -E "^$1(\(.*\))?:" commits.txt || true; }
+
+          FEATS=$(get_commits "feat")
+          FIXES=$(get_commits "fix")
+          DOCS=$(get_commits "docs")
+          REFACTORS=$(get_commits "refactor")
+          PERFS=$(get_commits "perf")
+          STYLES=$(get_commits "style")
+          BUILDS=$(get_commits "build")
+          CHORES=$(get_commits "chore")
+          TESTS=$(get_commits "test")
 
           {
             echo "# Release Notes"

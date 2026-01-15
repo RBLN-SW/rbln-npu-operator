@@ -9,6 +9,19 @@ name: rbln
 nfd:
   enabled: false
 
+# Common defaults that apply to all managed component DaemonSets.
+daemonsets:
+  labels: {}
+  annotations: {}
+  affinity: {}
+  tolerations: []
+  # Example: allow scheduling on control plane nodes
+  # tolerations:
+  # - key: node-role.kubernetes.io/control-plane
+  #   operator: Exists
+  #   effect: NoSchedule
+  priorityClassName: ""
+
 # Operator configuration
 operator:
   # Operator image configuration
