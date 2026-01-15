@@ -93,9 +93,8 @@ jobs:
             RANGE="$CURRENT_TAG"
           fi
 
-          # 전체 커밋 제목 + PR 번호 + 커밋 링크
           git log $RANGE --pretty=format:"%s ([%h](https://github.com/${REPO}/commit/%H))" \
-            | sed -E "s/\\(#([0-9]+)\\)/([#\\1](https:\\/\\/github.com\\/${REPO}\\/pull\\/\\1))/" \
+            | sed -E "s|\(#([0-9]+)\)|([#\1](https://github.com/${REPO}/pull/\1))|g" \
             > commits.txt
 
           get_commits() { grep -E "^$1(\(.*\))?:" commits.txt || true; }
