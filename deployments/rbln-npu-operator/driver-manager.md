@@ -94,10 +94,11 @@ Validator는 `RBLNClusterPolicy`로 관리됩니다.
 ```yaml
 # values.yaml 예시
 validator:
-  registry: docker.io
-  image: rebellions/rbln-npu-operator-validator
-  tag: latest
-  pullPolicy: IfNotPresent
+  image:
+    registry: docker.io
+    repository: rebellions/rbln-npu-operator-validator
+    tag: latest
+    pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
   args: []

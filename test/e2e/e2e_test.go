@@ -133,9 +133,11 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 							"imagePullSecrets": []string{registrySecretName},
 						},
 						"validator": map[string]interface{}{
-							"registry": e2eCfg.validatorRegistry,
-							"image":    e2eCfg.validatorRepository,
-							"tag":      e2eCfg.operatorVersion,
+							"image": map[string]interface{}{
+								"registry":   e2eCfg.validatorRegistry,
+								"repository": e2eCfg.validatorRepository,
+								"tag":        e2eCfg.operatorVersion,
+							},
 						},
 						"npuFeatureDiscovery": map[string]interface{}{
 							"image": map[string]interface{}{

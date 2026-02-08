@@ -252,10 +252,11 @@ vfioManager:
 
 # Validator configuration
 validator:
-  registry: docker.io
-  image: rebellions/rbln-npu-operator-validator
-  tag: latest
-  pullPolicy: IfNotPresent
+  image:
+    registry: docker.io
+    repository: rebellions/rbln-npu-operator-validator
+    tag: latest
+    pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
   args: []
