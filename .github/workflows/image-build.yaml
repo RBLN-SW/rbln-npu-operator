@@ -24,7 +24,7 @@ on:
 jobs:
   build-npu-operator-build-amd64:
     name: build operator image
-    runs-on: ubuntu-latest-rbln
+    runs-on: ubuntu-latest
     outputs:
       operator-version: ${{ steps.build_vars.outputs.commit_short_sha }}
       operator-image-tag: ${{ steps.build_vars.outputs.image_tag }}
