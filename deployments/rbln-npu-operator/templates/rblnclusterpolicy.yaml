@@ -124,10 +124,10 @@ spec:
     version: {{ .Values.vfioManager.image.tag | quote }}
 
   validator:
-    registry: {{ .Values.validator.registry }}
-    image: {{ .Values.validator.image }}
-    imagePullPolicy: {{ .Values.validator.pullPolicy }}
-    version: {{ .Values.validator.tag | quote }}
+    registry: {{ .Values.validator.image.registry }}
+    image: {{ .Values.validator.image.repository }}
+    imagePullPolicy: {{ .Values.validator.image.pullPolicy }}
+    version: {{ .Values.validator.image.tag | quote }}
     {{- if .Values.validator.imagePullSecrets }}
     imagePullSecrets:
       {{- toYaml .Values.validator.imagePullSecrets | nindent 6 }}

@@ -84,7 +84,7 @@ driver:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-driver
     tag: 3.0.0
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   # Example:
   # imagePullSecrets:
   # - my-registry-secret
@@ -252,10 +252,11 @@ vfioManager:
 
 # Validator configuration
 validator:
-  registry: docker.io
-  image: rebellions/rbln-npu-operator-validator
-  tag: latest
-  pullPolicy: IfNotPresent
+  image:
+    registry: docker.io
+    repository: rebellions/rbln-npu-operator-validator
+    tag: latest
+    pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
   args: []
