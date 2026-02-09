@@ -7,7 +7,7 @@ jobs:
   # Synchronize code lint, formatting, manifests and bundle.
   code-check:
     name: golang code checks
-    runs-on: ubuntu-latest-rbln
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         name: Checkout code

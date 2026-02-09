@@ -11,7 +11,7 @@ permissions:
 jobs:
   build-and-push-image:
     name: Build and push multi-arch image
-    runs-on: ubuntu-latest-rbln
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -43,7 +43,7 @@ jobs:
 
   package-helm-chart:
     name: Package Helm chart
-    runs-on: ubuntu-latest-rbln
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
@@ -74,7 +74,7 @@ jobs:
     needs:
       - build-and-push-image
       - package-helm-chart
-    runs-on: ubuntu-latest-rbln
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4

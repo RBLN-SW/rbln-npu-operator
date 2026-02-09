@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   pr-title-validation:
-    runs-on: ubuntu-latest-rbln
+    runs-on: ubuntu-latest
     steps:
       - name: Validate PR title
         uses: amannn/action-semantic-pull-request@v5
@@ -60,7 +60,7 @@ jobs:
     secrets: inherit
   e2e-tests:
     needs: [image-build]
-    runs-on: sw-k8s-4c-32gb
+    runs-on: rbln-sw-k8s-4c-32gb
     container:
       image: "ubuntu:24.04"
     steps:
@@ -103,7 +103,7 @@ jobs:
   cleanup-images:
     needs: [image-build, e2e-tests]
     if: always()
-    runs-on: ubuntu-latest-rbln
+    runs-on: ubuntu-latest
     steps:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
