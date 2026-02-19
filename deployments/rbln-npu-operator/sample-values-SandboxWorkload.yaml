@@ -169,6 +169,10 @@ devicePlugin:
     - RBLN-CA25
     resourceName: ATOM
     resourcePrefix: rebellions.ai
+  - productCardNames:
+    - RBLN-CR03
+    resourceName: REBEL
+    resourcePrefix: rebellions.ai
 
 # NPU Metrics Exporter configuration
 metricsExporter:
@@ -239,6 +243,10 @@ sandboxDevicePlugin:
   - productCardNames:
     - RBLN-CA25
     resourceName: ATOM_MAX_PT
+    resourcePrefix: rebellions.ai
+  - productCardNames:
+    - RBLN-CR03
+    resourceName: REBEL_PT
     resourcePrefix: rebellions.ai
 
 # VFIO Manager for VM workloads

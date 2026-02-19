@@ -21,6 +21,10 @@ spec:
         productCardNames:
           - RBLN-CA22
           - RBLN-CA25
+      - resourceName: REBEL
+        resourcePrefix: rebellions.ai
+        productCardNames:
+          - RBLN-CR03
   metricsExporter:
     enabled: true
     registry: docker.io

@@ -91,7 +91,7 @@ driver:
   # imagePullSecrets: []
   # Example:
   # nodeSelector:
-  #   rebellions.ai/npu.present: "true"
+  #   rebellions.ai/old: "true"
   nodeSelector: {}
   # Example:
   # nodeAffinity:
@@ -168,6 +168,10 @@ devicePlugin:
     - RBLN-CA25
     resourceName: ATOM
     resourcePrefix: rebellions.ai
+  - productCardNames:
+    - RBLN-CR03
+    resourceName: REBEL
+    resourcePrefix: rebellions.ai
 
 # NPU Metrics Exporter configuration
 metricsExporter:
@@ -187,7 +191,7 @@ rblnDaemon:
     tag: 3.0.0
     pullPolicy: IfNotPresent
   # imagePullSecrets:
-  # - rblnDeamonSecret
+  # - daemoncred
   hostPort: 50051
   resources: {}
   args: []
@@ -239,6 +243,10 @@ sandboxDevicePlugin:
   - productCardNames:
     - RBLN-CA25
     resourceName: ATOM_MAX_PT
+    resourcePrefix: rebellions.ai
+  - productCardNames:
+    - RBLN-CR03
+    resourceName: REBEL_PT
     resourcePrefix: rebellions.ai
 
 # VFIO Manager for VM workloads
