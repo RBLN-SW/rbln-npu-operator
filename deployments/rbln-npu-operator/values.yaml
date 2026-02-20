@@ -181,7 +181,6 @@ draKubeletPlugin:
     repository: rebellions/npu-kubelet-plugin
     tag: latest
     pullPolicy: IfNotPresent
-  priorityClassName: system-node-critical
   driverName: npu.rebellions.ai
   kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
   kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
