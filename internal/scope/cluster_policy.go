@@ -80,6 +80,12 @@ func NewRBLNClusterPolicyScope(ctx context.Context, client client.Client, log lo
 	}
 	s.patcher = append(s.patcher, dpp)
 
+	dkp, err := patch.NewDRAKubeletPluginPatcher(client, log, s.namespace, &clusterPolicy.Spec, scheme, openshiftVersion)
+	if err != nil {
+		return s, err
+	}
+	s.patcher = append(s.patcher, dkp)
+
 	sdp, err := patch.NewSandboxDevicePluginPatcher(client, log, s.namespace, &clusterPolicy.Spec, scheme, openshiftVersion)
 	if err != nil {
 		return s, err

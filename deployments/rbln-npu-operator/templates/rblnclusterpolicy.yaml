@@ -40,6 +40,18 @@ spec:
       {{- toYaml .Values.devicePlugin.resourceList | nindent 4 }}
     {{- end }}
 
+  draKubeletPlugin:
+    enabled: {{ .Values.draKubeletPlugin.enabled }}
+    registry: {{ .Values.draKubeletPlugin.image.registry }}
+    image: {{ .Values.draKubeletPlugin.image.repository }}
+    version: {{ .Values.draKubeletPlugin.image.tag | quote }}
+    imagePullPolicy: {{ .Values.draKubeletPlugin.image.pullPolicy }}
+    priorityClassName: {{ .Values.draKubeletPlugin.priorityClassName | quote }}
+    driverName: {{ .Values.draKubeletPlugin.driverName | quote }}
+    kubeletRegistrarDirectoryPath: {{ .Values.draKubeletPlugin.kubeletRegistrarDirectoryPath | quote }}
+    kubeletPluginsDirectoryPath: {{ .Values.draKubeletPlugin.kubeletPluginsDirectoryPath | quote }}
+    healthcheckPort: {{ .Values.draKubeletPlugin.healthcheckPort }}
+
   metricsExporter:
     enabled: {{ .Values.metricsExporter.enabled }}
     registry: {{ .Values.metricsExporter.image.registry }}

@@ -3355,6 +3355,60 @@ spec:
                     description: RBLN Device Plugin image tag
                     type: string
                 type: object
+              draKubeletPlugin:
+                description: DRAKubeletPlugin component spec
+                properties:
+                  driverName:
+                    default: npu.rebellions.ai
+                    description: DriverName is the DRA driver name used by kubelet
+                      plugin registration
+                    type: string
+                  enabled:
+                    default: false
+                    description: Enabled indicates if deployment of RBLN DRA kubelet
+                      plugin is enabled
+                    type: boolean
+                  healthcheckPort:
+                    default: 51515
+                    description: HealthcheckPort is the gRPC liveness port. Set to
+                      <=0 to disable liveness probe.
+                    format: int32
+                    type: integer
+                  image:
+                    default: rebellions/npu-kubelet-plugin
+                    description: RBLN DRA kubelet plugin image name
+                    pattern: '[a-zA-Z0-9\-]+'
+                    type: string
+                  imagePullPolicy:
+                    default: IfNotPresent
+                    description: ImagePullPolicy specifies the image pull policy for
+                      the DaemonSet pods
+                    type: string
+                  kubeletPluginsDirectoryPath:
+                    default: /var/lib/kubelet/plugins
+                    description: KubeletPluginsDirectoryPath is the host path for kubelet
+                      plugin sockets
+                    type: string
+                  kubeletRegistrarDirectoryPath:
+                    default: /var/lib/kubelet/plugins_registry
+                    description: KubeletRegistrarDirectoryPath is the host path for
+                      kubelet plugin registration
+                    type: string
+                  priorityClassName:
+                    default: system-node-critical
+                    description: PriorityClassName specifies the priority class for
+                      the DaemonSet pods
+                    type: string
+                  registry:
+                    default: docker.io
+                    description: Registry override for the RBLN DRA kubelet plugin
+                      image
+                    type: string
+                  version:
+                    default: latest
+                    description: RBLN DRA kubelet plugin image tag
+                    type: string
+                type: object
               metricsExporter:
                 description: MetricsExporter component spec
                 properties:
@@ -9828,6 +9882,7 @@ spec:
             required:
             - containerToolkit
             - devicePlugin
+            - draKubeletPlugin
             - metricsExporter
             - npuFeatureDiscovery
             - rblnDaemon
