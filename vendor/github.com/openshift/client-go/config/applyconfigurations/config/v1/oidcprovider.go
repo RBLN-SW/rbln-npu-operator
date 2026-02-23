@@ -2,7 +2,7 @@
 
 package v1
 
-// OIDCProviderApplyConfiguration represents an declarative configuration of the OIDCProvider type for use
+// OIDCProviderApplyConfiguration represents a declarative configuration of the OIDCProvider type for use
 // with apply.
 type OIDCProviderApplyConfiguration struct {
 	Name                 *string                                      `json:"name,omitempty"`
@@ -10,9 +10,10 @@ type OIDCProviderApplyConfiguration struct {
 	OIDCClients          []OIDCClientConfigApplyConfiguration         `json:"oidcClients,omitempty"`
 	ClaimMappings        *TokenClaimMappingsApplyConfiguration        `json:"claimMappings,omitempty"`
 	ClaimValidationRules []TokenClaimValidationRuleApplyConfiguration `json:"claimValidationRules,omitempty"`
+	UserValidationRules  []TokenUserValidationRuleApplyConfiguration  `json:"userValidationRules,omitempty"`
 }
 
-// OIDCProviderApplyConfiguration constructs an declarative configuration of the OIDCProvider type for use with
+// OIDCProviderApplyConfiguration constructs a declarative configuration of the OIDCProvider type for use with
 // apply.
 func OIDCProvider() *OIDCProviderApplyConfiguration {
 	return &OIDCProviderApplyConfiguration{}
@@ -64,6 +65,19 @@ func (b *OIDCProviderApplyConfiguration) WithClaimValidationRules(values ...*Tok
 			panic("nil value passed to WithClaimValidationRules")
 		}
 		b.ClaimValidationRules = append(b.ClaimValidationRules, *values[i])
+	}
+	return b
+}
+
+// WithUserValidationRules adds the given value to the UserValidationRules field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the UserValidationRules field.
+func (b *OIDCProviderApplyConfiguration) WithUserValidationRules(values ...*TokenUserValidationRuleApplyConfiguration) *OIDCProviderApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithUserValidationRules")
+		}
+		b.UserValidationRules = append(b.UserValidationRules, *values[i])
 	}
 	return b
 }
