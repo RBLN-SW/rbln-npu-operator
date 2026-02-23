@@ -9,11 +9,10 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	resourcev1alpha2 "k8s.io/api/resource/v1alpha2"
+	resourcev1 "k8s.io/api/resource/v1"
 	kapierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,15 +30,8 @@ const (
 	draHostUsrBinMount   = "/host/usr/bin"
 	draClusterRoleSuffix = "-role"
 	draClusterBindSuffix = "-rolebinding"
-	draDeviceClassKind   = "DeviceClass"
 	draExtendedResource  = "rebellions.ai/npu"
 )
-
-var draDeviceClassAPIVersions = []string{
-	"resource.k8s.io/v1",
-	"resource.k8s.io/v1beta2",
-	"resource.k8s.io/v1beta1",
-}
 
 type draKubeletPluginPatcher struct {
 	client client.Client
@@ -126,9 +118,6 @@ func (h *draKubeletPluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta
 	}
 
 	if err := h.deleteDeviceClass(ctx); err != nil {
-		return err
-	}
-	if err := h.deleteResourceClass(ctx); err != nil {
 		return err
 	}
 
@@ -251,88 +240,39 @@ func (h *draKubeletPluginPatcher) className() string {
 }
 
 func (h *draKubeletPluginPatcher) handleDRAClass(ctx context.Context) error {
-	for _, apiVersion := range draDeviceClassAPIVersions {
-		if err := h.handleDeviceClass(ctx, apiVersion); err == nil {
-			return h.deleteResourceClass(ctx)
-		} else if !isNoMatchError(err) {
-			return err
-		}
-	}
-
-	h.log.Info("DeviceClass APIs are not available. Falling back to ResourceClass")
-	if err := h.handleResourceClass(ctx); err != nil {
-		return err
-	}
-	return h.deleteDeviceClass(ctx)
+	return h.handleDeviceClass(ctx)
 }
 
-func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, apiVersion string) error {
-	deviceClass := &unstructured.Unstructured{}
-	deviceClass.SetAPIVersion(apiVersion)
-	deviceClass.SetKind(draDeviceClassKind)
-	deviceClass.SetName(h.className())
-
-	classRes, err := controllerutil.CreateOrPatch(ctx, h.client, deviceClass, func() error {
-		if deviceClass.GetName() == "" {
-			deviceClass.SetName(h.className())
-		}
-		deviceClass.Object["spec"] = map[string]interface{}{
-			"selectors": []interface{}{
-				map[string]interface{}{
-					"cel": map[string]interface{}{
-						"expression": fmt.Sprintf("device.driver == %q", h.className()),
-					},
-				},
-			},
-			"extendedResourceName": draExtendedResource,
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	h.log.Info("Reconciled DRA DeviceClass", "name", deviceClass.GetName(), "apiVersion", apiVersion, "result", classRes)
-	return nil
-}
-
-func (h *draKubeletPluginPatcher) handleResourceClass(ctx context.Context) error {
-	resourceClass := &resourcev1alpha2.ResourceClass{
+func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context) error {
+	deviceClass := &resourcev1.DeviceClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: h.className(),
 		},
 	}
 
-	classRes, err := controllerutil.CreateOrPatch(ctx, h.client, resourceClass, func() error {
-		resourceClass.DriverName = h.className()
+	classRes, err := controllerutil.CreateOrPatch(ctx, h.client, deviceClass, func() error {
+		deviceClass.Spec = resourcev1.DeviceClassSpec{
+			Selectors: []resourcev1.DeviceSelector{
+				{
+					CEL: &resourcev1.CELDeviceSelector{
+						Expression: fmt.Sprintf("device.driver == %q", h.className()),
+					},
+				},
+			},
+			ExtendedResourceName: ptr(draExtendedResource),
+		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 
-	h.log.Info("Reconciled DRA ResourceClass fallback", "name", resourceClass.Name, "result", classRes)
+	h.log.Info("Reconciled DRA DeviceClass", "name", deviceClass.Name, "apiVersion", "resource.k8s.io/v1", "result", classRes)
 	return nil
 }
 
 func (h *draKubeletPluginPatcher) deleteDeviceClass(ctx context.Context) error {
-	for _, apiVersion := range draDeviceClassAPIVersions {
-		deviceClass := &unstructured.Unstructured{}
-		deviceClass.SetAPIVersion(apiVersion)
-		deviceClass.SetKind(draDeviceClassKind)
-		deviceClass.SetName(h.className())
-
-		if err := h.client.Delete(ctx, deviceClass); err != nil &&
-			!kapierrors.IsNotFound(err) &&
-			!isNoMatchError(err) {
-			return err
-		}
-	}
-	return nil
-}
-
-func (h *draKubeletPluginPatcher) deleteResourceClass(ctx context.Context) error {
-	if err := h.client.Delete(ctx, &resourcev1alpha2.ResourceClass{
+	if err := h.client.Delete(ctx, &resourcev1.DeviceClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: h.className(),
 		},
