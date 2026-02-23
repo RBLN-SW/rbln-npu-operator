@@ -21,19 +21,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - ""
-  resources:
-  - nodes
-  - serviceaccounts
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - apps
   resources:
   - daemonsets
@@ -59,17 +46,6 @@ rules:
   resources:
   - clusterrolebindings
   - clusterroles
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
   - rolebindings
   - roles
   verbs:
@@ -84,31 +60,6 @@ rules:
   - rebellions.ai
   resources:
   - rblnclusterpolicies
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - rebellions.ai
-  resources:
-  - rblnclusterpolicies/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - rebellions.ai
-  resources:
-  - rblnclusterpolicies/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - rebellions.ai
-  resources:
   - rblndrivers
   verbs:
   - create
@@ -121,12 +72,14 @@ rules:
 - apiGroups:
   - rebellions.ai
   resources:
+  - rblnclusterpolicies/finalizers
   - rblndrivers/finalizers
   verbs:
   - update
 - apiGroups:
   - rebellions.ai
   resources:
+  - rblnclusterpolicies/status
   - rblndrivers/status
   verbs:
   - get
