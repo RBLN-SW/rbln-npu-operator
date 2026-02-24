@@ -237,6 +237,7 @@ var rblnComponentLabels = map[string]map[string]string{
 	consts.RBLNWorkloadConfigContainer: {
 		"rebellions.ai/npu.deploy.driver":                "true",
 		"rebellions.ai/npu.deploy.device-plugin":         "true",
+		"rebellions.ai/npu.deploy.dra-kubelet-plugin":    "true",
 		"rebellions.ai/npu.deploy.metrics-exporter":      "true",
 		"rebellions.ai/npu.deploy.rbln-daemon":           "true",
 		"rebellions.ai/npu.deploy.npu-feature-discovery": "true",

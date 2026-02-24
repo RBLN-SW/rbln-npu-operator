@@ -551,7 +551,7 @@ func (h *draKubeletPluginPatcher) handleDaemonSet(ctx context.Context, owner *rb
 			WithAnnotations(h.desiredSpec.Annotations).
 			WithPodSpec(k8sutil.NewPodSpecBuilder().
 				WithServiceAccountName(h.name).
-				WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.device-plugin": "true"}).
+				WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.dra-kubelet-plugin": "true"}).
 				WithAffinity(h.desiredSpec.Affinity).
 				WithTolerations(h.desiredSpec.Tolerations).
 				WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
