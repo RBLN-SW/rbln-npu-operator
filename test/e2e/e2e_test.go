@@ -338,41 +338,34 @@ python inference.py`
 						Delete(context.Background(), "pypi-cred", metav1.DeleteOptions{})
 				})
 
-				claimName := "model-zoo-dra-claim"
-				claim := &resourcev1.ResourceClaim{
+				claimTemplateName := "model-zoo-dra-claim-template"
+				claimTemplate := &resourcev1.ResourceClaimTemplate{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      claimName,
+						Name:      claimTemplateName,
 						Namespace: testNamespace.Name,
 					},
-					Spec: resourcev1.ResourceClaimSpec{
-						Devices: resourcev1.DeviceClaim{
-							Requests: []resourcev1.DeviceRequest{
-								{
-									Name: "npu",
-									Exactly: &resourcev1.ExactDeviceRequest{
-										DeviceClassName: draDeviceClassName,
-										Count:           1,
+					Spec: resourcev1.ResourceClaimTemplateSpec{
+						Spec: resourcev1.ResourceClaimSpec{
+							Devices: resourcev1.DeviceClaim{
+								Requests: []resourcev1.DeviceRequest{
+									{
+										Name: "npu",
+										Exactly: &resourcev1.ExactDeviceRequest{
+											DeviceClassName: draDeviceClassName,
+											Count:           1,
+										},
 									},
 								},
 							},
 						},
 					},
 				}
-				_, err = te.ClientSet.ResourceV1().ResourceClaims(testNamespace.Name).Create(ctx, claim, metav1.CreateOptions{})
+				_, err = te.ClientSet.ResourceV1().ResourceClaimTemplates(testNamespace.Name).Create(ctx, claimTemplate, metav1.CreateOptions{})
 				Expect(err).NotTo(HaveOccurred())
 				DeferCleanup(func() {
-					_ = te.ClientSet.ResourceV1().ResourceClaims(testNamespace.Name).
-						Delete(context.Background(), claimName, metav1.DeleteOptions{})
+					_ = te.ClientSet.ResourceV1().ResourceClaimTemplates(testNamespace.Name).
+						Delete(context.Background(), claimTemplateName, metav1.DeleteOptions{})
 				})
-
-				Eventually(func(g Gomega) bool {
-					rc, err := te.ClientSet.ResourceV1().ResourceClaims(testNamespace.Name).Get(ctx, claimName, metav1.GetOptions{})
-					g.Expect(err).NotTo(HaveOccurred())
-					return rc.Status.Allocation != nil
-				}).WithContext(ctx).
-					WithPolling(defaultOperandPollInterval).
-					Within(defaultOperandWaitTimeout).
-					Should(BeTrue(), "resource claim %s was not allocated", claimName)
 
 				podName := "model-zoo-ubuntu-24-04-dra"
 				script := `set -euo pipefail
@@ -414,8 +407,8 @@ python inference.py`
 						RestartPolicy: corev1.RestartPolicyNever,
 						ResourceClaims: []corev1.PodResourceClaim{
 							{
-								Name:              "npu",
-								ResourceClaimName: stringPtr(claimName),
+								Name:                      "npu",
+								ResourceClaimTemplateName: stringPtr(claimTemplateName),
 							},
 						},
 						Containers: []corev1.Container{
@@ -461,6 +454,33 @@ python inference.py`
 				DeferCleanup(func() {
 					_ = te.ClientSet.CoreV1().Pods(testNamespace.Name).Delete(context.Background(), podName, metav1.DeleteOptions{})
 				})
+
+				var generatedClaimName string
+				Eventually(func(g Gomega) bool {
+					pod, err := te.ClientSet.CoreV1().Pods(testNamespace.Name).Get(ctx, podName, metav1.GetOptions{})
+					g.Expect(err).NotTo(HaveOccurred())
+					for _, claimStatus := range pod.Status.ResourceClaimStatuses {
+						if claimStatus.Name != "npu" || claimStatus.ResourceClaimName == nil {
+							continue
+						}
+
+						generatedClaimName = *claimStatus.ResourceClaimName
+						return true
+					}
+					return false
+				}).WithContext(ctx).
+					WithPolling(defaultOperandPollInterval).
+					Within(defaultOperandWaitTimeout).
+					Should(BeTrue(), "generated resource claim for pod %s not found", podName)
+
+				Eventually(func(g Gomega) bool {
+					rc, err := te.ClientSet.ResourceV1().ResourceClaims(testNamespace.Name).Get(ctx, generatedClaimName, metav1.GetOptions{})
+					g.Expect(err).NotTo(HaveOccurred())
+					return rc.Status.Allocation != nil
+				}).WithContext(ctx).
+					WithPolling(defaultOperandPollInterval).
+					Within(defaultOperandWaitTimeout).
+					Should(BeTrue(), "resource claim %s was not allocated", generatedClaimName)
 
 				var lastPod *corev1.Pod
 				Eventually(func(g Gomega) corev1.PodPhase {
