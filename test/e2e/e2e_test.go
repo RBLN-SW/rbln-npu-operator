@@ -360,7 +360,9 @@ python inference.py`
 						},
 					},
 				}
-				_, err = te.ClientSet.ResourceV1().ResourceClaimTemplates(testNamespace.Name).Create(ctx, claimTemplate, metav1.CreateOptions{})
+				_, err = te.ClientSet.ResourceV1().
+					ResourceClaimTemplates(testNamespace.Name).
+					Create(ctx, claimTemplate, metav1.CreateOptions{})
 				Expect(err).NotTo(HaveOccurred())
 				DeferCleanup(func() {
 					_ = te.ClientSet.ResourceV1().ResourceClaimTemplates(testNamespace.Name).
@@ -474,7 +476,9 @@ python inference.py`
 					Should(BeTrue(), "generated resource claim for pod %s not found", podName)
 
 				Eventually(func(g Gomega) bool {
-					rc, err := te.ClientSet.ResourceV1().ResourceClaims(testNamespace.Name).Get(ctx, generatedClaimName, metav1.GetOptions{})
+					rc, err := te.ClientSet.ResourceV1().
+						ResourceClaims(testNamespace.Name).
+						Get(ctx, generatedClaimName, metav1.GetOptions{})
 					g.Expect(err).NotTo(HaveOccurred())
 					return rc.Status.Allocation != nil
 				}).WithContext(ctx).
