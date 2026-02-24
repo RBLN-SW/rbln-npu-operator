@@ -53,6 +53,14 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 	te := testenv.NewTestEnv("rbln-npu-operator")
 
 	Describe("NPU Operator RBLNClusterPolicy", func() {
+		AfterAll(func(ctx context.Context) {
+			k8sCoreClient := e2ek8s.NewClient(te.ClientSet.CoreV1())
+			err := k8sCoreClient.DeleteNamespace(ctx, e2eCfg.namespace)
+			if err != nil && !kapierrors.IsNotFound(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+		})
+
 		Context("Container-type NPU Operator deployment", Ordered, func() {
 			/*
 			   Scenario:
@@ -86,11 +94,6 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 				}
 
 				err = k8sExtensionsClient.DeleteCRD(ctx, rblnClusterPolicyCRDName)
-				if err != nil {
-					Expect(err).NotTo(HaveOccurred())
-				}
-
-				err = k8sCoreClient.DeleteNamespace(ctx, testNamespace.Name)
 				if err != nil {
 					Expect(err).NotTo(HaveOccurred())
 				}
@@ -302,11 +305,6 @@ python inference.py`
 				}
 
 				err = k8sExtensionsClient.DeleteCRD(ctx, rblnClusterPolicyCRDName)
-				if err != nil {
-					Expect(err).NotTo(HaveOccurred())
-				}
-
-				err = k8sCoreClient.DeleteNamespace(ctx, testNamespace.Name)
 				if err != nil {
 					Expect(err).NotTo(HaveOccurred())
 				}
