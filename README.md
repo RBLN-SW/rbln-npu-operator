@@ -23,6 +23,7 @@ RBLNClusterPolicy (Cluster-scoped CR)
 └── Controller Manager (Singleton reconciliation loop)
     ├─ Node labeling (NFD dependency, workload labels)
     ├─ Device Plugin DaemonSet + ConfigMap
+    ├─ DRA Kubelet Plugin DaemonSet
     ├─ Sandbox Device Plugin + VFIO Checker
     ├─ VFIO Manager DaemonSet
     ├─ Metrics Exporter DaemonSet
@@ -36,6 +37,7 @@ RBLNClusterPolicy (Cluster-scoped CR)
 1. Enable by keeping `spec.workloadType` (or the Helm value) set to `container`, which is the default.
 2. Components:
    - **Device Plugin** publishes `rebellions.ai/ATOM` resources.
+   - **DRA Kubelet Plugin** enables workloads to consume NPUs through Kubernetes Dynamic Resource Allocation (DRA).
    - **Metrics Exporter** exposes Prometheus-ready telemetry.
    - **NPU Feature Discovery** labels nodes with RBLN hardware inventory.
    - Leaves native RBLN drivers bound for container passthrough workloads.

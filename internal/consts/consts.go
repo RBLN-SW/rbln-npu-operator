@@ -33,14 +33,15 @@ const (
 
 // Device plugin constants
 const (
-	RBLNDevicePluginName  = "device-plugin"
-	DeviceTypeAccelerator = "accelerator"
-	RBLNVendorCode        = "1eff"
-	RBLNDriverName        = "rebellions"
-	RBLNCardCA12          = "RBLN-CA12"
-	RBLNCardCA22          = "RBLN-CA22"
-	RBLNCardCA25          = "RBLN-CA25"
-	RBLNCardCR03          = "RBLN-CR03"
+	RBLNDevicePluginName     = "device-plugin"
+	RBLNDRAKubeletPluginName = "dra-kubelet-plugin"
+	DeviceTypeAccelerator    = "accelerator"
+	RBLNVendorCode           = "1eff"
+	RBLNDriverName           = "rebellions"
+	RBLNCardCA12             = "RBLN-CA12"
+	RBLNCardCA22             = "RBLN-CA22"
+	RBLNCardCA25             = "RBLN-CA25"
+	RBLNCardCR03             = "RBLN-CR03"
 )
 
 // Sandbox device plugin constants
