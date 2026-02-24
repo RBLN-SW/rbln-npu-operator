@@ -71,50 +71,12 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 			)
 
 			BeforeAll(func(ctx context.Context) {
-				var err error
-				k8sCoreClient = e2ek8s.NewClient(te.ClientSet.CoreV1())
-				k8sExtensionsClient = e2ek8s.NewExtensionClient(te.ExtClientSet)
-				nsLabels := map[string]string{
-					"e2e-run": string(testenv.RunID),
-				}
-
-				testNamespace, err = k8sCoreClient.CreateNamespace(ctx, e2eCfg.namespace, nsLabels)
-				if err != nil {
-					Fail(fmt.Sprintf("failed to create gpu operator namespace %s: %v", e2eCfg.namespace, err))
-				}
-
-				if e2eCfg.registryUser == "" || e2eCfg.registryPassword == "" {
-					Fail("registry credentials are required: set E2E_CONTAINER_REGISTRY_USER and E2E_CONTAINER_REGISTRY_PASSWORD")
-				}
-				if err := ensureRegistrySecret(
+				helmClient, helmReleaseName, k8sCoreClient, k8sExtensionsClient, testNamespace = setupOperatorDeployment(
 					ctx,
-					te.ClientSet.CoreV1(),
-					testNamespace.Name,
-					e2eCfg.registryUser,
-					e2eCfg.registryPassword,
-				); err != nil {
-					Fail(fmt.Sprintf("failed to create registry secret %s: %v", registrySecretName, err))
-				}
-
-				helmClient, err = NewHelmClient(
-					testNamespace.Name,
-					testenv.TestCtx.KubeConfig,
-					e2eCfg.helmChart,
+					te,
+					"rbln-npu-operator",
+					"HelmReleaseName",
 				)
-				if err != nil {
-					Fail(fmt.Sprintf("failed to instantiate gpu operator client: %v", err))
-				}
-
-				helmReleaseName, err = helmClient.Install(ctx, ChartOptions{
-					CleanupOnFail: true,
-					ReleaseName:   "rbln-npu-operator",
-					Timeout:       5 * time.Minute,
-					Wait:          true,
-					Values:        buildOperatorHelmValues(),
-				})
-
-				e2elog.Infof("HelmReleaseName: %s", helmReleaseName)
-				Expect(err).NotTo(HaveOccurred())
 			})
 
 			AfterAll(func(ctx context.Context) {
@@ -325,50 +287,12 @@ python inference.py`
 			)
 
 			BeforeAll(func(ctx context.Context) {
-				var err error
-				k8sCoreClient = e2ek8s.NewClient(te.ClientSet.CoreV1())
-				k8sExtensionsClient = e2ek8s.NewExtensionClient(te.ExtClientSet)
-				nsLabels := map[string]string{
-					"e2e-run": string(testenv.RunID),
-				}
-
-				testNamespace, err = k8sCoreClient.CreateNamespace(ctx, e2eCfg.namespace, nsLabels)
-				if err != nil {
-					Fail(fmt.Sprintf("failed to create gpu operator namespace %s: %v", e2eCfg.namespace, err))
-				}
-
-				if e2eCfg.registryUser == "" || e2eCfg.registryPassword == "" {
-					Fail("registry credentials are required: set E2E_CONTAINER_REGISTRY_USER and E2E_CONTAINER_REGISTRY_PASSWORD")
-				}
-				if err := ensureRegistrySecret(
+				helmClient, helmReleaseName, k8sCoreClient, k8sExtensionsClient, testNamespace = setupOperatorDeployment(
 					ctx,
-					te.ClientSet.CoreV1(),
-					testNamespace.Name,
-					e2eCfg.registryUser,
-					e2eCfg.registryPassword,
-				); err != nil {
-					Fail(fmt.Sprintf("failed to create registry secret %s: %v", registrySecretName, err))
-				}
-
-				helmClient, err = NewHelmClient(
-					testNamespace.Name,
-					testenv.TestCtx.KubeConfig,
-					e2eCfg.helmChart,
+					te,
+					"rbln-npu-operator-dra",
+					"DRA HelmReleaseName",
 				)
-				if err != nil {
-					Fail(fmt.Sprintf("failed to instantiate gpu operator client: %v", err))
-				}
-
-				helmReleaseName, err = helmClient.Install(ctx, ChartOptions{
-					CleanupOnFail: true,
-					ReleaseName:   "rbln-npu-operator-dra",
-					Timeout:       5 * time.Minute,
-					Wait:          true,
-					Values:        buildOperatorHelmValues(),
-				})
-
-				e2elog.Infof("DRA HelmReleaseName: %s", helmReleaseName)
-				Expect(err).NotTo(HaveOccurred())
 			})
 
 			AfterAll(func(ctx context.Context) {
@@ -618,6 +542,59 @@ func buildOperatorHelmValues() map[string]interface{} {
 
 func stringPtr(s string) *string {
 	return &s
+}
+
+func setupOperatorDeployment(
+	ctx context.Context,
+	te *testenv.TestEnv,
+	releaseName string,
+	releaseLogLabel string,
+) (*HelmClient, string, *e2ek8s.CoreClient, *e2ek8s.ExtensionClient, *corev1.Namespace) {
+	var err error
+	k8sCoreClient := e2ek8s.NewClient(te.ClientSet.CoreV1())
+	k8sExtensionsClient := e2ek8s.NewExtensionClient(te.ExtClientSet)
+	nsLabels := map[string]string{
+		"e2e-run": string(testenv.RunID),
+	}
+
+	testNamespace, err := k8sCoreClient.CreateNamespace(ctx, e2eCfg.namespace, nsLabels)
+	if err != nil {
+		Fail(fmt.Sprintf("failed to create gpu operator namespace %s: %v", e2eCfg.namespace, err))
+	}
+
+	if e2eCfg.registryUser == "" || e2eCfg.registryPassword == "" {
+		Fail("registry credentials are required: set E2E_CONTAINER_REGISTRY_USER and E2E_CONTAINER_REGISTRY_PASSWORD")
+	}
+	if err := ensureRegistrySecret(
+		ctx,
+		te.ClientSet.CoreV1(),
+		testNamespace.Name,
+		e2eCfg.registryUser,
+		e2eCfg.registryPassword,
+	); err != nil {
+		Fail(fmt.Sprintf("failed to create registry secret %s: %v", registrySecretName, err))
+	}
+
+	helmClient, err := NewHelmClient(
+		testNamespace.Name,
+		testenv.TestCtx.KubeConfig,
+		e2eCfg.helmChart,
+	)
+	if err != nil {
+		Fail(fmt.Sprintf("failed to instantiate gpu operator client: %v", err))
+	}
+
+	helmReleaseName, err := helmClient.Install(ctx, ChartOptions{
+		CleanupOnFail: true,
+		ReleaseName:   releaseName,
+		Timeout:       5 * time.Minute,
+		Wait:          true,
+		Values:        buildOperatorHelmValues(),
+	})
+	e2elog.Infof("%s: %s", releaseLogLabel, helmReleaseName)
+	Expect(err).NotTo(HaveOccurred())
+
+	return helmClient, helmReleaseName, k8sCoreClient, k8sExtensionsClient, testNamespace
 }
 
 func buildDockerConfigJSON(username, password, email string) ([]byte, error) {
