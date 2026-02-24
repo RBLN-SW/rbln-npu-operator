@@ -90,6 +90,7 @@ rules:
   resources:
   - deviceclasses
   - resourceclasses
+  - resourceslices
   verbs:
   - create
   - delete
@@ -104,18 +105,6 @@ rules:
   - resourceclaims
   verbs:
   - get
-- apiGroups:
-  - resource.k8s.io
-  resources:
-  - resourceslices
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - security.openshift.io
   resources:
