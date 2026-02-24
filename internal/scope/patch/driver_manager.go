@@ -30,6 +30,7 @@ const (
 	driverManagerContainer                    = "rbln-driver-container"
 	driverManagerCommand                      = "driver-manager"
 	driverManagerSyncDriverLabel              = "sync_driver_label"
+	driverConfigDigestEnv                     = "DRIVER_CONFIG_DIGEST"
 	driverInstallerCommand                    = "/opt/rebellions/bin/rbln-driver"
 	driverInstallerInitArg                    = "init"
 	startupProbeConfigMapSuffix               = "startup-probe"
@@ -727,7 +728,16 @@ func (h *driverManagerPatcher) handleDaemonSet(ctx context.Context, owner *rebel
 			WithPodSpec(podSpec).
 			WithOwner(owner, h.scheme).
 			Build()
-		ds.Spec.UpdateStrategy.Type = appsv1.RollingUpdateDaemonSetStrategyType
+		ds.Spec.UpdateStrategy = appsv1.DaemonSetUpdateStrategy{
+			Type: appsv1.OnDeleteDaemonSetStrategyType,
+		}
+
+		driverConfigDigest := GetObjectHash(ds.Spec)
+		ds.Spec.Template.Spec.InitContainers[0].Env = upsertEnvVar(
+			ds.Spec.Template.Spec.InitContainers[0].Env,
+			corev1.EnvVar{Name: driverConfigDigestEnv, Value: driverConfigDigest},
+		)
+
 		return nil
 	})
 	if err != nil {
@@ -751,4 +761,14 @@ func (h *driverManagerPatcher) hasOtherDriverInstances(ctx context.Context, owne
 		return true, nil
 	}
 	return false, nil
+}
+
+func upsertEnvVar(envs []corev1.EnvVar, target corev1.EnvVar) []corev1.EnvVar {
+	for i := range envs {
+		if envs[i].Name == target.Name {
+			envs[i] = target
+			return envs
+		}
+	}
+	return append(envs, target)
 }
