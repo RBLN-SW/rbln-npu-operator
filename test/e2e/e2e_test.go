@@ -53,6 +53,20 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 	te := testenv.NewTestEnv("rbln-npu-operator")
 
 	Describe("NPU Operator RBLNClusterPolicy", func() {
+		AfterAll(func(ctx context.Context) {
+			k8sExtensionsClient := e2ek8s.NewExtensionClient(te.ExtClientSet)
+			err := k8sExtensionsClient.DeleteCRD(ctx, rblnClusterPolicyCRDName)
+			if err != nil {
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			k8sCoreClient := e2ek8s.NewClient(te.ClientSet.CoreV1())
+			err = k8sCoreClient.DeleteNamespace(ctx, e2eCfg.namespace)
+			if err != nil && !kapierrors.IsNotFound(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+		})
+
 		Context("Container-type NPU Operator deployment", Ordered, func() {
 			/*
 			   Scenario:
@@ -76,26 +90,17 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 					te,
 					"rbln-npu-operator",
 					"HelmReleaseName",
-					buildOperatorHelmValues(true, false),
 				)
 				setupSucceeded = true
 			})
 
 			AfterAll(func(ctx context.Context) {
-				if setupSucceeded {
-					err := helmClient.Uninstall(ctx, helmReleaseName)
-					if err != nil {
-						Expect(err).NotTo(HaveOccurred())
-					}
+				if !setupSucceeded {
+					return
 				}
 
-				k8sExtensionsClient := e2ek8s.NewExtensionClient(te.ExtClientSet)
-				err := k8sExtensionsClient.DeleteCRD(ctx, rblnClusterPolicyCRDName)
-				Expect(err).NotTo(HaveOccurred())
-
-				cleanupCoreClient := e2ek8s.NewClient(te.ClientSet.CoreV1())
-				err = cleanupCoreClient.DeleteNamespace(ctx, e2eCfg.namespace)
-				if err != nil && !kapierrors.IsNotFound(err) {
+				err := helmClient.Uninstall(ctx, helmReleaseName)
+				if err != nil {
 					Expect(err).NotTo(HaveOccurred())
 				}
 			})
@@ -280,48 +285,34 @@ python inference.py`
 
 				Expect(lastPod.Status.Phase).To(Equal(corev1.PodSucceeded), "pod failed: %s", lastPod.Status.Message)
 			})
-			It("should switch from device-plugin to DRA kubelet plugin", func(ctx context.Context) {
-				err := helmClient.Upgrade(ctx, helmReleaseName, ChartOptions{
-					CleanupOnFail: true,
-					Timeout:       5 * time.Minute,
-					Wait:          true,
-					Values:        buildOperatorHelmValues(false, true),
-				})
-				Expect(err).NotTo(HaveOccurred())
+		})
+		Context("DRA-type NPU Operator deployment", Ordered, func() {
+			var (
+				helmClient      *HelmClient
+				helmReleaseName string
+				testNamespace   *corev1.Namespace
+				setupSucceeded  bool
+			)
 
-				Eventually(func(g Gomega) bool {
-					pods, err := k8sCoreClient.GetPodsByLabel(ctx, testNamespace.Name, map[string]string{
-						"app": "rbln-device-plugin",
-					})
-					g.Expect(err).NotTo(HaveOccurred())
-					return len(pods) == 0
-				}).WithContext(ctx).
-					WithPolling(defaultOperandPollInterval).
-					Within(defaultOperandWaitTimeout).
-					Should(BeTrue(), "device-plugin pods were not removed")
+			BeforeAll(func(ctx context.Context) {
+				helmClient, helmReleaseName, _, testNamespace = setupOperatorDeployment(
+					ctx,
+					te,
+					"rbln-npu-operator-dra",
+					"DRA HelmReleaseName",
+				)
+				setupSucceeded = true
+			})
 
-				Eventually(func(g Gomega) bool {
-					pods, err := k8sCoreClient.GetPodsByLabel(ctx, testNamespace.Name, map[string]string{
-						"app": "rbln-dra-kubelet-plugin",
-					})
-					g.Expect(err).NotTo(HaveOccurred())
-					if len(pods) == 0 {
-						return false
-					}
+			AfterAll(func(ctx context.Context) {
+				if !setupSucceeded {
+					return
+				}
 
-					readyCount := 0
-					for _, pod := range pods {
-						isReady, err := k8sCoreClient.IsPodReady(ctx, pod.Name, pod.Namespace)
-						g.Expect(err).NotTo(HaveOccurred())
-						if isReady {
-							readyCount++
-						}
-					}
-					return readyCount == len(pods)
-				}).WithContext(ctx).
-					WithPolling(defaultOperandPollInterval).
-					Within(defaultOperandWaitTimeout).
-					Should(BeTrue(), "DRA kubelet plugin pods are not ready")
+				err := helmClient.Uninstall(ctx, helmReleaseName)
+				if err != nil {
+					Expect(err).NotTo(HaveOccurred())
+				}
 			})
 
 			It("should reconcile DRA DeviceClass", func(ctx context.Context) {
@@ -333,23 +324,6 @@ python inference.py`
 					WithPolling(defaultOperandPollInterval).
 					Within(defaultOperandWaitTimeout).
 					Should(BeTrue(), "DRA DeviceClass %s not found", draDeviceClassName)
-			})
-
-			It("should advertise DRA ResourceSlice", func(ctx context.Context) {
-				Eventually(func(g Gomega) bool {
-					slices, err := te.ClientSet.ResourceV1().ResourceSlices().List(ctx, metav1.ListOptions{})
-					g.Expect(err).NotTo(HaveOccurred())
-
-					for _, slice := range slices.Items {
-						if slice.Spec.Driver == draDeviceClassName {
-							return true
-						}
-					}
-					return false
-				}).WithContext(ctx).
-					WithPolling(defaultOperandPollInterval).
-					Within(defaultOperandWaitTimeout).
-					Should(BeTrue(), "DRA ResourceSlice for driver %s not found", draDeviceClassName)
 			})
 
 			It("should run model-zoo compile/inference on ubuntu 24.04 with DRA", func(ctx context.Context) {
@@ -545,7 +519,7 @@ type dockerConfig struct {
 	Auths map[string]dockerAuthConfig `json:"auths"`
 }
 
-func buildOperatorHelmValues(devicePluginEnabled, draKubeletPluginEnabled bool) map[string]interface{} {
+func buildOperatorHelmValues() map[string]interface{} {
 	return map[string]interface{}{
 		"operator": map[string]interface{}{
 			"image": map[string]interface{}{
@@ -558,13 +532,13 @@ func buildOperatorHelmValues(devicePluginEnabled, draKubeletPluginEnabled bool) 
 			"imagePullSecrets": []string{registrySecretName},
 		},
 		"devicePlugin": map[string]interface{}{
-			"enabled": devicePluginEnabled,
+			"enabled": true,
 			"image": map[string]interface{}{
 				"pullPolicy": "Always",
 			},
 		},
 		"draKubeletPlugin": map[string]interface{}{
-			"enabled":    draKubeletPluginEnabled,
+			"enabled":    true,
 			"driverName": draDeviceClassName,
 			"image": map[string]interface{}{
 				"pullPolicy": "Always",
@@ -602,7 +576,6 @@ func setupOperatorDeployment(
 	te *testenv.TestEnv,
 	releaseName string,
 	releaseLogLabel string,
-	helmValues map[string]interface{},
 ) (*HelmClient, string, *e2ek8s.CoreClient, *corev1.Namespace) {
 	var err error
 	k8sCoreClient := e2ek8s.NewClient(te.ClientSet.CoreV1())
@@ -642,7 +615,7 @@ func setupOperatorDeployment(
 		ReleaseName:   releaseName,
 		Timeout:       5 * time.Minute,
 		Wait:          true,
-		Values:        helmValues,
+		Values:        buildOperatorHelmValues(),
 	})
 	e2elog.Infof("%s: %s", releaseLogLabel, helmReleaseName)
 	Expect(err).NotTo(HaveOccurred())

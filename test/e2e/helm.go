@@ -72,22 +72,3 @@ func (c *HelmClient) Uninstall(ctx context.Context, releaseName string) error {
 	_, err := uninstall.Run(releaseName)
 	return err
 }
-
-func (c *HelmClient) Upgrade(ctx context.Context, releaseName string, opts ChartOptions) error {
-	upgrade := action.NewUpgrade(c.config)
-	upgrade.Namespace = c.settings.Namespace()
-	upgrade.Atomic = opts.CleanupOnFail
-	upgrade.Wait = opts.Wait
-	upgrade.Timeout = opts.Timeout
-
-	chart, err := loader.Load(c.chart)
-	if err != nil {
-		return fmt.Errorf("load chart: %w", err)
-	}
-
-	if _, err := upgrade.RunWithContext(ctx, releaseName, chart, opts.Values); err != nil {
-		return fmt.Errorf("upgrade chart: %w", err)
-	}
-
-	return nil
-}
