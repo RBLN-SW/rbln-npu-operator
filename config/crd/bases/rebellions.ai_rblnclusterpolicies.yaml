@@ -4446,6 +4446,100 @@ spec:
                     description: RBLN DRA kubelet plugin image tag
                     type: string
                 type: object
+              driver:
+                description: Driver component spec
+                properties:
+                  upgradePolicy:
+                    description: UpgradePolicy defines automatic upgrade behavior
+                      for the driver rollout.
+                    properties:
+                      autoUpgrade:
+                        default: false
+                        description: |-
+                          AutoUpgrade enables/disables the automatic upgrade workflow.
+                          If false, other upgrade policy fields are ignored.
+                        type: boolean
+                      drain:
+                        description: DrainSpec describes configuration for node drain
+                          during automatic upgrade
+                        properties:
+                          enable:
+                            default: false
+                            description: Enable indicates if node draining is allowed
+                              during upgrade
+                            type: boolean
+                          force:
+                            default: false
+                            description: Force indicates if force draining is allowed
+                            type: boolean
+                          podSelector:
+                            description: |-
+                              PodSelector specifies a label selector to filter pods on the node that need to be drained
+                              For more details on label selectors, see:
+                              https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors
+                            type: string
+                          timeoutSeconds:
+                            default: 300
+                            description: TimeoutSeconds specifies the length of time
+                              in seconds to wait before giving up drain, zero means
+                              infinite
+                            minimum: 0
+                            type: integer
+                        type: object
+                      maxParallelUpgrades:
+                        default: 1
+                        description: |-
+                          MaxParallelUpgrades indicates how many nodes can be upgraded in parallel
+                          0 means no limit, all nodes will be upgraded in parallel
+                        minimum: 0
+                        type: integer
+                      podDeletion:
+                        description: PodDeletionSpec describes pod deletion behavior
+                          during automatic upgrade.
+                        properties:
+                          force:
+                            default: false
+                            description: Force indicates if force deletion is allowed
+                            type: boolean
+                          timeoutSeconds:
+                            default: 300
+                            description: |-
+                              TimeoutSeconds specifies the length of time in seconds to wait before giving up on pod termination, zero means
+                              infinite
+                            minimum: 0
+                            type: integer
+                        type: object
+                      rebootRequired:
+                        default: true
+                        description: |-
+                          RebootRequired indicates whether worker nodes may be rebooted between driver upgrade steps.
+                          This should be enabled only when the upgrade flow requires a host reboot.
+                        type: boolean
+                      waitForCompletion:
+                        description: WaitForCompletionSpec describes the configuration
+                          for waiting on job completions
+                        properties:
+                          podSelector:
+                            description: |-
+                              PodSelector specifies a label selector for the pods to wait for completion
+                              For more details on label selectors, see:
+                              https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors
+                            type: string
+                          timeoutSeconds:
+                            default: 0
+                            description: |-
+                              TimeoutSeconds specifies the length of time in seconds to wait before giving up on pod termination, zero means
+                              infinite
+                            minimum: 0
+                            type: integer
+                        type: object
+                    type: object
+                  useRBLNDriverCRD:
+                    description: |-
+                      UseRBLNDriverCRD controls whether driver lifecycle is managed by RBLNDriver resources.
+                      When true, the operator expects RBLNDriver CRs to exist and does not rely on ClusterPolicy-only management.
+                    type: boolean
+                type: object
               metricsExporter:
                 description: MetricsExporter component spec
                 properties:
@@ -10919,6 +11013,7 @@ spec:
             required:
             - containerToolkit
             - devicePlugin
+            - driver
             - metricsExporter
             - npuFeatureDiscovery
             - rblnDaemon

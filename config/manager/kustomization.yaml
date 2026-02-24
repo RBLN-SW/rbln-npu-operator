@@ -7,6 +7,3 @@ images:
 - name: controller
   newName: docker.io/rebellions/rbln-npu-operator
   newTag: v0.1.0
-- name: docker.io/rebellions/rbln-npu-operator
-  newName: harbor.k8s.rebellions.in/rebellions/rbln-npu-operator
-  newTag: driver-test
