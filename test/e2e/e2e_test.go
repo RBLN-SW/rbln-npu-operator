@@ -54,8 +54,14 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 
 	Describe("NPU Operator RBLNClusterPolicy", func() {
 		AfterAll(func(ctx context.Context) {
+			k8sExtensionsClient := e2ek8s.NewExtensionClient(te.ExtClientSet)
+			err := k8sExtensionsClient.DeleteCRD(ctx, rblnClusterPolicyCRDName)
+			if err != nil {
+				Expect(err).NotTo(HaveOccurred())
+			}
+
 			k8sCoreClient := e2ek8s.NewClient(te.ClientSet.CoreV1())
-			err := k8sCoreClient.DeleteNamespace(ctx, e2eCfg.namespace)
+			err = k8sCoreClient.DeleteNamespace(ctx, e2eCfg.namespace)
 			if err != nil && !kapierrors.IsNotFound(err) {
 				Expect(err).NotTo(HaveOccurred())
 			}
@@ -71,29 +77,29 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 			*/
 
 			var (
-				helmClient          *HelmClient
-				helmReleaseName     string
-				k8sCoreClient       *e2ek8s.CoreClient
-				k8sExtensionsClient *e2ek8s.ExtensionClient
-				testNamespace       *corev1.Namespace
+				helmClient      *HelmClient
+				helmReleaseName string
+				k8sCoreClient   *e2ek8s.CoreClient
+				testNamespace   *corev1.Namespace
+				setupSucceeded  bool
 			)
 
 			BeforeAll(func(ctx context.Context) {
-				helmClient, helmReleaseName, k8sCoreClient, k8sExtensionsClient, testNamespace = setupOperatorDeployment(
+				helmClient, helmReleaseName, k8sCoreClient, _, testNamespace = setupOperatorDeployment(
 					ctx,
 					te,
 					"rbln-npu-operator",
 					"HelmReleaseName",
 				)
+				setupSucceeded = true
 			})
 
 			AfterAll(func(ctx context.Context) {
-				err := helmClient.Uninstall(ctx, helmReleaseName)
-				if err != nil {
-					Expect(err).NotTo(HaveOccurred())
+				if !setupSucceeded {
+					return
 				}
 
-				err = k8sExtensionsClient.DeleteCRD(ctx, rblnClusterPolicyCRDName)
+				err := helmClient.Uninstall(ctx, helmReleaseName)
 				if err != nil {
 					Expect(err).NotTo(HaveOccurred())
 				}
@@ -282,28 +288,28 @@ python inference.py`
 		})
 		Context("DRA-type NPU Operator deployment", Ordered, func() {
 			var (
-				helmClient          *HelmClient
-				helmReleaseName     string
-				k8sExtensionsClient *e2ek8s.ExtensionClient
-				testNamespace       *corev1.Namespace
+				helmClient      *HelmClient
+				helmReleaseName string
+				testNamespace   *corev1.Namespace
+				setupSucceeded  bool
 			)
 
 			BeforeAll(func(ctx context.Context) {
-				helmClient, helmReleaseName, _, k8sExtensionsClient, testNamespace = setupOperatorDeployment(
+				helmClient, helmReleaseName, _, _, testNamespace = setupOperatorDeployment(
 					ctx,
 					te,
 					"rbln-npu-operator-dra",
 					"DRA HelmReleaseName",
 				)
+				setupSucceeded = true
 			})
 
 			AfterAll(func(ctx context.Context) {
-				err := helmClient.Uninstall(ctx, helmReleaseName)
-				if err != nil {
-					Expect(err).NotTo(HaveOccurred())
+				if !setupSucceeded {
+					return
 				}
 
-				err = k8sExtensionsClient.DeleteCRD(ctx, rblnClusterPolicyCRDName)
+				err := helmClient.Uninstall(ctx, helmReleaseName)
 				if err != nil {
 					Expect(err).NotTo(HaveOccurred())
 				}
