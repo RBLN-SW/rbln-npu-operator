@@ -179,7 +179,7 @@ draKubeletPlugin:
   image:
     registry: docker.io
     repository: rebellions/npu-kubelet-plugin
-    tag: latest
+    tag: v0.1.0
     pullPolicy: IfNotPresent
   driverName: npu.rebellions.ai
   kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
