@@ -4301,7 +4301,7 @@ spec:
                     format: int32
                     type: integer
                   image:
-                    default: rebellions/npu-kubelet-plugin
+                    default: rebellions/k8s-dra-driver-npu
                     description: RBLN DRA kubelet plugin image name
                     pattern: '[a-zA-Z0-9\-]+'
                     type: string

@@ -28,7 +28,7 @@ spec:
   draKubeletPlugin:
     enabled: false
     registry: docker.io
-    image: rebellions/npu-kubelet-plugin
+    image: rebellions/k8s-dra-driver-npu
     version: latest
     imagePullPolicy: IfNotPresent
     driverName: npu.rebellions.ai

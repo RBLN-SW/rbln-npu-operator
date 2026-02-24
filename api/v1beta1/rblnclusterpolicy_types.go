@@ -335,7 +335,7 @@ type RBLNDRAKubeletPluginSpec struct {
 
 	// RBLN DRA kubelet plugin image name
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:=rebellions/npu-kubelet-plugin
+	// +kubebuilder:default:=rebellions/k8s-dra-driver-npu
 	// +kubebuilder:validation:Pattern=[a-zA-Z0-9\-]+
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Image",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Image string `json:"image,omitempty"`
