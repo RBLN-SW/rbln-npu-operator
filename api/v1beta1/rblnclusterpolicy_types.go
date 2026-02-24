@@ -85,6 +85,9 @@ type RBLNClusterPolicySpec struct {
 	// Validator defines the spec for operator-validator daemonset
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Validator",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	Validator ValidatorSpec `json:"validator,omitempty"`
+
+	// Driver component spec
+	Driver DriverSpec `json:"driver"`
 }
 
 // DaemonsetsSpec indicates common configuration for all Daemonsets managed by RBLN NPU Operator
@@ -635,6 +638,98 @@ type VFIOPCIValidatorSpec struct {
 	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.displayName="Environment Variables"
 	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.x-descriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text"
 	Env []corev1.EnvVar `json:"env,omitempty"`
+}
+
+// DriverSpec defines the properties for RBLN Driver deployment
+type DriverSpec struct {
+	// UseRBLNDriverCRD controls whether driver lifecycle is managed by RBLNDriver resources.
+	// When true, the operator expects RBLNDriver CRs to exist and does not rely on ClusterPolicy-only management.
+	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors=true
+	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.displayName="Enable RBLN Driver deployment through RBLNDriver CRD type"
+	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.x-descriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
+	UseRBLNDriverCRD *bool `json:"useRBLNDriverCRD,omitempty"`
+
+	// UpgradePolicy defines automatic upgrade behavior for the driver rollout.
+	// +optional
+	UpgradePolicy DriverUpgradePolicySpec `json:"upgradePolicy,omitempty"`
+}
+
+// DriverUpgradePolicySpec describes policy configuration for automatic upgrades
+type DriverUpgradePolicySpec struct {
+	// AutoUpgrade enables/disables the automatic upgrade workflow.
+	// If false, other upgrade policy fields are ignored.
+	// +optional
+	// +kubebuilder:default:=false
+	AutoUpgrade bool `json:"autoUpgrade,omitempty"`
+	// MaxParallelUpgrades indicates how many nodes can be upgraded in parallel
+	// 0 means no limit, all nodes will be upgraded in parallel
+	// +optional
+	// +kubebuilder:default:=1
+	// +kubebuilder:validation:Minimum:=0
+	MaxParallelUpgrades int `json:"maxParallelUpgrades,omitempty"`
+	// +optional
+	PodDeletion *PodDeletionSpec `json:"podDeletion,omitempty"`
+	// +optional
+	WaitForCompletion *WaitForCompletionSpec `json:"waitForCompletion,omitempty"`
+	// +optional
+	Drain *DrainSpec `json:"drain,omitempty"`
+	// RebootRequired indicates whether worker nodes may be rebooted between driver upgrade steps.
+	// This should be enabled only when the upgrade flow requires a host reboot.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Reboot Required",xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
+	// +optional
+	// +kubebuilder:default:=true
+	RebootRequired *bool `json:"rebootRequired,omitempty"`
+}
+
+// PodDeletionSpec describes pod deletion behavior during automatic upgrade.
+type PodDeletionSpec struct {
+	// Force indicates if force deletion is allowed
+	// +optional
+	// +kubebuilder:default:=false
+	Force bool `json:"force,omitempty"`
+	// TimeoutSeconds specifies the length of time in seconds to wait before giving up on pod termination, zero means
+	// infinite
+	// +optional
+	// +kubebuilder:default:=300
+	// +kubebuilder:validation:Minimum:=0
+	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
+}
+
+// WaitForCompletionSpec describes the configuration for waiting on job completions
+type WaitForCompletionSpec struct {
+	// PodSelector specifies a label selector for the pods to wait for completion
+	// For more details on label selectors, see:
+	// https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors
+	// +optional
+	PodSelector string `json:"podSelector,omitempty"`
+	// TimeoutSeconds specifies the length of time in seconds to wait before giving up on pod termination, zero means
+	// infinite
+	// +optional
+	// +kubebuilder:default:=0
+	// +kubebuilder:validation:Minimum:=0
+	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
+}
+
+// DrainSpec describes configuration for node drain during automatic upgrade
+type DrainSpec struct {
+	// Enable indicates if node draining is allowed during upgrade
+	// +optional
+	// +kubebuilder:default:=false
+	Enable bool `json:"enable,omitempty"`
+	// Force indicates if force draining is allowed
+	// +optional
+	// +kubebuilder:default:=false
+	Force bool `json:"force,omitempty"`
+	// PodSelector specifies a label selector to filter pods on the node that need to be drained
+	// For more details on label selectors, see:
+	// https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors
+	// +optional
+	PodSelector string `json:"podSelector,omitempty"`
+	// TimeoutSeconds specifies the length of time in seconds to wait before giving up drain, zero means infinite
+	// +optional
+	// +kubebuilder:default:=300
+	// +kubebuilder:validation:Minimum:=0
+	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
 }
 
 // IsEnabled implementations for component specs

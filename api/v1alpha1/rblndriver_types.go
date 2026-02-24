@@ -43,15 +43,18 @@ type RBLNDriverSpec struct {
 	// Registry override for the Rebellions driver container image
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=repo.rebellions.ai
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Registry",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Registry string `json:"registry,omitempty"`
 
 	// Rebellions Driver container image name
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=rebellions/rbln-driver
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Image",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Image string `json:"image,omitempty"`
 
 	// Rebellions Driver version
 	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Version",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Version string `json:"version,omitempty"`
 
 	// ImagePullPolicy specifies the image pull policy for the driver pod
@@ -70,44 +73,55 @@ type RBLNDriverSpec struct {
 	ImagePullSecrets []string `json:"imagePullSecrets,omitempty"`
 
 	// Manager represents configuration for Rebellions Driver Manager initContainer
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Driver Manager",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	Manager DriverManagerSpec `json:"manager,omitempty"`
 
 	// NodeSelector specifies a selector for installation of the driver
 	// +kubebuilder:validation:Optional
 	// +mapType=atomic
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Node Selector",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	// Affinity specifies node affinity rules for driver pods
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Node Affinity",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Affinity"
 	NodeAffinity *corev1.NodeAffinity `json:"nodeAffinity,omitempty"`
 
 	// Tolerations specifies the tolerations for the driver pod
 	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Tolerations",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations"
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 
 	// Labels specifies the labels for the driver pod
 	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Labels",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Labels map[string]string `json:"labels,omitempty"`
 
 	// Annotations specifies the annotations for the driver pod
 	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Annotations",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Annotations map[string]string `json:"annotations,omitempty"`
 
 	// PriorityClassName specifies the priority class for the driver pod
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:="system-node-critical"
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="PriorityClassName",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	PriorityClassName string `json:"priorityClassName,omitempty"`
 
 	// Resources specifies the resource requirements for the driver pod
 	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Resource Requirements",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:resourceRequirements"
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 
 	// Args specifies additional command line arguments for the driver container
 	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Arguments",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text"
 	Args []string `json:"args,omitempty"`
 
 	// Env specifies environment variables for the driver container
 	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Environment Variables",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text"
 	Env []corev1.EnvVar `json:"env,omitempty"`
 }
 
@@ -146,13 +160,19 @@ type RBLNDriverList struct {
 // DriverManagerSpec describes configuration for Rebellions Driver Manager (initContainer)
 type DriverManagerSpec struct {
 	// Registry represents Driver Manager registry path
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Manager Registry",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Registry string `json:"registry,omitempty"`
 
 	// Image represents Rebellions Driver Manager image name
+	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Pattern=[a-zA-Z0-9\-]+
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Manager Image",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Image string `json:"image,omitempty"`
 
 	// Version represents Rebellions Driver Manager image tag (version)
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Manager Version",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Version string `json:"version,omitempty"`
 
 	// Image pull policy
