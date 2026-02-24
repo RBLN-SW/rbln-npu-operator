@@ -284,13 +284,12 @@ python inference.py`
 			var (
 				helmClient          *HelmClient
 				helmReleaseName     string
-				k8sCoreClient       *e2ek8s.CoreClient
 				k8sExtensionsClient *e2ek8s.ExtensionClient
 				testNamespace       *corev1.Namespace
 			)
 
 			BeforeAll(func(ctx context.Context) {
-				helmClient, helmReleaseName, k8sCoreClient, k8sExtensionsClient, testNamespace = setupOperatorDeployment(
+				helmClient, helmReleaseName, _, k8sExtensionsClient, testNamespace = setupOperatorDeployment(
 					ctx,
 					te,
 					"rbln-npu-operator-dra",
