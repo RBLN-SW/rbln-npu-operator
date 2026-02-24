@@ -85,7 +85,7 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 			)
 
 			BeforeAll(func(ctx context.Context) {
-				helmClient, helmReleaseName, k8sCoreClient, _, testNamespace = setupOperatorDeployment(
+				helmClient, helmReleaseName, k8sCoreClient, testNamespace = setupOperatorDeployment(
 					ctx,
 					te,
 					"rbln-npu-operator",
@@ -295,7 +295,7 @@ python inference.py`
 			)
 
 			BeforeAll(func(ctx context.Context) {
-				helmClient, helmReleaseName, _, _, testNamespace = setupOperatorDeployment(
+				helmClient, helmReleaseName, _, testNamespace = setupOperatorDeployment(
 					ctx,
 					te,
 					"rbln-npu-operator-dra",
@@ -576,10 +576,9 @@ func setupOperatorDeployment(
 	te *testenv.TestEnv,
 	releaseName string,
 	releaseLogLabel string,
-) (*HelmClient, string, *e2ek8s.CoreClient, *e2ek8s.ExtensionClient, *corev1.Namespace) {
+) (*HelmClient, string, *e2ek8s.CoreClient, *corev1.Namespace) {
 	var err error
 	k8sCoreClient := e2ek8s.NewClient(te.ClientSet.CoreV1())
-	k8sExtensionsClient := e2ek8s.NewExtensionClient(te.ExtClientSet)
 	nsLabels := map[string]string{
 		"e2e-run": string(testenv.RunID),
 	}
@@ -621,7 +620,7 @@ func setupOperatorDeployment(
 	e2elog.Infof("%s: %s", releaseLogLabel, helmReleaseName)
 	Expect(err).NotTo(HaveOccurred())
 
-	return helmClient, helmReleaseName, k8sCoreClient, k8sExtensionsClient, testNamespace
+	return helmClient, helmReleaseName, k8sCoreClient, testNamespace
 }
 
 func buildDockerConfigJSON(username, password, email string) ([]byte, error) {
