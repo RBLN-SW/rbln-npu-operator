@@ -25,6 +25,16 @@ spec:
         resourcePrefix: rebellions.ai
         productCardNames:
           - RBLN-CR03
+  draKubeletPlugin:
+    enabled: false
+    registry: docker.io
+    image: rebellions/k8s-dra-driver-npu
+    version: latest
+    imagePullPolicy: IfNotPresent
+    driverName: npu.rebellions.ai
+    kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
+    kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
+    healthcheckPort: 51515
   metricsExporter:
     enabled: true
     registry: docker.io

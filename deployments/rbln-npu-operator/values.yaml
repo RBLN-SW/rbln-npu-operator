@@ -173,6 +173,19 @@ devicePlugin:
     resourceName: REBEL
     resourcePrefix: rebellions.ai
 
+# NPU DRA kubelet plugin configuration
+draKubeletPlugin:
+  enabled: false
+  image:
+    registry: docker.io
+    repository: rebellions/k8s-dra-driver-npu
+    tag: v0.1.0
+    pullPolicy: IfNotPresent
+  driverName: npu.rebellions.ai
+  kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
+  kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
+  healthcheckPort: 51515
+
 # NPU Metrics Exporter configuration
 metricsExporter:
   enabled: true
