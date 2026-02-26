@@ -1,5 +1,5 @@
 # Build the manager binary
-ARG GOLANG_VERSION=1.23.10
+ARG GOLANG_VERSION=1.25.7
 
 FROM golang:${GOLANG_VERSION} AS builder
 ARG TARGETOS=linux
