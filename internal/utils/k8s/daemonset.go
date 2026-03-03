@@ -22,7 +22,8 @@ func NewDaemonSetBuilder(name, namespace string) *DaemonSetBuilder {
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: make(map[string]string),
+					Labels:      make(map[string]string),
+					Annotations: make(map[string]string),
 				},
 			},
 		},
@@ -35,23 +36,44 @@ func NewDaemonSetBuilder(name, namespace string) *DaemonSetBuilder {
 }
 
 func (b *DaemonSetBuilder) WithLabelSelectors(labels map[string]string) *DaemonSetBuilder {
-	b.obj.Labels = labels
+	if len(labels) == 0 {
+		return b
+	}
 	b.obj.Spec.Selector.MatchLabels = labels
 	b.obj.Spec.Template.Labels = labels
 	return b
 }
 
 func (b *DaemonSetBuilder) WithLabels(labels map[string]string) *DaemonSetBuilder {
-	b.obj.Labels = MergeMaps(b.obj.Labels, labels)
+	if len(labels) == 0 {
+		return b
+	}
+	b.obj.Labels = labels
 	return b
 }
 
 func (b *DaemonSetBuilder) WithAnnotations(annotations map[string]string) *DaemonSetBuilder {
-	b.obj.Annotations = annotations
+	if len(annotations) == 0 {
+		return b
+	}
+	b.obj.Annotations = MergeMaps(b.obj.Annotations, annotations)
+	return b
+}
+
+func (b *DaemonSetBuilder) WithPodAnnotations(annotations map[string]string) *DaemonSetBuilder {
+	if len(annotations) == 0 {
+		return b
+	}
+	b.obj.Spec.Template.Annotations = MergeMaps(b.obj.Spec.Template.Annotations, annotations)
 	return b
 }
 
 func (b *DaemonSetBuilder) WithPodSpec(podSpec *corev1.PodSpec) *DaemonSetBuilder {
-	b.obj.Spec.Template.Spec = *podSpec
+	b.obj.Spec.Template.Spec = *podSpec.DeepCopy()
+	return b
+}
+
+func (b *DaemonSetBuilder) WithUpdateStrategy(strategy appsv1.DaemonSetUpdateStrategy) *DaemonSetBuilder {
+	b.obj.Spec.UpdateStrategy = strategy
 	return b
 }

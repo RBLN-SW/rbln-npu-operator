@@ -30,6 +30,11 @@ import (
 	"github.com/rebellions-sw/rbln-npu-operator/internal/scope"
 )
 
+const (
+	minDelayCR = 100 * time.Millisecond
+	maxDelayCR = 3 * time.Second
+)
+
 // RBLNClusterPolicyReconciler reconciles a RBLNClusterPolicy object
 type RBLNClusterPolicyReconciler struct {
 	client.Client
@@ -99,6 +104,12 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			r.Log.V(consts.LogLevelDebug).Error(nil, condErr.Error())
 		}
 		r.Log.Error(nil, err.Error())
+		return ctrl.Result{}, err
+	}
+
+	err = cpScope.ApplyDriverAutoUpgradeAnnotation()
+	if err != nil {
+		r.Log.Error(err, "")
 		return ctrl.Result{}, err
 	}
 

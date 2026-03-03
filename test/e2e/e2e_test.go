@@ -101,30 +101,21 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 			})
 
 			It("should bring up the all of the operand pods successfully", func(ctx context.Context) {
-				operands := []string{
-					"rbln-device-plugin",
-					"rbln-metrics-exporter",
-					"rbln-npu-feature-discovery",
-				}
-				e2elog.Infof("Ensure that the npu operator operands come up")
-				for _, operand := range operands {
-					By(fmt.Sprintf("waiting for %s pods to become ready", operand))
+				waitForPodsReady := func(target string, labelMap map[string]string) {
+					By(fmt.Sprintf("waiting for %s pods to become ready", target))
 					Eventually(func() bool {
-						labelMap := map[string]string{
-							"app": operand,
-						}
 						pods, err := k8sCoreClient.GetPodsByLabel(ctx, testNamespace.Name, labelMap)
 						if err != nil {
-							e2elog.Infof("WARN: error retrieving pods of operand %s: %v", operand, err)
+							e2elog.Infof("WARN: error retrieving pods for %s: %v", target, err)
 							return false
 						}
 
 						var readyCount int
 						for _, pod := range pods {
-							e2elog.Infof("Checking status of pod %s", pod.Name)
+							e2elog.Infof("Checking status of pod %s for target %s", pod.Name, target)
 							isReady, err := k8sCoreClient.IsPodReady(ctx, pod.Name, pod.Namespace)
 							if err != nil {
-								e2elog.Infof("WARN: error when retrieving pod status of %s/%s: %v", testNamespace.Name, operand, err)
+								e2elog.Infof("WARN: error when retrieving pod status of %s/%s: %v", testNamespace.Name, target, err)
 								return false
 							}
 							if isReady {
@@ -132,7 +123,26 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 							}
 						}
 						return len(pods) > 0 && readyCount == len(pods)
-					}).WithPolling(defaultOperandPollInterval).Within(defaultOperandWaitTimeout).WithContext(ctx).Should(BeTrue())
+					}).WithPolling(defaultOperandPollInterval).
+						Within(defaultOperandWaitTimeout).
+						WithContext(ctx).
+						Should(BeTrue())
+				}
+
+				waitForPodsReady("rbln-driver", map[string]string{
+					"app.kubernetes.io/component": "rbln-driver",
+				})
+
+				operands := []string{
+					"rbln-device-plugin",
+					"rbln-metrics-exporter",
+					"rbln-npu-feature-discovery",
+				}
+				e2elog.Infof("Ensure that the npu operator operands come up")
+				for _, operand := range operands {
+					waitForPodsReady(operand, map[string]string{
+						"app": operand,
+					})
 				}
 			})
 			It("should advertise rebellions.ai/ATOM on ready nodes", func(ctx context.Context) {
@@ -212,7 +222,7 @@ git clone https://github.com/rebellions-sw/rbln-model-zoo.git
 cd rbln-model-zoo/pytorch/vision/detection/yolov10/
 git submodule update --init ultralytics/
 python -m pip install -r requirements.txt
-python -m pip install --pre -i https://pypi.rebellions.in/simple rebel-compiler
+python -m pip install -i https://pypi.rebellions.in/simple rebel-compiler==0.10.1
 python compile.py
 python inference.py`
 
@@ -425,7 +435,7 @@ git clone https://github.com/rebellions-sw/rbln-model-zoo.git
 cd rbln-model-zoo/pytorch/vision/detection/yolov10/
 git submodule update --init ultralytics/
 python -m pip install -r requirements.txt
-python -m pip install --pre -i https://pypi.rebellions.in/simple rebel-compiler
+python -m pip install -i https://pypi.rebellions.in/simple rebel-compiler==0.10.1
 python compile.py
 python inference.py`
 
