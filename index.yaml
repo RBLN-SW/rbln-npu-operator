@@ -2,8 +2,41 @@ apiVersion: v1
 entries:
   rbln-npu-operator:
   - apiVersion: v2
+    appVersion: v0.3.0
+    created: "2026-03-03T22:08:21.899931+09:00"
+    dependencies:
+    - condition: nfd.enabled
+      name: node-feature-discovery
+      repository: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+      tags:
+      - nfd
+      version: ~0.17.0
+    description: A Helm chart for Kubernetes to deploy Rebellions NPU Operator for
+      automated management and monitoring of Rebellions NPU devices
+    digest: f95968cc12d57354698ac5d280fbca76161ad9d4d0798e7947d4b5d165b03833
+    home: https://github.com/rebellions-sw/rbln-npu-operator
+    keywords:
+    - NPU
+    - AI
+    - acceleration
+    - inference
+    - operator
+    - rebellions
+    - kubernetes
+    maintainers:
+    - email: sw-sdk-cloud@rebellions.ai
+      name: Rebellions Team
+      url: https://rebellions.ai/
+    name: rbln-npu-operator
+    sources:
+    - https://github.com/rebellions-sw/rbln-npu-operator
+    type: application
+    urls:
+    - stable/rbln-npu-operator-v0.3.0.tgz
+    version: v0.3.0
+  - apiVersion: v2
     appVersion: v0.2.2
-    created: "2026-02-19T22:25:57.648201+09:00"
+    created: "2026-03-03T22:08:21.897019+09:00"
     dependencies:
     - condition: nfd.enabled
       name: node-feature-discovery
@@ -36,7 +69,7 @@ entries:
     version: v0.2.2
   - apiVersion: v2
     appVersion: v0.2.1
-    created: "2026-02-19T22:25:57.645944+09:00"
+    created: "2026-03-03T22:08:21.891081+09:00"
     dependencies:
     - condition: nfd.enabled
       name: node-feature-discovery
@@ -69,7 +102,7 @@ entries:
     version: v0.2.1
   - apiVersion: v2
     appVersion: v0.2.0
-    created: "2026-02-19T22:25:57.643984+09:00"
+    created: "2026-03-03T22:08:21.885953+09:00"
     dependencies:
     - condition: nfd.enabled
       name: node-feature-discovery
@@ -102,7 +135,7 @@ entries:
     version: v0.2.0
   - apiVersion: v2
     appVersion: v0.1.0
-    created: "2026-02-19T22:25:57.640553+09:00"
+    created: "2026-03-03T22:08:21.878684+09:00"
     dependencies:
     - condition: nfd.enabled
       name: node-feature-discovery
@@ -133,4 +166,4 @@ entries:
     urls:
     - stable/rbln-npu-operator-v0.1.0.tgz
     version: v0.1.0
-generated: "2026-02-19T22:25:57.638503+09:00"
+generated: "2026-03-03T22:08:21.87201+09:00"
