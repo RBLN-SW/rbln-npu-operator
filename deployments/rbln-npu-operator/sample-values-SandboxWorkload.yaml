@@ -5,6 +5,10 @@
 # The base name used for rbln components.
 name: rbln
 
+# Namespace for namespaced components managed by RBLNClusterPolicy.
+# When empty, the operator namespace (OPERATOR_NAMESPACE) is used.
+namespace: ""
+
 # Node Feature Discovery dependency
 nfd:
   enabled: false
@@ -79,7 +83,31 @@ operator:
 
 # Driver configuration
 driver:
-  enabled: true
+  enabled: false
+  # Driver upgrade policy rendered under spec.driver.upgradePolicy.
+  # If autoUpgrade is false, the remaining options are ignored.
+  upgradePolicy:
+    autoUpgrade: false
+    maxParallelUpgrades: 1
+    waitForCompletion:
+      timeoutSeconds: 0
+      podSelector: ""
+    npuPodDeletion:
+      force: false
+      timeoutSeconds: 300
+    drain:
+      enable: false
+      force: false
+      deleteEmptyDirData: false
+      podSelector: ""
+      timeoutSeconds: 300
+    reboot:
+      enable: false
+      rebootTimeoutSeconds: 0
+      image:
+        registry: docker.io
+        image: rebellions/rbln-node-reboot
+        version: latest
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-driver
@@ -111,7 +139,7 @@ driver:
   tolerations: []
   # Example:
   # labels:
-  #   app.kubernetes.io/component: driver
+  #   rebellions.io/color: blue
   labels: {}
   # Example:
   # annotations:
@@ -130,26 +158,20 @@ driver:
   #     memory: 128Mi
   resources: {}
   # Example:
-  # args:
-  # - init
-  args: []
-  # Example:
   # env:
   # - name: RBLN_DRIVER_LOG_LEVEL
   #   value: info
   env: []
-  # Example:
-  # manager:
-  #   registry: harbor.k8s.rebellions.in
-  #   image: rebellions-sw/rbln-k8s-driver-manager
-  #   version: "3.0.0"
-  #   imagePullPolicy: IfNotPresent
-  #   imagePullSecrets:
-  #   - my-registry-secret
-  #   env:
-  #   - name: RBLN_MANAGER_LOG_LEVEL
-  #     value: info
-  manager: {}
+  manager:
+    registry: docker.io
+    image: rebellions/rbln-k8s-driver-manager
+    version: v0.1.2
+    imagePullPolicy: IfNotPresent
+  #  imagePullSecrets:
+  #  - my-registry-secret
+  #  env:
+  #  - name: RBLN_MANAGER_LOG_LEVEL
+  #    value: info
 
 
 # NPU Device Plugin configuration

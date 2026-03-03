@@ -1,6 +1,9 @@
 package patch
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -84,4 +87,14 @@ func collectDevices(productCardNames []string) ([]string, error) {
 		devices = append(devices, deviceList...)
 	}
 	return devices, nil
+}
+
+func GetObjectHash(obj any) string {
+	raw, err := json.Marshal(obj)
+	if err != nil {
+		// Fallback keeps function total-orderable even for non-JSON-serializable inputs.
+		raw = fmt.Appendf(nil, "%#v", obj)
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }

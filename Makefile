@@ -216,15 +216,15 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 	@echo "golangci-lint setup complete."
 
 define go-install-tool
-@[ -f "$(1)-$(3)" ] || { \
+@[ -f "$(1)-$(3)-go$(GOLANG_VERSION)" ] || { \
 set -e; \
 package=$(2)@$(3) ;\
 echo "Downloading $${package}" ;\
 rm -f $(1) || true ;\
-GOBIN=$(LOCALBIN) GOTOOLCHAIN=go1.25.7 go install $${package} ;\
-mv $(1) $(1)-$(3) ;\
+GOBIN=$(LOCALBIN) GOTOOLCHAIN=go$(GOLANG_VERSION) go install $${package} ;\
+mv $(1) $(1)-$(3)-go$(GOLANG_VERSION) ;\
 } ;\
-ln -sf $(1)-$(3) $(1)
+ln -sf $(1)-$(3)-go$(GOLANG_VERSION) $(1)
 endef
 
 # CHANNELS define the bundle channels used in the bundle.

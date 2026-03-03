@@ -718,11 +718,95 @@ spec:
       kind: RBLNDriver
       name: rblndrivers.rebellions.ai
       specDescriptors:
+      - description: Annotations specifies the annotations for the driver pod
+        displayName: Annotations
+        path: annotations
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Args specifies additional command line arguments for the driver
+          container
+        displayName: Arguments
+        path: args
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text
+      - description: Env specifies environment variables for the driver container
+        displayName: Environment Variables
+        path: env
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text
+      - description: Rebellions Driver container image name
+        displayName: Image
+        path: image
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Labels specifies the labels for the driver pod
+        displayName: Labels
+        path: labels
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Manager represents configuration for Rebellions Driver Manager
+          initContainer
+        displayName: Driver Manager
+        path: manager
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced
+      - description: Image represents Rebellions Driver Manager image name
+        displayName: Manager Image
+        path: manager.image
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Image pull policy
         displayName: Image Pull Policy
         path: manager.imagePullPolicy
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:imagePullPolicy
+      - description: Registry represents Driver Manager registry path
+        displayName: Manager Registry
+        path: manager.registry
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Version represents Rebellions Driver Manager image tag (version)
+        displayName: Manager Version
+        path: manager.version
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Affinity specifies node affinity rules for driver pods
+        displayName: Node Affinity
+        path: nodeAffinity
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Affinity
+      - description: NodeSelector specifies a selector for installation of the driver
+        displayName: Node Selector
+        path: nodeSelector
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: PriorityClassName specifies the priority class for the driver
+          pod
+        displayName: PriorityClassName
+        path: priorityClassName
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Registry override for the Rebellions driver container image
+        displayName: Registry
+        path: registry
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Resources specifies the resource requirements for the driver
+          pod
+        displayName: Resource Requirements
+        path: resources
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:resourceRequirements
+      - description: Tolerations specifies the tolerations for the driver pod
+        displayName: Tolerations
+        path: tolerations
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
+      - description: Rebellions Driver version
+        displayName: Version
+        path: version
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
       version: v1alpha1
   description: RBLN Operator automates the deployment and management of RBLN NPU drivers,
     device plugins, CRDs, firmware updates, and health monitoring for seamless integration

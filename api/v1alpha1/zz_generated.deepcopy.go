@@ -168,11 +168,6 @@ func (in *RBLNDriverSpec) DeepCopyInto(out *RBLNDriverSpec) {
 		}
 	}
 	in.Resources.DeepCopyInto(&out.Resources)
-	if in.Args != nil {
-		in, out := &in.Args, &out.Args
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
 	if in.Env != nil {
 		in, out := &in.Env, &out.Env
 		*out = make([]v1.EnvVar, len(*in))

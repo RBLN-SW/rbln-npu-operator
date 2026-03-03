@@ -45,12 +45,6 @@ spec:
                 description: Annotations specifies the annotations for the driver
                   pod
                 type: object
-              args:
-                description: Args specifies additional command line arguments for
-                  the driver container
-                items:
-                  type: string
-                type: array
               env:
                 description: Env specifies environment variables for the driver container
                 items:
@@ -565,9 +559,10 @@ spec:
                     operator:
                       description: |-
                         Operator represents a key's relationship to the value.
-                        Valid operators are Exists and Equal. Defaults to Equal.
+                        Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
                         Exists is equivalent to wildcard for value, so that a pod can
                         tolerate all taints of a particular category.
+                        Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
                       type: string
                     tolerationSeconds:
                       description: |-
