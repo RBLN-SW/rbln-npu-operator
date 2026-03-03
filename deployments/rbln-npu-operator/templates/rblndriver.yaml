@@ -41,10 +41,6 @@ spec:
   resources:
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- with .Values.driver.args }}
-  args:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
   {{- with .Values.driver.env }}
   env:
     {{- toYaml . | nindent 4 }}

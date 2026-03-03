@@ -17,20 +17,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
-	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
+	k8sutils "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 const (
 	driverManagerName                         = "rbln-driver"
 	driverManagerAppLabelKey                  = "app.kubernetes.io/component"
-	driverManagerNodePoolLabelKey             = "nodepool"
+	driverManagerNodePoolLabelKey             = "rebellions.ai/driver-node-pool"
 	driverManagerInstanceLabelKey             = "rebellions.ai/driver-instance"
 	driverManagerDeployLabelKey               = "rebellions.ai/npu.deploy.driver"
 	driverManagerInitContainer                = "k8s-driver-manager"
 	driverManagerContainer                    = "rbln-driver-container"
 	driverManagerCommand                      = "driver-manager"
-	driverManagerSyncDriverLabel              = "sync_driver_label"
+	driverManagerSyncDriverLabel              = "reconcile-driver-state"
 	driverConfigDigestEnv                     = "DRIVER_CONFIG_DIGEST"
+	driverLastAppliedHashAnnotation           = "rebellions.ai/last-applied-hash"
 	driverInstallerCommand                    = "/opt/rebellions/bin/rbln-driver"
 	driverInstallerInitArg                    = "init"
 	startupProbeConfigMapSuffix               = "startup-probe"
@@ -327,7 +328,7 @@ func (h *driverManagerPatcher) startupProbeConfigMapName() string {
 }
 
 func (h *driverManagerPatcher) handleConfigMap(ctx context.Context) error {
-	builder := k8sutil.NewConfigMapBuilder(h.startupProbeConfigMapName(), h.namespace)
+	builder := k8sutils.NewConfigMapBuilder(h.startupProbeConfigMapName(), h.namespace)
 	cm := builder.Build()
 
 	script := `#!/bin/sh
@@ -375,7 +376,7 @@ mv "$TMP_FILE" "$READY_FILE"
 }
 
 func (h *driverManagerPatcher) handleServiceAccount(ctx context.Context) error {
-	builder := k8sutil.NewServiceAccountBuilder(h.name, h.namespace)
+	builder := k8sutils.NewServiceAccountBuilder(h.name, h.namespace)
 	sa := builder.Build()
 
 	saRes, err := controllerutil.CreateOrPatch(ctx, h.client, sa, func() error {
@@ -391,7 +392,7 @@ func (h *driverManagerPatcher) handleServiceAccount(ctx context.Context) error {
 }
 
 func (h *driverManagerPatcher) handleRole(ctx context.Context) error {
-	builder := k8sutil.NewRoleBuilder(h.name, h.namespace)
+	builder := k8sutils.NewRoleBuilder(h.name, h.namespace)
 	role := builder.Build()
 
 	roleRes, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
@@ -414,7 +415,7 @@ func (h *driverManagerPatcher) handleRole(ctx context.Context) error {
 }
 
 func (h *driverManagerPatcher) handleRoleBinding(ctx context.Context) error {
-	builder := k8sutil.NewRoleBindingBuilder(h.name, h.namespace)
+	builder := k8sutils.NewRoleBindingBuilder(h.name, h.namespace)
 	binding := builder.Build()
 
 	bindingRes, err := controllerutil.CreateOrPatch(ctx, h.client, binding, func() error {
@@ -453,6 +454,21 @@ func (h *driverManagerPatcher) handleClusterRole(ctx context.Context) error {
 				APIGroups: []string{""},
 				Resources: []string{"nodes"},
 				Verbs:     []string{"get", "list", "watch", "patch", "update"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods/eviction"},
+				Verbs:     []string{"create"},
+			},
+			{
+				APIGroups: []string{"apps"},
+				Resources: []string{"daemonsets"},
+				Verbs:     []string{"get"},
 			},
 		}
 		return nil
@@ -496,24 +512,81 @@ func (h *driverManagerPatcher) handleClusterRoleBinding(ctx context.Context) err
 }
 
 func (h *driverManagerPatcher) handleDaemonSet(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver, pool nodePool) error {
-	dsName := fmt.Sprintf("%s-%s", h.instanceName, pool.name)
-	builder := k8sutil.NewDaemonSetBuilder(dsName, h.namespace)
-	ds := builder.Build()
-
-	labels := map[string]string{
-		driverManagerAppLabelKey:      h.name,
-		driverManagerNodePoolLabelKey: pool.name,
-		driverManagerInstanceLabelKey: h.instanceName,
+	podSpec, err := h.buildDriverPodSpec(pool)
+	if err != nil {
+		return err
 	}
-	nodeSelector := k8sutil.MergeMaps(pool.nodeSelector, map[string]string{
-		driverManagerDeployLabelKey: "true",
+
+	ds := k8sutils.NewDaemonSetBuilder(h.instanceName+"-"+pool.name, h.namespace).
+		WithLabels(h.driverManagerLabels(pool)).
+		WithLabelSelectors(h.driverManagerLabels(pool)).
+		WithAnnotations(h.desiredSpec.Annotations).
+		WithPodSpec(podSpec).
+		WithUpdateStrategy(appsv1.DaemonSetUpdateStrategy{
+			Type: appsv1.OnDeleteDaemonSetStrategyType,
+		}).
+		WithOwner(owner, h.scheme).
+		Build()
+
+	driverConfigDigest := GetObjectHash(ds.Spec.Template.Spec.Containers)
+	ds.Spec.Template.Spec.InitContainers[0].Env = upsertEnvVar(
+		ds.Spec.Template.Spec.InitContainers[0].Env,
+		corev1.EnvVar{Name: driverConfigDigestEnv, Value: driverConfigDigest},
+	)
+
+	ds.Annotations = k8sutils.MergeMaps(ds.Annotations, map[string]string{
+		driverLastAppliedHashAnnotation: driverConfigDigest,
 	})
 
-	managerSpec := h.desiredSpec.Manager
+	current, err := h.getDaemonSet(ctx, ds.Name)
+	if err != nil {
+		if !kapierrors.IsNotFound(err) {
+			return err
+		}
+		if err := h.client.Create(ctx, ds); err != nil {
+			h.log.Error(err, "Failed to create Driver Manager DaemonSet")
+			return err
+		}
+		h.log.Info("Reconciled Driver Manager DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", "created")
+		return nil
+	}
+	skipUpdate := h.shouldSkipDaemonSetUpdateByDriverHash(current, driverConfigDigest)
+	if skipUpdate {
+		return nil
+	}
 
-	initContainer := k8sutil.NewContainerBuilder().
+	ds.SetResourceVersion(current.GetResourceVersion())
+	ds.SetFinalizers(current.GetFinalizers())
+	if err := h.client.Update(ctx, ds); err != nil {
+		h.log.Error(err, "Failed to update Driver Manager DaemonSet")
+		return err
+	}
+	h.log.Info("Reconciled Driver Manager DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", "updated")
+	return nil
+}
+
+func (h *driverManagerPatcher) hasOtherDriverInstances(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) (bool, error) {
+	driverList := &rebellionsaiv1alpha1.RBLNDriverList{}
+	if err := h.client.List(ctx, driverList); err != nil {
+		return false, err
+	}
+	for _, driver := range driverList.Items {
+		if owner != nil && driver.Name == owner.Name {
+			continue
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Container {
+	return k8sutils.NewContainerBuilder().
 		WithName(driverManagerInitContainer).
-		WithImage(ComposeImageReference(managerSpec.Registry, managerSpec.Image), managerSpec.Version, managerSpec.ImagePullPolicy).
+		WithImage(ComposeImageReference(
+			h.desiredSpec.Manager.Registry, h.desiredSpec.Manager.Image),
+			h.desiredSpec.Manager.Version,
+			h.desiredSpec.Manager.ImagePullPolicy,
+		).
 		WithCommands([]string{driverManagerCommand}).
 		WithArgs([]string{driverManagerSyncDriverLabel}).
 		WithEnvs([]corev1.EnvVar{
@@ -522,6 +595,38 @@ func (h *driverManagerPatcher) handleDaemonSet(ctx context.Context, owner *rebel
 				ValueFrom: &corev1.EnvVarSource{
 					FieldRef: &corev1.ObjectFieldSelector{
 						FieldPath: "spec.nodeName",
+					},
+				},
+			},
+			{
+				Name:  "ENABLE_NPU_POD_EVICTION",
+				Value: "true",
+			},
+			{
+				Name:  "ENABLE_AUTO_DRAIN",
+				Value: "false",
+			},
+			{
+				Name:  "DRAIN_USE_FORCE",
+				Value: "false",
+			},
+			{
+				Name:  "DRAIN_POD_SELECTOR_LABEL",
+				Value: "",
+			},
+			{
+				Name:  "DRAIN_TIMEOUT_SECONDS",
+				Value: "0s",
+			},
+			{
+				Name:  "DRAIN_DELETE_EMPTYDIR_DATA",
+				Value: "false",
+			},
+			{
+				Name: "OPERATOR_NAMESPACE",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "metadata.namespace",
 					},
 				},
 			},
@@ -546,16 +651,16 @@ func (h *driverManagerPatcher) handleDaemonSet(ctx context.Context, owner *rebel
 			},
 		}).
 		Build()
+}
 
-	installerArgs := h.desiredSpec.Args
-	if len(installerArgs) == 0 {
-		installerArgs = []string{driverInstallerInitArg}
-	}
-
-	driverContainer := k8sutil.NewContainerBuilder().
+func (h *driverManagerPatcher) buildDriverContainer(
+	pool nodePool,
+	additionalVolumeMounts []corev1.VolumeMount,
+) (*corev1.Container, error) {
+	driverContainer := k8sutils.NewContainerBuilder().
 		WithName(driverManagerContainer).
 		WithCommands([]string{driverInstallerCommand}).
-		WithArgs(installerArgs).
+		WithArgs([]string{driverInstallerInitArg}).
 		WithEnvs(h.desiredSpec.Env).
 		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 		WithLifeCycle(&corev1.Lifecycle{
@@ -591,41 +696,10 @@ func (h *driverManagerPatcher) handleDaemonSet(ctx context.Context, owner *rebel
 		}).
 		Build()
 
-	additionalVolumeMounts := []corev1.VolumeMount{}
-	additionalVolumes := []corev1.Volume{}
-	subscriptionOS := ""
-	if h.openshiftVersion != "" {
-		subscriptionOS = "rhcos"
-	} else if pool.osRelease == "rhel" {
-		subscriptionOS = "rhel"
-	}
-	if subscriptionOS != "" {
-		h.log.Info("Mounting subscription entitlements into driver container", "os", subscriptionOS, "nodePool", pool.name)
-		pathToVolumeSource, err := getSubscriptionPathsToVolumeSources(subscriptionOS)
-		if err != nil {
-			return err
-		}
-		mountPaths := make([]string, 0, len(pathToVolumeSource))
-		for mountPath := range pathToVolumeSource {
-			mountPaths = append(mountPaths, mountPath)
-		}
-		sort.Strings(mountPaths)
-		for i, mountPath := range mountPaths {
-			volName := fmt.Sprintf("subscription-config-%d", i)
-			additionalVolumeMounts = append(additionalVolumeMounts, corev1.VolumeMount{
-				Name:      volName,
-				MountPath: mountPath,
-				ReadOnly:  true,
-			})
-			additionalVolumes = append(additionalVolumes, corev1.Volume{
-				Name:         volName,
-				VolumeSource: pathToVolumeSource[mountPath],
-			})
-		}
-	}
 	if len(additionalVolumeMounts) > 0 {
 		driverContainer.VolumeMounts = append(driverContainer.VolumeMounts, additionalVolumeMounts...)
 	}
+
 	driverContainer.StartupProbe = &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
 			Exec: &corev1.ExecAction{
@@ -636,12 +710,14 @@ func (h *driverManagerPatcher) handleDaemonSet(ctx context.Context, owner *rebel
 		PeriodSeconds:    driverManagerStartupProbePeriodSeconds,
 		FailureThreshold: driverManagerStartupProbeFailureThreshold,
 	}
+
 	driverSpec := *h.desiredSpec
 	driverImagePath, err := driverSpec.GetPrecompiledImagePath(pool.getOS(), pool.kernel)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	driverContainer.Image = driverImagePath
+
 	driverTag := fmt.Sprintf("%s-%s-%s", driverSpec.Version, pool.kernel, pool.getOS())
 	driverPullPolicy := h.desiredSpec.ImagePullPolicy
 	if driverPullPolicy == "" {
@@ -652,9 +728,67 @@ func (h *driverManagerPatcher) handleDaemonSet(ctx context.Context, owner *rebel
 	}
 	driverContainer.ImagePullPolicy = driverPullPolicy
 
-	podSpec := k8sutil.NewPodSpecBuilder().
+	return driverContainer, nil
+}
+
+func (h *driverManagerPatcher) buildSubscriptionMountsAndVolumes(
+	pool nodePool,
+) ([]corev1.VolumeMount, []corev1.Volume, error) {
+	subscriptionOS := ""
+	if h.openshiftVersion != "" {
+		subscriptionOS = "rhcos"
+	} else if pool.osRelease == "rhel" {
+		subscriptionOS = "rhel"
+	}
+	if subscriptionOS == "" {
+		return nil, nil, nil
+	}
+
+	h.log.Info("Mounting subscription entitlements into driver container", "os", subscriptionOS, "nodePool", pool.name)
+	pathToVolumeSource, err := getSubscriptionPathsToVolumeSources(subscriptionOS)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	additionalVolumeMounts := make([]corev1.VolumeMount, 0, len(pathToVolumeSource))
+	additionalVolumes := make([]corev1.Volume, 0, len(pathToVolumeSource))
+	mountPaths := make([]string, 0, len(pathToVolumeSource))
+	for mountPath := range pathToVolumeSource {
+		mountPaths = append(mountPaths, mountPath)
+	}
+	sort.Strings(mountPaths)
+	for i, mountPath := range mountPaths {
+		volName := fmt.Sprintf("subscription-config-%d", i)
+		additionalVolumeMounts = append(additionalVolumeMounts, corev1.VolumeMount{
+			Name:      volName,
+			MountPath: mountPath,
+			ReadOnly:  true,
+		})
+		additionalVolumes = append(additionalVolumes, corev1.Volume{
+			Name:         volName,
+			VolumeSource: pathToVolumeSource[mountPath],
+		})
+	}
+
+	return additionalVolumeMounts, additionalVolumes, nil
+}
+
+func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool) (*corev1.PodSpec, error) {
+	initContainer := h.buildDriverManagerInitContainer()
+
+	additionalVolumeMounts, additionalVolumes, err := h.buildSubscriptionMountsAndVolumes(pool)
+	if err != nil {
+		return nil, err
+	}
+
+	driverContainer, err := h.buildDriverContainer(pool, additionalVolumeMounts)
+	if err != nil {
+		return nil, err
+	}
+
+	podSpec := k8sutils.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).
-		WithNodeSelector(nodeSelector).
+		WithNodeSelector(pool.nodeSelector).
 		WithTolerations(h.desiredSpec.Tolerations).
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithPriorityClassName(h.desiredSpec.PriorityClassName).
@@ -716,51 +850,62 @@ func (h *driverManagerPatcher) handleDaemonSet(ctx context.Context, owner *rebel
 		WithInitContainers([]*corev1.Container{initContainer}).
 		WithContainers([]*corev1.Container{driverContainer}).
 		Build()
+
 	if len(additionalVolumes) > 0 {
 		podSpec.Volumes = append(podSpec.Volumes, additionalVolumes...)
 	}
 
-	dsRes, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
-		ds = builder.
-			WithLabelSelectors(labels).
-			WithLabels(h.desiredSpec.Labels).
-			WithAnnotations(h.desiredSpec.Annotations).
-			WithPodSpec(podSpec).
-			WithOwner(owner, h.scheme).
-			Build()
-		ds.Spec.UpdateStrategy = appsv1.DaemonSetUpdateStrategy{
-			Type: appsv1.OnDeleteDaemonSetStrategyType,
-		}
-
-		driverConfigDigest := GetObjectHash(ds.Spec)
-		ds.Spec.Template.Spec.InitContainers[0].Env = upsertEnvVar(
-			ds.Spec.Template.Spec.InitContainers[0].Env,
-			corev1.EnvVar{Name: driverConfigDigestEnv, Value: driverConfigDigest},
-		)
-
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile Driver Manager DaemonSet")
-		return err
-	}
-
-	h.log.Info("Reconciled Driver Manager DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", dsRes)
-	return nil
+	return podSpec, nil
 }
 
-func (h *driverManagerPatcher) hasOtherDriverInstances(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) (bool, error) {
-	driverList := &rebellionsaiv1alpha1.RBLNDriverList{}
-	if err := h.client.List(ctx, driverList); err != nil {
-		return false, err
+func (h *driverManagerPatcher) driverManagerLabels(pool nodePool) map[string]string {
+	return map[string]string{
+		driverManagerAppLabelKey:      h.name,
+		driverManagerNodePoolLabelKey: pool.name,
+		driverManagerInstanceLabelKey: h.instanceName,
 	}
-	for _, driver := range driverList.Items {
-		if owner != nil && driver.Name == owner.Name {
-			continue
-		}
-		return true, nil
+}
+
+// getDaemonSet returns the current DaemonSet for this patcher namespace.
+func (h *driverManagerPatcher) getDaemonSet(
+	ctx context.Context,
+	daemonSetName string,
+) (*appsv1.DaemonSet, error) {
+	current := &appsv1.DaemonSet{}
+	err := h.client.Get(ctx, client.ObjectKey{
+		Name:      daemonSetName,
+		Namespace: h.namespace,
+	}, current)
+	if err != nil {
+		return nil, err
 	}
-	return false, nil
+	return current, nil
+}
+
+func (h *driverManagerPatcher) shouldSkipDaemonSetUpdateByDriverHash(
+	current *appsv1.DaemonSet,
+	driverConfigDigest string,
+) bool {
+	if current == nil {
+		return false
+	}
+
+	currentHash := current.Annotations[driverLastAppliedHashAnnotation]
+	if currentHash == "" {
+		currentHash = GetObjectHash(current.Spec.Template.Spec.Containers)
+	}
+
+	if currentHash == driverConfigDigest {
+		h.log.Info(
+			"Skip Driver Manager DaemonSet update: driver container unchanged",
+			"namespace", current.Namespace,
+			"name", current.Name,
+			"hash", driverConfigDigest,
+		)
+		return true
+	}
+
+	return false
 }
 
 func upsertEnvVar(envs []corev1.EnvVar, target corev1.EnvVar) []corev1.EnvVar {

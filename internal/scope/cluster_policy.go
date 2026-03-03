@@ -16,6 +16,12 @@ import (
 	"github.com/rebellions-sw/rbln-npu-operator/internal/scope/patch"
 )
 
+const (
+	driverAutoUpgradeAnnotationKey = "rebellions.ai/npu-driver-upgrade-enabled"
+	labelValueTrue                 = "true"
+	labelValueFalse                = "false"
+)
+
 // RBLNClusterPolicyScope is a scope for reconciling a RBLNClusterPolicy resource.
 type RBLNClusterPolicyScope struct {
 	client client.Client
@@ -164,12 +170,12 @@ func (s *RBLNClusterPolicyScope) LabelRblnNodes() (bool, int, error) {
 		// set rebellions present label according to device feature discovery
 		if !hasRBLNPresentLabel(labels) && hasRBLNDeviceLabel(labels) {
 			s.log.Info("Rebellions device detected. Set RBLN Present Label", "Node", node.Name)
-			labels[consts.RBLNPresentLabelKey] = "true"
+			labels[consts.RBLNPresentLabelKey] = labelValueTrue
 			node.SetLabels(labels)
 			updateLabels = true
 		} else if hasRBLNPresentLabel(labels) && !hasRBLNDeviceLabel(labels) {
 			s.log.Info("Rebellions device removed. Disable RBLN Present Label", "Node", node.Name)
-			labels[consts.RBLNPresentLabelKey] = "false"
+			labels[consts.RBLNPresentLabelKey] = labelValueFalse
 			removeAllRBLNComponentLabels(labels)
 			node.SetLabels(labels)
 			updateLabels = true
@@ -195,9 +201,55 @@ func (s *RBLNClusterPolicyScope) LabelRblnNodes() (bool, int, error) {
 	return nfdInstalled, rblnNodeCnt, nil
 }
 
+func (s *RBLNClusterPolicyScope) ApplyDriverAutoUpgradeAnnotation() error {
+	list := &corev1.NodeList{}
+	if err := s.client.List(s.ctx, list, client.MatchingLabels{
+		consts.RBLNPresentLabelKey: labelValueTrue,
+	}); err != nil {
+		return fmt.Errorf("unable to list nodes to check annotations, err %s", err.Error())
+	}
+
+	shouldEnableAutoUpgrade := s.singleton.Spec.Driver.UpgradePolicy != nil &&
+		s.singleton.Spec.Driver.UpgradePolicy.AutoUpgrade &&
+		!s.singleton.Spec.SandboxDevicePlugin.IsEnabled()
+
+	for _, node := range list.Items {
+		annotations := node.GetAnnotations()
+		annotationValue, annotationExists := annotations[driverAutoUpgradeAnnotationKey]
+		if shouldEnableAutoUpgrade && annotationExists && annotationValue == labelValueTrue {
+			continue
+		}
+		if !shouldEnableAutoUpgrade && !annotationExists {
+			continue
+		}
+
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+
+		annotationLogValue := "<removed>"
+		if shouldEnableAutoUpgrade {
+			annotations[driverAutoUpgradeAnnotationKey] = labelValueTrue
+			annotationLogValue = labelValueTrue
+		} else {
+			delete(annotations, driverAutoUpgradeAnnotationKey)
+		}
+		node.SetAnnotations(annotations)
+
+		if err := s.client.Update(s.ctx, &node); err != nil {
+			s.log.Info("Failed to update node state annotation on a node",
+				"node", node.Name,
+				"annotationKey", driverAutoUpgradeAnnotationKey,
+				"annotationValue", annotationLogValue, "error", err)
+			return err
+		}
+	}
+	return nil
+}
+
 func hasRBLNPresentLabel(labels map[string]string) bool {
 	if _, ok := labels[consts.RBLNPresentLabelKey]; ok {
-		return labels[consts.RBLNPresentLabelKey] == "true"
+		return labels[consts.RBLNPresentLabelKey] == labelValueTrue
 	}
 	return false
 }
@@ -229,24 +281,24 @@ func isValidWorkloadConfig(workloadConfig string) bool {
 }
 
 var rblnDeviceLabels = map[string]string{
-	"feature.node.kubernetes.io/pci-1200_1eff.present": "true",
-	"feature.node.kubernetes.io/pci-1eff.present":      "true",
+	"feature.node.kubernetes.io/pci-1200_1eff.present": labelValueTrue,
+	"feature.node.kubernetes.io/pci-1eff.present":      labelValueTrue,
 }
 
 var rblnComponentLabels = map[string]map[string]string{
 	consts.RBLNWorkloadConfigContainer: {
-		"rebellions.ai/npu.deploy.driver":                "true",
-		"rebellions.ai/npu.deploy.device-plugin":         "true",
-		"rebellions.ai/npu.deploy.dra-kubelet-plugin":    "true",
-		"rebellions.ai/npu.deploy.metrics-exporter":      "true",
-		"rebellions.ai/npu.deploy.rbln-daemon":           "true",
-		"rebellions.ai/npu.deploy.npu-feature-discovery": "true",
-		"rebellions.ai/npu.deploy.operator-validator":    "true",
-		"rebellions.ai/npu.deploy.container-toolkit":     "true",
+		"rebellions.ai/npu.deploy.driver":                labelValueTrue,
+		"rebellions.ai/npu.deploy.device-plugin":         labelValueTrue,
+		"rebellions.ai/npu.deploy.dra-kubelet-plugin":    labelValueTrue,
+		"rebellions.ai/npu.deploy.metrics-exporter":      labelValueTrue,
+		"rebellions.ai/npu.deploy.rbln-daemon":           labelValueTrue,
+		"rebellions.ai/npu.deploy.npu-feature-discovery": labelValueTrue,
+		"rebellions.ai/npu.deploy.operator-validator":    labelValueTrue,
+		"rebellions.ai/npu.deploy.container-toolkit":     labelValueTrue,
 	},
 	consts.RBLNWorkloadConfigVMPassthrough: {
-		"rebellions.ai/npu.deploy.vfio-manager":          "true",
-		"rebellions.ai/npu.deploy.sandbox-device-plugin": "true",
+		"rebellions.ai/npu.deploy.vfio-manager":          labelValueTrue,
+		"rebellions.ai/npu.deploy.sandbox-device-plugin": labelValueTrue,
 	},
 }
 

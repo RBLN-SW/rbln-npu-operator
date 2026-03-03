@@ -6,6 +6,45 @@ metadata:
   name: rbln-cluster-policy
 spec:
   name: {{ .Values.name }}
+  {{- if .Values.namespace }}
+  namespace: {{ .Values.namespace | quote }}
+  {{- end }}
+  {{- $upgradePolicy := .Values.driver.upgradePolicy }}
+  driver:
+    useRBLNDriverCRD: {{ .Values.driver.enabled }}
+    {{- with $upgradePolicy }}
+    {{- $waitForCompletion := default (dict) .waitForCompletion }}
+    {{- $npuPodDeletion := default (dict) .npuPodDeletion }}
+    {{- $drain := default (dict) .drain }}
+    {{- $reboot := default (dict) .reboot }}
+    {{- $rebootImage := default (dict) $reboot.image }}
+    upgradePolicy:
+      autoUpgrade: {{ .autoUpgrade | default false }}
+      maxParallelUpgrades: {{ .maxParallelUpgrades | default 1 }}
+      waitForCompletion:
+        timeoutSeconds: {{ $waitForCompletion.timeoutSeconds | default 0 }}
+        {{- if $waitForCompletion.podSelector }}
+        podSelector: {{ $waitForCompletion.podSelector | quote }}
+        {{- end }}
+      podDeletion:
+        force: {{ $npuPodDeletion.force | default false }}
+        timeoutSeconds: {{ $npuPodDeletion.timeoutSeconds | default 300 }}
+      drain:
+        enable: {{ $drain.enable | default false }}
+        force: {{ $drain.force | default false }}
+        deleteEmptyDirData: {{ $drain.deleteEmptyDirData | default false }}
+        {{- if $drain.podSelector }}
+        podSelector: {{ $drain.podSelector | quote }}
+        {{- end }}
+        timeoutSeconds: {{ $drain.timeoutSeconds | default 300 }}
+      reboot:
+        enable: {{ $reboot.enable | default false }}
+        rebootTimeoutSeconds: {{ $reboot.rebootTimeoutSeconds | default 0 }}
+        image:
+          registry: {{ $rebootImage.registry | default "docker.io" | quote }}
+          image: {{ $rebootImage.image | default "rebellions/rbln-node-reboot" | quote }}
+          version: {{ $rebootImage.version | default "v1.0.0" | quote }}
+    {{- end }}
   {{- if .Values.daemonsets }}
   daemonsets:
     {{- with .Values.daemonsets.labels }}

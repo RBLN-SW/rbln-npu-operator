@@ -21,9 +21,26 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - pods/eviction
+  verbs:
+  - create
+- apiGroups:
+  - apps
+  resources:
+  - controllerrevisions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - apps
   resources:
   - daemonsets
+  - deployments
+  - replicasets
+  - statefulsets
   verbs:
   - create
   - delete
@@ -32,6 +49,12 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments/finalizers
+  verbs:
+  - update
 - apiGroups:
   - config.openshift.io
   resources:

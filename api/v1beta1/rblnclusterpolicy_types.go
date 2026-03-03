@@ -651,7 +651,7 @@ type DriverSpec struct {
 
 	// UpgradePolicy defines automatic upgrade behavior for the driver rollout.
 	// +optional
-	UpgradePolicy DriverUpgradePolicySpec `json:"upgradePolicy,omitempty"`
+	UpgradePolicy *DriverUpgradePolicySpec `json:"upgradePolicy,omitempty"`
 }
 
 // DriverUpgradePolicySpec describes policy configuration for automatic upgrades
@@ -672,13 +672,37 @@ type DriverUpgradePolicySpec struct {
 	// +optional
 	WaitForCompletion *WaitForCompletionSpec `json:"waitForCompletion,omitempty"`
 	// +optional
-	Drain *DrainSpec `json:"drain,omitempty"`
-	// RebootRequired indicates whether worker nodes may be rebooted between driver upgrade steps.
-	// This should be enabled only when the upgrade flow requires a host reboot.
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Reboot Required",xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
+	DrainSpec *DrainSpec `json:"drain,omitempty"`
+	// Reboot describes reboot workflow configuration.
 	// +optional
-	// +kubebuilder:default:=true
-	RebootRequired *bool `json:"rebootRequired,omitempty"`
+	Reboot *RebootSpec `json:"reboot,omitempty"`
+}
+
+// RebootSpec describes reboot behavior during automatic upgrade.
+type RebootSpec struct {
+	// Enable indicates if node reboot workflow is enabled.
+	// +optional
+	// +kubebuilder:default:=false
+	Enable bool `json:"enable,omitempty"`
+	// RebootTimeoutSeconds specifies the length of time in seconds to wait for reboot validation.
+	// 0 means infinite wait.
+	// +optional
+	// +kubebuilder:default:=0
+	// +kubebuilder:validation:Minimum:=0
+	RebootTimeoutSeconds int `json:"rebootTimeoutSeconds,omitempty"`
+	// Image specifies reboot trigger pod image configuration.
+	// +optional
+	Image *RebootImageSpec `json:"image,omitempty"`
+}
+
+// RebootImageSpec describes container image coordinates for reboot trigger pod.
+type RebootImageSpec struct {
+	// +optional
+	Registry string `json:"registry,omitempty"`
+	// +optional
+	Image string `json:"image,omitempty"`
+	// +optional
+	Version string `json:"version,omitempty"`
 }
 
 // PodDeletionSpec describes pod deletion behavior during automatic upgrade.
@@ -720,6 +744,11 @@ type DrainSpec struct {
 	// +optional
 	// +kubebuilder:default:=false
 	Force bool `json:"force,omitempty"`
+	// DeleteEmptyDirData indicates whether to allow deleting pods that use emptyDir/local ephemeral storage
+	// during drain.
+	// +optional
+	// +kubebuilder:default:=false
+	DeleteEmptyDirData bool `json:"deleteEmptyDirData,omitempty"`
 	// PodSelector specifies a label selector to filter pods on the node that need to be drained
 	// For more details on label selectors, see:
 	// https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors

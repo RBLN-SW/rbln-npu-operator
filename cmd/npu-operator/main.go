@@ -21,11 +21,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -39,6 +41,7 @@ import (
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/controller"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -164,6 +167,33 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "RBLNClusterPolicy")
 		os.Exit(1)
 	}
+
+	// setup upgrade controller
+	upgradeLogger := ctrl.Log.WithName("controllers").WithName("RBLNDriverUpgrade")
+	clusterUpgradeStateManager, err := upgrade.NewClusterUpgradeStateManager(
+		upgradeLogger,
+		mgr.GetConfig(),
+		mgr.GetEventRecorderFor("rbln-npu-operator"),
+		mgr.GetScheme(),
+	)
+	if err != nil {
+		setupLog.Error(err, "unable to create new ClusterUpdateStateManager", "controller", "Upgrade")
+		os.Exit(1)
+	}
+	clusterUpgradeStateManager = clusterUpgradeStateManager.
+		WithPodDeletionEnabled(npuPodSpecFilter).
+		WithValidationEnabled("app=rbln-operator-validator")
+
+	if err = (&controller.UpgradeReconciler{
+		Client:       mgr.GetClient(),
+		Log:          upgradeLogger,
+		Scheme:       mgr.GetScheme(),
+		StateManager: clusterUpgradeStateManager,
+	}).SetupWithManager(ctx, mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Upgrade")
+		os.Exit(1)
+	}
+
 	if err = (&controller.RBLNDriverReconciler{
 		Client:      mgr.GetClient(),
 		Log:         ctrl.Log.WithName("controllers").WithName("RBLNDriver"),
@@ -189,4 +219,27 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func npuPodSpecFilter(pod corev1.Pod) bool {
+	npuInResourceList := func(rl corev1.ResourceList) bool {
+		for resourceName := range rl {
+			str := string(resourceName)
+			if strings.HasPrefix(str, "rebellions.ai/") {
+				return true
+			}
+		}
+		return false
+	}
+
+	if pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodPending {
+		return false
+	}
+
+	for _, c := range pod.Spec.Containers {
+		if npuInResourceList(c.Resources.Limits) || npuInResourceList(c.Resources.Requests) {
+			return true
+		}
+	}
+	return false
 }
