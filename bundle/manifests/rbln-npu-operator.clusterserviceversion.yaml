@@ -79,6 +79,17 @@ metadata:
               ],
               "version": "latest"
             },
+            "draKubeletPlugin": {
+              "driverName": "npu.rebellions.ai",
+              "enabled": false,
+              "healthcheckPort": 51515,
+              "image": "rebellions/k8s-dra-driver-npu",
+              "imagePullPolicy": "IfNotPresent",
+              "kubeletPluginsDirectoryPath": "/var/lib/kubelet/plugins",
+              "kubeletRegistrarDirectoryPath": "/var/lib/kubelet/plugins_registry",
+              "registry": "docker.io",
+              "version": "latest"
+            },
             "metricsExporter": {
               "enabled": true,
               "image": "rebellions/rbln-metrics-exporter",
@@ -142,7 +153,7 @@ metadata:
       ]
     capabilities: Basic Install
     containerImage: docker.io/rebellions/rbln-npu-operator:latest
-    createdAt: "2026-02-20T01:43:09Z"
+    createdAt: "2026-03-12T12:04:43Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -392,6 +403,99 @@ spec:
       - description: RBLN Device Plugin image tag
         displayName: Version
         path: devicePlugin.version
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: DRAKubeletPlugin component spec
+        displayName: DRA Kubelet Plugin
+        path: draKubeletPlugin
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced
+      - description: Affinity specifies the affinity for the DaemonSet pods
+        displayName: Affinity
+        path: draKubeletPlugin.affinity
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Affinity
+      - description: Annotations specifies the annotations for the DaemonSet pods
+        displayName: Annotations
+        path: draKubeletPlugin.annotations
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: DriverName is the DRA driver name used by kubelet plugin registration
+        displayName: Driver Name
+        path: draKubeletPlugin.driverName
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Enabled indicates if deployment of RBLN DRA kubelet plugin is
+          enabled
+        displayName: Enable RBLN DRA Kubelet Plugin deployment
+        path: draKubeletPlugin.enabled
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: HealthcheckPort is the gRPC liveness port. Set to <=0 to disable
+          liveness probe.
+        displayName: Healthcheck Port
+        path: draKubeletPlugin.healthcheckPort
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:number
+      - description: RBLN DRA kubelet plugin image name
+        displayName: Image
+        path: draKubeletPlugin.image
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: ImagePullPolicy specifies the image pull policy for the DaemonSet
+          pods
+        displayName: Image Pull Policy
+        path: draKubeletPlugin.imagePullPolicy
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:imagePullPolicy
+      - description: ImagePullSecrets specifies the image pull secrets for the DaemonSet
+          pods
+        displayName: Image pull secrets
+        path: draKubeletPlugin.imagePullSecrets
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: KubeletPluginsDirectoryPath is the host path for kubelet plugin
+          sockets
+        displayName: Kubelet Plugins Directory Path
+        path: draKubeletPlugin.kubeletPluginsDirectoryPath
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: KubeletRegistrarDirectoryPath is the host path for kubelet plugin
+          registration
+        displayName: Kubelet Registrar Directory Path
+        path: draKubeletPlugin.kubeletRegistrarDirectoryPath
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Labels specifies the labels for the DaemonSet pods
+        displayName: Labels
+        path: draKubeletPlugin.labels
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: PriorityClassName specifies the priority class for the DaemonSet
+          pods
+        displayName: PriorityClassName
+        path: draKubeletPlugin.priorityClassName
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Registry override for the RBLN DRA kubelet plugin image
+        displayName: Registry
+        path: draKubeletPlugin.registry
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Resources specifies the resource requirements for the DaemonSet
+          pods
+        displayName: Resource Requirements
+        path: draKubeletPlugin.resources
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:resourceRequirements
+      - description: Tolerations specifies the tolerations for the DaemonSet pods
+        displayName: Tolerations
+        path: draKubeletPlugin.tolerations
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
+      - description: RBLN DRA kubelet plugin image tag
+        displayName: Version
+        path: draKubeletPlugin.version
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: MetricsExporter component spec
@@ -861,12 +965,6 @@ spec:
         path: annotations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Args specifies additional command line arguments for the driver
-          container
-        displayName: Arguments
-        path: args
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text
       - description: Env specifies environment variables for the driver container
         displayName: Environment Variables
         path: env
@@ -976,9 +1074,24 @@ spec:
         - apiGroups:
           - ""
           resources:
-          - configmaps
-          - nodes
-          - serviceaccounts
+          - pods/eviction
+          verbs:
+          - create
+        - apiGroups:
+          - apps
+          resources:
+          - controllerrevisions
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - apps
+          resources:
+          - daemonsets
+          - deployments
+          - replicasets
+          - statefulsets
           verbs:
           - create
           - delete
@@ -990,15 +1103,9 @@ spec:
         - apiGroups:
           - apps
           resources:
-          - daemonsets
+          - deployments/finalizers
           verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
           - update
-          - watch
         - apiGroups:
           - config.openshift.io
           resources:
@@ -1013,17 +1120,6 @@ spec:
           resources:
           - clusterrolebindings
           - clusterroles
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - rbac.authorization.k8s.io
-          resources:
           - rolebindings
           - roles
           verbs:
@@ -1038,31 +1134,6 @@ spec:
           - rebellions.ai
           resources:
           - rblnclusterpolicies
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - rebellions.ai
-          resources:
-          - rblnclusterpolicies/finalizers
-          verbs:
-          - update
-        - apiGroups:
-          - rebellions.ai
-          resources:
-          - rblnclusterpolicies/status
-          verbs:
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - rebellions.ai
-          resources:
           - rblndrivers
           verbs:
           - create
@@ -1075,12 +1146,14 @@ spec:
         - apiGroups:
           - rebellions.ai
           resources:
+          - rblnclusterpolicies/finalizers
           - rblndrivers/finalizers
           verbs:
           - update
         - apiGroups:
           - rebellions.ai
           resources:
+          - rblnclusterpolicies/status
           - rblndrivers/status
           verbs:
           - get
@@ -1091,6 +1164,7 @@ spec:
           resources:
           - deviceclasses
           - resourceclasses
+          - resourceslices
           verbs:
           - create
           - delete
@@ -1105,18 +1179,6 @@ spec:
           - resourceclaims
           verbs:
           - get
-        - apiGroups:
-          - resource.k8s.io
-          resources:
-          - resourceslices
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
         - apiGroups:
           - security.openshift.io
           resources:

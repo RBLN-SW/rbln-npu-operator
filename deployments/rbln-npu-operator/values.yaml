@@ -30,10 +30,10 @@ daemonsets:
 operator:
   # Operator image configuration
   image:
-    registry: docker.io
+    registry: harbor.k8s.rebellions.in
     repository: rebellions/rbln-npu-operator
-    tag: latest
-    pullPolicy: IfNotPresent
+    tag: v0.3.1
+    pullPolicy: Always
   # Resource configuration
   replicas: 1
   resources:
@@ -113,6 +113,8 @@ driver:
     repository: rebellions/rbln-driver
     tag: "3.0.0"
     pullPolicy: IfNotPresent
+  imagePullSecrets:
+  - drivercred
   # Example:
   # imagePullSecrets: []
   # Example:
@@ -224,8 +226,8 @@ rblnDaemon:
     repository: rebellions/rbln-daemon
     tag: 3.0.0
     pullPolicy: IfNotPresent
-  # imagePullSecrets:
-  # - daemoncred
+  imagePullSecrets:
+  - drivercred
   hostPort: 50051
   resources: {}
   args: []
