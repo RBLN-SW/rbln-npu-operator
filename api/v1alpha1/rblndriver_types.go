@@ -24,16 +24,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// DriverState represents the overall readiness of the driver deployment.
 type DriverState string
 
 const (
-	// DriverStateReady indicates that the driver deployment is healthy.
-	DriverStateReady DriverState = "ready"
-	// DriverStateNotReady indicates that the driver deployment is not yet healthy.
+	DriverStateReady    DriverState = "ready"
 	DriverStateNotReady DriverState = "notReady"
 )
 
@@ -222,7 +216,6 @@ func (d *RBLNDriverSpec) GetPrecompiledImagePath(osVersion string, kernelVersion
 	return imagePath, nil
 }
 
-// GetNodeSelector returns node selector labels for Rebellions driver installation.
 func (d *RBLNDriver) GetNodeSelector() map[string]string {
 	if d == nil || len(d.Spec.NodeSelector) == 0 {
 		return map[string]string{
