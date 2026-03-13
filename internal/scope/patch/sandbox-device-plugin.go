@@ -326,29 +326,136 @@ func (h *sandboxDevicePluginPatcher) handleConfigMap(ctx context.Context, cp *rb
 	return nil
 }
 
-func (h *sandboxDevicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
-	ds := builder.Build()
-	validatorSpec := owner.Spec.Validator
-	driverReady := k8sutil.NewContainerBuilder().
-		WithName("driver-ready").
-		WithImage(ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, validatorSpec.ImagePullPolicy).
-		WithCommands([]string{"sh", "-c"}).
-		WithArgs([]string{"until [ -f " + validationsMountPath + "/.driver-ctr-ready ]; do echo waiting for rbln driver container to be ready; sleep 5; done"}).
+func (h *sandboxDevicePluginPatcher) buildVolumes(owner *rblnv1beta1.RBLNClusterPolicy) []corev1.Volume {
+	volumes := []corev1.Volume{
+		{
+			Name: validationsVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: validationsMountPath,
+					Type: ptr(corev1.HostPathDirectoryOrCreate),
+				},
+			},
+		},
+		{
+			Name: "devicesock",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/var/lib/kubelet/device-plugin",
+				},
+			},
+		},
+		{
+			Name: "plugins-registry",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/var/lib/kubelet/plugins_registry",
+				},
+			},
+		},
+		{
+			Name: "log",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/var/log",
+				},
+			},
+		},
+		{
+			Name: "device-info",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/var/run/k8s.cni.cncf.io/devinfo/dp",
+					Type: &[]corev1.HostPathType{"DirectoryOrCreate"}[0],
+				},
+			},
+		},
+		{
+			Name: "config-volume",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: h.name + "-config",
+					},
+					Items: []corev1.KeyToPath{
+						{
+							Key:  "config.json",
+							Path: "config.json",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if owner.Spec.VFIOManager.IsEnabled() {
+		volumes = append(volumes, corev1.Volume{
+			Name: owner.Spec.BaseName + "-vfio-manager",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: owner.Spec.BaseName + "-vfio-manager-config",
+					},
+					DefaultMode: ptr(int32(448)),
+				},
+			},
+		})
+	}
+
+	return volumes
+}
+
+func (h *sandboxDevicePluginPatcher) buildVFIOBindCheckerInitContainer(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.Container {
+	return k8sutil.NewContainerBuilder().
+		WithName("vfio-bind-checker").
+		WithImage(
+			ComposeImageReference(h.desiredSpec.VFIOChecker.Registry, h.desiredSpec.VFIOChecker.Image),
+			h.desiredSpec.VFIOChecker.Version,
+			h.desiredSpec.ImagePullPolicy,
+		).
+		WithCommands([]string{
+			"/bin/sh",
+			"-c",
+			`TIMEOUT=300
+START=$(date +%s)
+until /bin/vfio-manage.sh check_bind --all; do
+    if [ $(($(date +%s) - $START)) -gt $TIMEOUT ]; then
+        echo "Timeout waiting for VFIO-PCI binding"
+        exit 1
+    fi
+    echo "Waiting for all VFIO-PCI bindings..."
+    sleep 2
+done
+echo "VFIO-PCI binding check completed."`,
+		}).
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged: ptr(true),
+			RunAsUser:  ptr(int64(0)),
 		}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{
-				Name:             validationsVolumeName,
-				MountPath:        validationsMountPath,
-				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
+				Name:      owner.Spec.BaseName + "-vfio-manager",
+				MountPath: "/bin/vfio-manage.sh",
+				SubPath:   "vfio-manage.sh",
+				ReadOnly:  true,
 			},
 		}).
 		Build()
-	if validatorSpec.ImagePullPolicy == "" {
-		driverReady.ImagePullPolicy = corev1.PullIfNotPresent
+}
+
+func (h *sandboxDevicePluginPatcher) buildVFIOInitContainers(owner *rblnv1beta1.RBLNClusterPolicy) []*corev1.Container {
+	if !owner.Spec.VFIOManager.IsEnabled() {
+		return []*corev1.Container{}
 	}
+
+	return []*corev1.Container{
+		h.buildVFIOBindCheckerInitContainer(owner),
+	}
+}
+
+func (h *sandboxDevicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
+	ds := builder.Build()
 	dsRes, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
 		ds = builder.
 			WithLabelSelectors(map[string]string{"app": h.name}).
@@ -360,111 +467,8 @@ func (h *sandboxDevicePluginPatcher) handleDaemonSet(ctx context.Context, owner 
 				WithAffinity(h.desiredSpec.Affinity).
 				WithTolerations(h.desiredSpec.Tolerations).
 				WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
-				WithVolumes([]corev1.Volume{
-					{
-						Name: validationsVolumeName,
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: validationsMountPath,
-								Type: ptr(corev1.HostPathDirectoryOrCreate),
-							},
-						},
-					},
-					{
-						Name: "devicesock",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/var/lib/kubelet/device-plugin",
-							},
-						},
-					},
-					{
-						Name: "plugins-registry",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/var/lib/kubelet/plugins_registry",
-							},
-						},
-					},
-					{
-						Name: "log",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/var/log",
-							},
-						},
-					},
-					{
-						Name: "device-info",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/var/run/k8s.cni.cncf.io/devinfo/dp",
-								Type: &[]corev1.HostPathType{"DirectoryOrCreate"}[0],
-							},
-						},
-					},
-					{
-						Name: "config-volume",
-						VolumeSource: corev1.VolumeSource{
-							ConfigMap: &corev1.ConfigMapVolumeSource{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: h.name + "-config",
-								},
-								Items: []corev1.KeyToPath{
-									{
-										Key:  "config.json",
-										Path: "config.json",
-									},
-								},
-							},
-						},
-					},
-					{
-						Name: owner.Spec.BaseName + "-vfio-manager",
-						VolumeSource: corev1.VolumeSource{
-							ConfigMap: &corev1.ConfigMapVolumeSource{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: owner.Spec.BaseName + "-vfio-manager-config",
-								},
-								DefaultMode: ptr(int32(448)),
-							},
-						},
-					},
-				}).
-				WithInitContainers([]*corev1.Container{
-					driverReady,
-					k8sutil.NewContainerBuilder().
-						WithName("vfio-bind-checker").
-						WithImage(ComposeImageReference(h.desiredSpec.VFIOChecker.Registry, h.desiredSpec.VFIOChecker.Image), h.desiredSpec.VFIOChecker.Version, h.desiredSpec.ImagePullPolicy).
-						WithCommands([]string{
-							"/bin/sh",
-							"-c",
-							`TIMEOUT=300
-START=$(date +%s)
-until /bin/vfio-manage.sh check_bind --all; do
-    if [ $(($(date +%s) - $START)) -gt $TIMEOUT ]; then
-        echo "Timeout waiting for VFIO-PCI binding"
-        exit 1
-    fi
-    echo "Waiting for all VFIO-PCI bindings..."
-    sleep 2
-done
-echo "VFIO-PCI binding check completed."`,
-						}).
-						WithSecurityContext(&corev1.SecurityContext{
-							Privileged: ptr(true),
-							RunAsUser:  ptr(int64(0)),
-						}).
-						WithVolumeMounts([]corev1.VolumeMount{
-							{
-								Name:      owner.Spec.BaseName + "-vfio-manager",
-								MountPath: "/bin/vfio-manage.sh",
-								SubPath:   "vfio-manage.sh",
-								ReadOnly:  true,
-							},
-						}).
-						Build(),
-				}).
+				WithVolumes(h.buildVolumes(owner)).
+				WithInitContainers(h.buildVFIOInitContainers(owner)).
 				WithContainers([]*corev1.Container{
 					k8sutil.NewContainerBuilder().
 						WithName(h.name).
