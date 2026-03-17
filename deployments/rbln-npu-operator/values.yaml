@@ -30,9 +30,9 @@ daemonsets:
 operator:
   # Operator image configuration
   image:
-    registry: harbor.k8s.rebellions.in
+    registry: docker.io
     repository: rebellions/rbln-npu-operator
-    tag: v0.3.1
+    tag: latest
     pullPolicy: Always
   # Resource configuration
   replicas: 1

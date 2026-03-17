@@ -339,16 +339,6 @@ func (h *containerToolkitPatcher) handleDaemonSet(ctx context.Context, owner *rb
 	driverArgs := containerToolkitValidatorArgs(validatorSpec.Args)
 	baseEnv := mergeContainerToolkitEnv(
 		validatorSpec.Env,
-		[]corev1.EnvVar{
-			{
-				Name: "OPERATOR_NAMESPACE",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath: "metadata.namespace",
-					},
-				},
-			},
-		},
 		validatorSpec.Driver.Env,
 	)
 
@@ -368,11 +358,6 @@ func (h *containerToolkitPatcher) handleDaemonSet(ctx context.Context, owner *rb
 				MountPath:        "/host",
 				ReadOnly:         true,
 				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
-			},
-			{
-				Name:      hostUsrBinVolumeName,
-				MountPath: "/host-usr-bin",
-				ReadOnly:  true,
 			},
 			{
 				Name:             validatorHostDriverVolumeName,
@@ -451,15 +436,6 @@ func (h *containerToolkitPatcher) handleDaemonSet(ctx context.Context, owner *rb
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
 					Path: validatorHostRootPath,
-					Type: ptr(corev1.HostPathDirectory),
-				},
-			},
-		},
-		{
-			Name: hostUsrBinVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: hostUsrBinPath,
 					Type: ptr(corev1.HostPathDirectory),
 				},
 			},
@@ -609,7 +585,7 @@ func (h *containerToolkitPatcher) handleDaemonSet(ctx context.Context, owner *rb
 }
 
 func containerToolkitValidatorArgs(baseArgs []string) []string {
-	args := []string{validatorComponentDriver, "--with-wait"}
+	args := []string{validatorComponentDriver}
 	if len(baseArgs) > 0 {
 		args = append(args, baseArgs...)
 	}

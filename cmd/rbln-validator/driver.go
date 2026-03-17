@@ -1,56 +1,48 @@
 package main
 
 import (
-	"context"
 	"log/slog"
-	"path/filepath"
+
+	drivervalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/driver"
+	"github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/statusfile"
 
 	"github.com/spf13/cobra"
 )
 
-const (
-	driverContainerReadyFile   = ".driver-ctr-ready"
-	driverReadyFile            = "driver-ready"
-	driverContainerLibraryPath = "/usr/local/lib/rbln"
-)
-
-func newDriverCommand(builder *configBuilder) *cobra.Command {
+func newDriverCommand(config *rootConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "driver",
 		Short: "Validate driver readiness",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := builder.finalize()
-			if err != nil {
-				return err
-			}
-			return validateDriver(cmd.Context(), cfg)
+			return validateDriver(config.driverConfig(), defaultDriverRuntime())
 		},
 	}
 }
 
-func validateDriver(ctx context.Context, cfg *config) error {
-	if err := deleteStatusFile(filepath.Join(cfg.outputDir, driverReadyFile)); err != nil {
+type driverRuntime struct {
+	validate    func(drivervalidator.Config) (drivervalidator.Result, error)
+	writeStatus func(string, drivervalidator.Result) error
+}
+
+func defaultDriverRuntime() driverRuntime {
+	return driverRuntime{
+		validate:    drivervalidator.Validate,
+		writeStatus: drivervalidator.WriteStatusFile,
+	}
+}
+
+func validateDriver(cfg drivervalidator.Config, rt driverRuntime) error {
+	if err := statusfile.Prepare(cfg.OutputDir, drivervalidator.ReadyFileName); err != nil {
 		return err
 	}
 
-	if err := ensureOutputDir(cfg.outputDir); err != nil {
-		return err
-	}
-
-	driver := &Driver{
-		outputDir:            cfg.outputDir,
-		namespace:            cfg.namespace,
-		withWait:             cfg.withWait,
-		sleepIntervalSeconds: cfg.sleepIntervalSeconds,
-		ctx:                  ctx,
-	}
-	driverInfo, err := driver.runValidation(false)
+	info, err := rt.validate(cfg)
 	if err != nil {
 		slog.Error("driver is not ready", "err", err)
 		return err
 	}
-	slog.Info("driver validation completed", "hostDriver", driverInfo.isHostDriver)
+	slog.Info("driver validation completed", "hostDriver", info.IsHostDriver)
 
-	return driver.createStatusFile(driverInfo)
+	return rt.writeStatus(cfg.OutputDir, info)
 }

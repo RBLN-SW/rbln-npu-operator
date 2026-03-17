@@ -1,12 +1,13 @@
 package main
 
 import (
+	"io"
 	"log/slog"
 	"os"
 	"time"
 )
 
-func initLogger() {
+func newLogger(w io.Writer) *slog.Logger {
 	opts := &slog.HandlerOptions{
 		Level:     slog.LevelDebug,
 		AddSource: true,
@@ -18,15 +19,16 @@ func initLogger() {
 		},
 	}
 
-	handler := slog.NewJSONHandler(os.Stdout, opts)
-	logger := slog.New(handler)
-	slog.SetDefault(logger)
+	return slog.New(slog.NewJSONHandler(w, opts))
+}
+
+func run() error {
+	slog.SetDefault(newLogger(os.Stdout))
+	return NewRBLNValidatorApp().Execute()
 }
 
 func main() {
-	initLogger()
-	app := NewRBLNValidatorApp()
-	if err := app.Execute(); err != nil {
+	if err := run(); err != nil {
 		slog.Error("command execution failed", "err", err)
 		os.Exit(1)
 	}

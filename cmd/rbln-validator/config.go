@@ -1,53 +1,42 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/spf13/cobra"
+
+	drivervalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/driver"
 )
 
 const (
 	defaultOutputDir            = "/run/rbln/validations"
-	defaultOperatorNamespace    = "rbln-system"
 	defaultSleepIntervalSeconds = 5
 
 	envOutputDir            = "OUTPUT_DIR"
-	envNamespace            = "OPERATOR_NAMESPACE"
-	envWithWait             = "WITH_WAIT"
 	envSleepIntervalSeconds = "SLEEP_INTERVAL_SECONDS"
 )
 
-type config struct {
-	namespace            string
+type rootConfig struct {
 	outputDir            string
-	withWait             bool
 	sleepIntervalSeconds int
 }
 
-type configBuilder struct {
-	namespace            string
+type toolkitConfig struct {
 	outputDir            string
-	withWait             bool
 	sleepIntervalSeconds int
 }
 
-func newConfigBuilder() *configBuilder {
-	return &configBuilder{
-		namespace:            envString(envNamespace, defaultOperatorNamespace),
+func newRootConfig() *rootConfig {
+	return &rootConfig{
 		outputDir:            envString(envOutputDir, defaultOutputDir),
-		withWait:             envBool(envWithWait, false),
 		sleepIntervalSeconds: envInt(envSleepIntervalSeconds, defaultSleepIntervalSeconds),
 	}
 }
 
-func (b *configBuilder) bindFlags(cmd *cobra.Command) {
+func (b *rootConfig) bindFlags(cmd *cobra.Command) {
 	flags := cmd.PersistentFlags()
-	flags.StringVar(&b.namespace, "namespace", b.namespace, "namespace where operator resources run")
 	flags.StringVar(&b.outputDir, "output-dir", b.outputDir, "output directory for validation status files")
-	flags.BoolVar(&b.withWait, "with-wait", b.withWait, "wait for validation to complete successfully")
 	flags.IntVar(
 		&b.sleepIntervalSeconds,
 		"sleep-interval-seconds",
@@ -56,49 +45,29 @@ func (b *configBuilder) bindFlags(cmd *cobra.Command) {
 	)
 }
 
-func (b *configBuilder) finalize() (*config, error) {
-	outputDir := strings.TrimSpace(b.outputDir)
-	if outputDir == "" {
-		return nil, fmt.Errorf("output-dir must not be empty")
+func (o *rootConfig) driverConfig() drivervalidator.Config {
+	return drivervalidator.Config{
+		OutputDir:            o.outputDir,
+		SleepIntervalSeconds: o.sleepIntervalSeconds,
 	}
-	namespace := strings.TrimSpace(b.namespace)
-	if namespace == "" {
-		return nil, fmt.Errorf("namespace must not be empty")
-	}
-	if b.sleepIntervalSeconds <= 0 {
-		return nil, fmt.Errorf("sleep-interval-seconds must be greater than 0")
-	}
+}
 
-	return &config{
-		namespace:            namespace,
-		outputDir:            outputDir,
-		withWait:             b.withWait,
-		sleepIntervalSeconds: b.sleepIntervalSeconds,
-	}, nil
+func (o *rootConfig) toolkitConfig() *toolkitConfig {
+	return &toolkitConfig{
+		outputDir:            o.outputDir,
+		sleepIntervalSeconds: o.sleepIntervalSeconds,
+	}
 }
 
 func envString(key string, defaultValue string) string {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return defaultValue
+	if value := os.Getenv(key); value != "" {
+		return value
 	}
-	return value
-}
-
-func envBool(key string, defaultValue bool) bool {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return defaultValue
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return defaultValue
-	}
-	return parsed
+	return defaultValue
 }
 
 func envInt(key string, defaultValue int) int {
-	value := strings.TrimSpace(os.Getenv(key))
+	value := os.Getenv(key)
 	if value == "" {
 		return defaultValue
 	}

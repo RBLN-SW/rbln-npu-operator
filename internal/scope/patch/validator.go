@@ -355,8 +355,8 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 
 	validatorImage := ComposeImageReference(validatorSpec.Registry, validatorSpec.Image)
 
-	driverArgs := validatorComponentArgs(validatorSpec.Args, validatorComponentDriver, true)
-	toolkitArgs := validatorComponentArgs(validatorSpec.Args, validatorComponentToolkit, false)
+	driverArgs := validatorComponentArgs(validatorSpec.Args, validatorComponentDriver)
+	toolkitArgs := validatorComponentArgs(validatorSpec.Args, validatorComponentToolkit)
 	baseEnv := mergeEnvVars(
 		[]corev1.EnvVar{
 			{
@@ -365,16 +365,6 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 			},
 		},
 		validatorSpec.Env,
-		[]corev1.EnvVar{
-			{
-				Name: "OPERATOR_NAMESPACE",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath: "metadata.namespace",
-					},
-				},
-			},
-		},
 	)
 
 	driverEnv := mergeEnvVars(
@@ -401,11 +391,6 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 				MountPath:        "/host",
 				ReadOnly:         true,
 				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
-			},
-			{
-				Name:      hostUsrBinVolumeName,
-				MountPath: "/host-usr-bin",
-				ReadOnly:  true,
 			},
 			{
 				Name:             validatorHostDriverVolumeName,
@@ -526,15 +511,6 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 						},
 					},
 					{
-						Name: hostUsrBinVolumeName,
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: hostUsrBinPath,
-								Type: ptr(corev1.HostPathDirectory),
-							},
-						},
-					},
-					{
 						Name: validatorCDIRootVolumeName,
 						VolumeSource: corev1.VolumeSource{
 							HostPath: &corev1.HostPathVolumeSource{
@@ -566,11 +542,8 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 	return nil
 }
 
-func validatorComponentArgs(baseArgs []string, component string, withWait bool) []string {
+func validatorComponentArgs(baseArgs []string, component string) []string {
 	args := []string{component}
-	if withWait {
-		args = append(args, "--with-wait")
-	}
 	if len(baseArgs) > 0 {
 		args = append(args, baseArgs...)
 	}
