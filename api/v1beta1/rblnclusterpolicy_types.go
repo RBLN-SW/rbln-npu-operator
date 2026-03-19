@@ -31,6 +31,7 @@ type RBLNClusterPolicySpec struct {
 
 	// Namespace of the controller
 	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=rbln-system
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Namespace",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Namespace string `json:"namespace,omitempty"`
 

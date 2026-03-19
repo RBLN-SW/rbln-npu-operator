@@ -1,4 +1,4 @@
-package patch
+package components
 
 const (
 	DaemonSetReady    = "DaemonSetReady"

@@ -1,4 +1,4 @@
-package scope
+package driver
 
 import (
 	"context"
@@ -11,10 +11,10 @@ import (
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/scope/patch"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/driver/components"
 )
 
-type RBLNDriverScope struct {
+type DriverService struct {
 	client client.Client
 
 	ctx              context.Context
@@ -24,10 +24,10 @@ type RBLNDriverScope struct {
 	namespace        string
 	openshiftVersion string
 
-	patcher []patch.DriverPatcher
+	patcher []components.DriverPatcher
 }
 
-func NewRBLNDriverScope(
+func NewDriverService(
 	ctx context.Context,
 	client client.Client,
 	log logr.Logger,
@@ -35,8 +35,8 @@ func NewRBLNDriverScope(
 	driver *rebellionsaiv1alpha1.RBLNDriver,
 	clusterPolicy *rblnv1beta1.RBLNClusterPolicy,
 	openshiftVersion string,
-) (*RBLNDriverScope, error) {
-	s := &RBLNDriverScope{
+) (*DriverService, error) {
+	s := &DriverService{
 		client:           client,
 		ctx:              ctx,
 		log:              log,
@@ -59,16 +59,16 @@ func NewRBLNDriverScope(
 		return nil, err
 	}
 
-	dmp, err := patch.NewDriverManagerPatcher(client, log, s.namespace, driver, scheme, s.openshiftVersion)
+	dmp, err := components.NewDriverManagerPatcher(client, log, s.namespace, driver, scheme, s.openshiftVersion)
 	if err != nil {
-		return s, err
+		return nil, err
 	}
 	s.patcher = append(s.patcher, dmp)
 
 	return s, nil
 }
 
-func (s *RBLNDriverScope) PatchComponents(ctx context.Context) error {
+func (s *DriverService) PatchComponents(ctx context.Context) error {
 	for _, p := range s.patcher {
 		if p.IsEnabled() {
 			if err := p.Patch(ctx, s.singleton); err != nil {

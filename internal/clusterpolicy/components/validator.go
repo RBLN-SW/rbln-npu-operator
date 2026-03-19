@@ -1,4 +1,4 @@
-package patch
+package components
 
 import (
 	"context"
@@ -47,7 +47,7 @@ type validatorPatcher struct {
 	daemonsets       *rblnv1beta1.DaemonsetsSpec
 }
 
-func NewValidatorPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) (Patcher, error) {
+func NewValidatorPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
 	patcher := &validatorPatcher{
 		client: client,
 		log:    log,
@@ -60,7 +60,7 @@ func NewValidatorPatcher(client client.Client, log logr.Logger, namespace string
 	}
 
 	patcher.desiredSpec = &cpSpec.Validator
-	return patcher, nil
+	return patcher
 }
 
 func (h *validatorPatcher) IsEnabled() bool {

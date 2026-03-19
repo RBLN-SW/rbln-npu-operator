@@ -5645,6 +5645,7 @@ spec:
                 description: BaseName of rbln components
                 type: string
               namespace:
+                default: rbln-system
                 description: Namespace of the controller
                 type: string
               npuFeatureDiscovery:
@@ -11063,7 +11064,7 @@ spec:
                 description: Components is a list of components and their status
                 items:
                   properties:
-                    condition:
+                    conditions:
                       items:
                         description: Condition contains details for one aspect of
                           the current state of this API Resource.
@@ -11195,6 +11196,7 @@ spec:
                 enum:
                 - ready
                 - notReady
+                - ignored
                 type: string
             type: object
         type: object

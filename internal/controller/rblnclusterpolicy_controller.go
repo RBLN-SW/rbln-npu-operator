@@ -3,18 +3,15 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	kapierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -25,9 +22,10 @@ import (
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterpolicy"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/scope"
 )
 
 const (
@@ -41,7 +39,7 @@ type RBLNClusterPolicyReconciler struct {
 	Log              logr.Logger
 	Scheme           *runtime.Scheme
 	SingletonCRName  string
-	ClusterInfo      *ClusterInfo
+	ClusterInfo      *clusterinfo.Info
 	conditionUpdater conditions.ConditionUpdater
 }
 
@@ -61,32 +59,107 @@ type RBLNClusterPolicyReconciler struct {
 func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.Log.Info("Reconciling RBLNClusterPolicy", "name", req.Name)
 
-	var err error
+	instance, err := r.fetchClusterPolicy(ctx, req)
+	if err != nil || instance == nil {
+		return ctrl.Result{}, err
+	}
 
-	// Fetch RBLNClusterPolicy instance
+	ignored, err := r.handleSingletonPolicy(ctx, instance)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if ignored {
+		return ctrl.Result{}, nil
+	}
+
+	namespace, err := resolveNamespace(instance)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	service := clusterpolicy.NewClusterPolicyService(
+		r.Client,
+		r.Log,
+		r.Scheme,
+		instance,
+		namespace,
+		r.ClusterInfo.OpenShiftVersion,
+		r.ClusterInfo.ContainerRuntime,
+	)
+
+	err = service.ApplyDriverAutoUpgradeAnnotation(ctx)
+	if err != nil {
+		r.Log.Error(err, "")
+		return ctrl.Result{}, err
+	}
+
+	nfdInstalled, rblnNodes, err := service.LabelNodes(ctx)
+	if err != nil {
+		r.Log.Error(err, "")
+		return ctrl.Result{}, err
+	}
+
+	if !nfdInstalled {
+		r.Log.V(consts.LogLevelWarning).Info("WARNING: NodeFeatureDiscovery is not installed, Rebellions NPU cannot be discovered. Requeue after 30 seconds.")
+		if stateErr := updateCRState(ctx, r, instance, rblnv1beta1.ClusterNotReady); stateErr != nil {
+			r.Log.V(consts.LogLevelDebug).Error(stateErr, "failed to set ClusterPolicy state")
+		}
+		return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+	}
+
+	if rblnNodes == 0 {
+		r.Log.Info("INFO: No Rebellions NPU discovered. Skip further reconciling.")
+		if stateErr := updateCRState(ctx, r, instance, rblnv1beta1.ClusterNotReady); stateErr != nil {
+			r.Log.V(consts.LogLevelDebug).Error(stateErr, "failed to set ClusterPolicy state")
+		}
+		return ctrl.Result{}, nil
+	}
+
+	if err := service.PatchComponents(ctx); err != nil {
+		r.Log.Error(err, "Failed to patch components in RBLNClusterPolicy Scope")
+		return ctrl.Result{}, err
+	}
+
+	if err := service.ReconcileStatus(ctx); err != nil {
+		r.Log.Error(err, "Failed to reconcile status in RBLNClusterPolicy Scope")
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *RBLNClusterPolicyReconciler) fetchClusterPolicy(
+	ctx context.Context,
+	req ctrl.Request,
+) (*rblnv1beta1.RBLNClusterPolicy, error) {
 	instance := &rblnv1beta1.RBLNClusterPolicy{}
-	if err = r.Get(ctx, req.NamespacedName, instance); err != nil {
-		// ignore deleted resource
+	if err := r.Get(ctx, req.NamespacedName, instance); err != nil {
 		if kapierrors.IsNotFound(err) {
-			// reset singleton if resource is deleted
 			if r.SingletonCRName == req.Name {
 				r.SingletonCRName = ""
 				r.Log.V(consts.LogLevelInfo).Info("singleton RBLNClusterPolicy cleared", "name", req.Name)
 			}
-			return ctrl.Result{}, nil
+			return nil, nil
 		}
-		// Error fetching instance. requeue.
-		err = fmt.Errorf("failed to get RBLNClusterPolicy object: %v", err)
-		r.Log.Error(nil, err.Error())
 
-		return ctrl.Result{}, err
+		wrappedErr := fmt.Errorf("failed to get RBLNClusterPolicy object: %w", err)
+		r.Log.Error(err, "failed to get RBLNClusterPolicy object")
+		return nil, wrappedErr
 	}
 
-	// RBLNClusterPolicy CR must be unique. Ignore except main CR
+	return instance, nil
+}
+
+func (r *RBLNClusterPolicyReconciler) handleSingletonPolicy(
+	ctx context.Context,
+	instance *rblnv1beta1.RBLNClusterPolicy,
+) (bool, error) {
 	if r.SingletonCRName != "" && r.SingletonCRName != instance.Name {
 		r.Log.V(consts.LogLevelDebug).Info("Set RBLNClusterPolicy status as ignored")
-		updateCRState(ctx, r, req.NamespacedName, rblnv1beta1.ClusterIgnored)
-		return ctrl.Result{}, nil
+		if err := updateCRState(ctx, r, instance, rblnv1beta1.ClusterIgnored); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 
 	if r.SingletonCRName == "" {
@@ -94,135 +167,34 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		r.Log.Info("Set singleton RBLNClusterPolicy", "name", instance.Name)
 	}
 
-	// Initialize RBLNClusterPolicyScope
-	cpScope, err := scope.NewRBLNClusterPolicyScope(ctx, r.Client, r.Log, r.Scheme, instance, r.ClusterInfo.OpenshiftVersion, r.ClusterInfo.ContainerRuntime)
-	if err != nil {
-		err = fmt.Errorf("failed to initialize RBLNClusterPolicy Scope: %v", err)
-		updateCRState(ctx, r, req.NamespacedName, rblnv1beta1.ClusterNotReady)
-		condErr := r.conditionUpdater.SetConditionsError(ctx, instance, conditions.ReconcileFailed, err.Error())
-		if condErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(nil, condErr.Error())
-		}
-		r.Log.Error(nil, err.Error())
-		return ctrl.Result{}, err
-	}
-
-	err = cpScope.ApplyDriverAutoUpgradeAnnotation()
-	if err != nil {
-		r.Log.Error(err, "")
-		return ctrl.Result{}, err
-	}
-
-	nfdInstalled, rblnNodes, err := cpScope.LabelRblnNodes()
-	if err != nil {
-		r.Log.Error(err, "")
-		return ctrl.Result{}, err
-	}
-	if !nfdInstalled {
-		r.Log.V(consts.LogLevelWarning).Info("WARNING: NodeFeatureDiscovery is not installed, Rebellions NPU cannot be discovered. Requeue after 30 seconds.")
-		updateCRState(ctx, r, req.NamespacedName, rblnv1beta1.ClusterNotReady)
-		return ctrl.Result{RequeueAfter: time.Second * 30}, nil
-	}
-
-	// no rebellions nodes in this cluster. skip further reconciling
-	if rblnNodes == 0 {
-		r.Log.Info("INFO: No Rebellions NPU discovered. Skip further reconciling.")
-		updateCRState(ctx, r, req.NamespacedName, rblnv1beta1.ClusterNotReady)
-		return ctrl.Result{}, nil
-	}
-
-	// patch components
-	if err := cpScope.PatchComponents(ctx); err != nil {
-		r.Log.Error(err, "Failed to patch components in RBLNClusterPolicy Scope")
-		return ctrl.Result{}, err
-	}
-
-	return r.reconcileStatus(ctx, instance, cpScope)
+	return false, nil
 }
 
-func (r *RBLNClusterPolicyReconciler) setClusterReadyStatus(
-	rblnPolicy *rblnv1beta1.RBLNClusterPolicy, componentCount int,
-) {
-	rblnPolicy.SetStatus(rblnv1beta1.ClusterReady)
-	meta.SetStatusCondition(&rblnPolicy.Status.Conditions, metav1.Condition{
-		Type:    consts.RBLNConditionTypeComponentsReady,
-		Status:  metav1.ConditionTrue,
-		Reason:  "AllComponentsReady",
-		Message: "All managed components are Ready",
-	})
-	meta.SetStatusCondition(&rblnPolicy.Status.Conditions, metav1.Condition{
-		Type:    consts.RBLNConditionTypeReady,
-		Status:  metav1.ConditionTrue,
-		Reason:  "AllComponentsReady",
-		Message: fmt.Sprintf("All components are Ready (%d/%d)", componentCount, componentCount),
-	})
+func resolveNamespace(instance *rblnv1beta1.RBLNClusterPolicy) (string, error) {
+	if instance.Spec.Namespace != "" {
+		return instance.Spec.Namespace, nil
+	}
+	if namespace := os.Getenv("OPERATOR_NAMESPACE"); namespace != "" {
+		return namespace, nil
+	}
+	return "", fmt.Errorf("namespace is not configured. Set OPERATOR_NAMESPACE env variable or spec.namespace")
 }
 
-func (r *RBLNClusterPolicyReconciler) setClusterNotReadyStatus(
-	rblnPolicy *rblnv1beta1.RBLNClusterPolicy,
-	components []rblnv1beta1.RBLNComponentStatus,
-) {
-	rblnPolicy.SetStatus(rblnv1beta1.ClusterNotReady)
-	notReadyComponents := make([]string, 0, len(components))
-	for _, cs := range components {
-		if cs.State == rblnv1beta1.ComponentStateReady {
-			continue
-		}
-		notReadyComponents = append(notReadyComponents, fmt.Sprintf("%s/%s", cs.Namespace, cs.Name))
-	}
-	message := fmt.Sprintf("Components not ready: %s", strings.Join(notReadyComponents, ", "))
-	meta.SetStatusCondition(&rblnPolicy.Status.Conditions, metav1.Condition{
-		Type:    consts.RBLNConditionTypeComponentsReady,
-		Status:  metav1.ConditionFalse,
-		Reason:  "SomeComponentsNotReady",
-		Message: message,
-	})
-	meta.SetStatusCondition(&rblnPolicy.Status.Conditions, metav1.Condition{
-		Type:    consts.RBLNConditionTypeReady,
-		Status:  metav1.ConditionFalse,
-		Reason:  "SomeComponentsNotReady",
-		Message: message,
-	})
-}
-
-func (r *RBLNClusterPolicyReconciler) reconcileStatus(ctx context.Context, rblnPolicy *rblnv1beta1.RBLNClusterPolicy, cpScope *scope.RBLNClusterPolicyScope) (ctrl.Result, error) {
-	componentsStatus := cpScope.AssembleComponentConditions(ctx)
-	instance := &rblnv1beta1.RBLNClusterPolicy{}
-	err := r.Get(ctx, types.NamespacedName{Name: rblnPolicy.Name}, instance)
-	if err != nil {
-		r.Log.Error(err, "Failed to get ClusterPolicy instance for status update", "name", rblnPolicy.Name)
-		return ctrl.Result{}, err
-	}
-
-	instance.Status.Components = componentsStatus
-
-	if allComponentsReady(componentsStatus) {
-		r.setClusterReadyStatus(instance, len(componentsStatus))
-	} else {
-		r.setClusterNotReadyStatus(instance, componentsStatus)
-	}
-
-	if err := r.Client.Status().Update(ctx, instance); err != nil {
-		r.Log.Error(err, "Failed to update RBLNClusterPolicy status")
-		return ctrl.Result{}, fmt.Errorf("failed to update RBLNClusterPolicy status: %w", err)
-	}
-	return ctrl.Result{}, nil
-}
-
-func updateCRState(ctx context.Context, r *RBLNClusterPolicyReconciler, namespacedName types.NamespacedName, state rblnv1beta1.ClusterState) {
-	instance := &rblnv1beta1.RBLNClusterPolicy{}
-	err := r.Get(ctx, namespacedName, instance)
-	if err != nil {
-		r.Log.Error(err, "Failed to get ClusterPolicy instance for status update")
-	}
+func updateCRState(
+	ctx context.Context,
+	r *RBLNClusterPolicyReconciler,
+	instance *rblnv1beta1.RBLNClusterPolicy,
+	state rblnv1beta1.ClusterState,
+) error {
 	if instance.Status.State == state {
-		return
+		return nil
 	}
 	instance.SetStatus(state)
-	err = r.Client.Status().Update(ctx, instance)
-	if err != nil {
+	if err := r.Client.Status().Update(ctx, instance); err != nil {
 		r.Log.Error(err, "Failed to update ClusterPolicy status")
+		return err
 	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -275,13 +247,4 @@ func (r *RBLNClusterPolicyReconciler) rblnNodeLabelUpdated() predicate.Funcs {
 			return !reflect.DeepEqual(oldRblnLabels, newRblnLabels)
 		},
 	}
-}
-
-func allComponentsReady(components []rblnv1beta1.RBLNComponentStatus) bool {
-	for _, cs := range components {
-		if cs.State != rblnv1beta1.ComponentStateReady {
-			return false
-		}
-	}
-	return true
 }

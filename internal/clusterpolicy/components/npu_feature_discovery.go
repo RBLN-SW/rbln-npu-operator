@@ -1,4 +1,4 @@
-package patch
+package components
 
 import (
 	"context"
@@ -31,7 +31,7 @@ type npuFeatureDiscoveryPatcher struct {
 	openshiftVersion string
 }
 
-func NewNPUFeatureDiscoveryPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) (Patcher, error) {
+func NewNPUFeatureDiscoveryPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
 	patcher := &npuFeatureDiscoveryPatcher{
 		client: client,
 		log:    log,
@@ -44,7 +44,7 @@ func NewNPUFeatureDiscoveryPatcher(client client.Client, log logr.Logger, namesp
 
 	synced := syncSpec(cpSpec, cpSpec.NPUFeatureDiscovery)
 	patcher.desiredSpec = &synced
-	return patcher, nil
+	return patcher
 }
 
 func (h *npuFeatureDiscoveryPatcher) IsEnabled() bool {

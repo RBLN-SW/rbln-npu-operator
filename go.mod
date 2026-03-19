@@ -6,6 +6,7 @@ require (
 	github.com/go-logr/logr v1.4.3
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
+	github.com/openshift/api v0.0.0-20260218112846-22c744831738
 	github.com/openshift/client-go v0.0.0-20260219131751-7e63ce155298
 	github.com/spf13/cobra v1.10.0
 	go.uber.org/zap v1.27.0
@@ -102,7 +103,6 @@ require (
 	github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0-rc6 // indirect
-	github.com/openshift/api v0.0.0-20260218112846-22c744831738 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

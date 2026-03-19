@@ -6,7 +6,7 @@
 name: rbln
 
 # Namespace for namespaced components managed by RBLNClusterPolicy.
-# When empty, the operator namespace (OPERATOR_NAMESPACE) is used.
+# When empty, spec.namespace is omitted and the CRD default `rbln-system` is used.
 namespace: ""
 
 # Node Feature Discovery dependency
@@ -33,7 +33,7 @@ operator:
     registry: docker.io
     repository: rebellions/rbln-npu-operator
     tag: latest
-    pullPolicy: Always
+    pullPolicy: IfNotPresent
   # Resource configuration
   replicas: 1
   resources:

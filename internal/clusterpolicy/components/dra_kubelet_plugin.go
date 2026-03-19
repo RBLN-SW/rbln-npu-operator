@@ -1,4 +1,4 @@
-package patch
+package components
 
 import (
 	"context"
@@ -44,7 +44,7 @@ type draKubeletPluginPatcher struct {
 	openshiftVersion string
 }
 
-func NewDRAKubeletPluginPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) (Patcher, error) {
+func NewDRAKubeletPluginPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
 	patcher := &draKubeletPluginPatcher{
 		client: client,
 		log:    log,
@@ -57,7 +57,7 @@ func NewDRAKubeletPluginPatcher(client client.Client, log logr.Logger, namespace
 
 	synced := syncSpec(cpSpec, cpSpec.DRAKubeletPlugin)
 	patcher.desiredSpec = &synced
-	return patcher, nil
+	return patcher
 }
 
 func (h *draKubeletPluginPatcher) IsEnabled() bool {

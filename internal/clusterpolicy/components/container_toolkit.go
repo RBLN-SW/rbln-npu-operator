@@ -1,4 +1,4 @@
-package patch
+package components
 
 import (
 	"context"
@@ -52,7 +52,7 @@ type containerToolkitPatcher struct {
 	containerRuntime string
 }
 
-func NewContainerToolkitPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string, containerRuntime string) (Patcher, error) {
+func NewContainerToolkitPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string, containerRuntime string) Patcher {
 	patcher := &containerToolkitPatcher{
 		client: client,
 		log:    log,
@@ -66,7 +66,7 @@ func NewContainerToolkitPatcher(client client.Client, log logr.Logger, namespace
 
 	synced := syncSpec(cpSpec, cpSpec.ContainerToolkit)
 	patcher.desiredSpec = &synced
-	return patcher, nil
+	return patcher
 }
 
 func (h *containerToolkitPatcher) IsEnabled() bool {

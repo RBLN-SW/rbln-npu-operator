@@ -1,4 +1,4 @@
-package patch
+package components
 
 import (
 	"context"
@@ -32,7 +32,7 @@ type vfioManagerPatcher struct {
 	openshiftVersion string
 }
 
-func NewVFIOManagerPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) (Patcher, error) {
+func NewVFIOManagerPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
 	patcher := &vfioManagerPatcher{
 		client: client,
 		log:    log,
@@ -45,7 +45,7 @@ func NewVFIOManagerPatcher(client client.Client, log logr.Logger, namespace stri
 
 	synced := syncSpec(cpSpec, cpSpec.VFIOManager)
 	patcher.desiredSpec = &synced
-	return patcher, nil
+	return patcher
 }
 
 func (h *vfioManagerPatcher) IsEnabled() bool {
@@ -662,8 +662,4 @@ func (h *vfioManagerPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1b
 
 	h.log.Info("Reconciled VFIOManager DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", dsRes)
 	return nil
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }

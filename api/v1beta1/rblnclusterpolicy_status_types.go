@@ -6,7 +6,6 @@ import (
 
 type (
 	ClusterState   string
-	NodeState      string
 	ComponentState string
 )
 
@@ -22,15 +21,15 @@ const (
 )
 
 type RBLNComponentStatus struct {
-	Name      string             `json:"name"`
-	Namespace string             `json:"namespace"`
-	State     ComponentState     `json:"state"`
-	Condition []metav1.Condition `json:"condition,omitempty"`
+	Name       string             `json:"name"`
+	Namespace  string             `json:"namespace"`
+	State      ComponentState     `json:"state"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // RBLNClusterPolicyStatus defines the observed state of RBLNClusterPolicy
 type RBLNClusterPolicyStatus struct {
-	// +kubebuilder:validation:Enum=ready;notReady
+	// +kubebuilder:validation:Enum=ready;notReady;ignored
 	// +optional
 	// State indicates status of ClusterPolicy
 	State ClusterState `json:"state,omitempty"`

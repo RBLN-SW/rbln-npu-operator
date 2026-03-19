@@ -39,8 +39,9 @@ import (
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/scope"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/driver"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/validator"
 )
 
@@ -49,7 +50,7 @@ type RBLNDriverReconciler struct {
 	client.Client
 	Log                   logr.Logger
 	Scheme                *runtime.Scheme
-	ClusterInfo           *ClusterInfo
+	ClusterInfo           *clusterinfo.Info
 	nodeSelectorValidator validator.NodeSelectorValidator
 }
 
@@ -122,16 +123,16 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	openshiftVersion := ""
 	if r.ClusterInfo != nil {
-		openshiftVersion = r.ClusterInfo.OpenshiftVersion
+		openshiftVersion = r.ClusterInfo.OpenShiftVersion
 	}
-	driverScope, err := scope.NewRBLNDriverScope(ctx, r.Client, r.Log, r.Scheme, instance, &clusterPolicyInstance, openshiftVersion)
+	driverService, err := driver.NewDriverService(ctx, r.Client, r.Log, r.Scheme, instance, &clusterPolicyInstance, openshiftVersion)
 	if err != nil {
-		r.Log.Error(err, "failed to initialize RBLNDriver scope")
+		r.Log.Error(err, "failed to initialize RBLNDriver service")
 		r.setDriverStatusError(ctx, instance, err)
 		return ctrl.Result{}, err
 	}
 
-	if err := driverScope.PatchComponents(ctx); err != nil {
+	if err := driverService.PatchComponents(ctx); err != nil {
 		r.Log.Error(err, "failed to patch driver manager resources")
 		r.setDriverStatusError(ctx, instance, err)
 		return ctrl.Result{}, err

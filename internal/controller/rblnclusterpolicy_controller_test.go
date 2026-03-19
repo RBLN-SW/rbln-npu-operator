@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
 )
 
 var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
@@ -88,8 +89,8 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			reconciler = &RBLNClusterPolicyReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
-				ClusterInfo: &ClusterInfo{
-					OpenshiftVersion: "",
+				ClusterInfo: &clusterinfo.Info{
+					OpenShiftVersion: "",
 				},
 			}
 
@@ -184,8 +185,8 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			reconciler = &RBLNClusterPolicyReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
-				ClusterInfo: &ClusterInfo{
-					OpenshiftVersion: "",
+				ClusterInfo: &clusterinfo.Info{
+					OpenShiftVersion: "",
 				},
 			}
 
@@ -244,8 +245,8 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			reconciler = &RBLNClusterPolicyReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
-				ClusterInfo: &ClusterInfo{
-					OpenshiftVersion: "v4.14.0",
+				ClusterInfo: &clusterinfo.Info{
+					OpenShiftVersion: "v4.14.0",
 				},
 			}
 

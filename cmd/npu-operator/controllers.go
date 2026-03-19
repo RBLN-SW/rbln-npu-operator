@@ -8,16 +8,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/controller"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
 )
 
 func registerControllers(ctx context.Context, mgr ctrl.Manager) error {
-	clusterInfo, err := controller.NewClusterInfo(ctx, mgr.GetConfig())
+	clusterInfo, err := clusterinfo.New(ctx, mgr.GetConfig())
 	if err != nil {
 		return fmt.Errorf("get cluster info: %w", err)
 	}
-	setupLog.Info("openshift version", "version", clusterInfo.OpenshiftVersion)
+	setupLog.Info("openshift version", "version", clusterInfo.OpenShiftVersion)
 
 	if err := registerClusterPolicyController(mgr, clusterInfo); err != nil {
 		return err
@@ -31,7 +32,7 @@ func registerControllers(ctx context.Context, mgr ctrl.Manager) error {
 	return nil
 }
 
-func registerClusterPolicyController(mgr ctrl.Manager, clusterInfo *controller.ClusterInfo) error {
+func registerClusterPolicyController(mgr ctrl.Manager, clusterInfo *clusterinfo.Info) error {
 	if err := (&controller.RBLNClusterPolicyReconciler{
 		Client:      mgr.GetClient(),
 		Log:         ctrl.Log.WithName("controllers").WithName("RBLNClusterPolicy"),
@@ -71,7 +72,7 @@ func registerUpgradeController(ctx context.Context, mgr ctrl.Manager) error {
 	return nil
 }
 
-func registerDriverController(mgr ctrl.Manager, clusterInfo *controller.ClusterInfo) error {
+func registerDriverController(mgr ctrl.Manager, clusterInfo *clusterinfo.Info) error {
 	if err := (&controller.RBLNDriverReconciler{
 		Client:      mgr.GetClient(),
 		Log:         ctrl.Log.WithName("controllers").WithName("RBLNDriver"),

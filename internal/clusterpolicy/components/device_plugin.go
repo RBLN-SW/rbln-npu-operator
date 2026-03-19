@@ -1,4 +1,4 @@
-package patch
+package components
 
 import (
 	"context"
@@ -16,43 +16,46 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
-
-	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 )
 
-type sandboxDevicePluginPatcher struct {
+const (
+	hostUsrBinMountPath       = "/host/usr/bin"
+	hostDriverUsrBinPath      = "/run/rbln/driver/usr/bin"
+	hostDriverUsrBinName      = "host-driver-usr-bin"
+	hostDriverUsrBinMountPath = "/host/driver/usr/bin"
+)
+
+type devicePluginPatcher struct {
 	client client.Client
 	log    logr.Logger
 	scheme *runtime.Scheme
 
-	desiredSpec      *rblnv1beta1.RBLNSandboxDevicePluginSpec
+	desiredSpec      *rblnv1beta1.RBLNDevicePluginSpec
 	name             string
 	namespace        string
 	openshiftVersion string
 }
 
-func NewSandboxDevicePluginPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) (Patcher, error) {
-	patcher := &sandboxDevicePluginPatcher{
+func NewDevicePluginPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
+	patcher := &devicePluginPatcher{
 		client: client,
 		log:    log,
 		scheme: scheme,
 
-		name:             cpSpec.BaseName + "-" + consts.RBLNSandboxDevicePluginName,
+		name:             cpSpec.BaseName + "-" + consts.RBLNDevicePluginName,
 		namespace:        namespace,
 		openshiftVersion: openshiftVersion,
 	}
 
-	if cpSpec.SandboxDevicePlugin.IsEnabled() {
-		synced := syncSpec(cpSpec, cpSpec.SandboxDevicePlugin)
-		patcher.desiredSpec = &synced
-	}
-
-	return patcher, nil
+	synced := syncSpec(cpSpec, cpSpec.DevicePlugin)
+	patcher.desiredSpec = &synced
+	return patcher
 }
 
-func (h *sandboxDevicePluginPatcher) IsEnabled() bool {
+func (h *devicePluginPatcher) IsEnabled() bool {
 	if h.desiredSpec == nil {
 		return false
 	}
@@ -60,7 +63,7 @@ func (h *sandboxDevicePluginPatcher) IsEnabled() bool {
 	return h.desiredSpec.IsEnabled()
 }
 
-func (h *sandboxDevicePluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+func (h *devicePluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	if !h.desiredSpec.IsEnabled() {
 		return nil
 	}
@@ -83,6 +86,7 @@ func (h *sandboxDevicePluginPatcher) Patch(ctx context.Context, owner *rblnv1bet
 	if err := h.handleConfigMap(ctx, owner); err != nil {
 		return err
 	}
+
 	// reconcile daemonset
 	if err := h.handleDaemonSet(ctx, owner); err != nil {
 		return err
@@ -91,8 +95,8 @@ func (h *sandboxDevicePluginPatcher) Patch(ctx context.Context, owner *rblnv1bet
 	return nil
 }
 
-func (h *sandboxDevicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.Info("WARNING: Sandbox Device Plugin is disabled. Remove all Sandbox Device Plugin resources")
+func (h *devicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	h.log.Info("WARNING: Device Plugin is disabled. Remove all Device Plugin resources")
 	if err := h.client.Delete(ctx, &v1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      h.name,
@@ -139,7 +143,7 @@ func (h *sandboxDevicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1b
 	return nil
 }
 
-func (h *sandboxDevicePluginPatcher) ConditionReport(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) ([]metav1.Condition, error) {
+func (h *devicePluginPatcher) ConditionReport(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) ([]metav1.Condition, error) {
 	var ds v1.DaemonSet
 	if err := h.client.Get(ctx, types.NamespacedName{Name: h.name, Namespace: h.namespace}, &ds); err != nil {
 		return []metav1.Condition{{
@@ -189,15 +193,15 @@ func (h *sandboxDevicePluginPatcher) ConditionReport(ctx context.Context, owner 
 	}, nil
 }
 
-func (h *sandboxDevicePluginPatcher) ComponentName() string {
+func (h *devicePluginPatcher) ComponentName() string {
 	return h.name
 }
 
-func (h *sandboxDevicePluginPatcher) ComponentNamespace() string {
+func (h *devicePluginPatcher) ComponentNamespace() string {
 	return h.namespace
 }
 
-func (h *sandboxDevicePluginPatcher) handleServiceAccount(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+func (h *devicePluginPatcher) handleServiceAccount(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	builder := k8sutil.NewServiceAccountBuilder(h.name, h.namespace)
 	sa := builder.Build()
 
@@ -206,14 +210,14 @@ func (h *sandboxDevicePluginPatcher) handleServiceAccount(ctx context.Context, o
 		return nil
 	})
 	if err != nil {
-		h.log.Error(err, "Failed to reconcile RBLNSandboxDevicePlugin ServiceAccount")
+		h.log.Error(err, "Failed to reconcile RBLNDevicePlugin ServiceAccount")
 		return err
 	}
-	h.log.Info("Reconciled RBLNSandboxDevicePlugin ServiceAccount", "namespace", sa.Namespace, "name", sa.Name, "result", saRes)
+	h.log.Info("Reconciled RBLNDevicePlugin ServiceAccount", "namespace", sa.Namespace, "name", sa.Name, "result", saRes)
 	return nil
 }
 
-func (h *sandboxDevicePluginPatcher) handleRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+func (h *devicePluginPatcher) handleRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	builder := k8sutil.NewRoleBuilder(h.name, h.namespace)
 	rb := builder.Build()
 
@@ -229,14 +233,14 @@ func (h *sandboxDevicePluginPatcher) handleRole(ctx context.Context, owner *rbln
 		return nil
 	})
 	if err != nil {
-		h.log.Error(err, "Failed to reconcile RBLNSandboxDevicePlugin Role")
+		h.log.Error(err, "Failed to reconcile RBLNDevicePlugin Role")
 		return err
 	}
-	h.log.Info("Reconciled RBLNSandboxDevicePlugin Role", "namespace", rb.Namespace, "name", rb.Name, "result", roleRes)
+	h.log.Info("Reconciled RBLNDevicePlugin Role", "namespace", rb.Namespace, "name", rb.Name, "result", roleRes)
 	return nil
 }
 
-func (h *sandboxDevicePluginPatcher) handleRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+func (h *devicePluginPatcher) handleRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	builder := k8sutil.NewRoleBindingBuilder(h.name, h.namespace)
 	rbb := builder.Build()
 
@@ -256,14 +260,14 @@ func (h *sandboxDevicePluginPatcher) handleRoleBinding(ctx context.Context, owne
 		return nil
 	})
 	if err != nil {
-		h.log.Error(err, "Failed to reconcile RBLNSandboxDevicePlugin RoleBinding")
+		h.log.Error(err, "Failed to reconcile RBLNDevicePlugin RoleBinding")
 		return err
 	}
-	h.log.Info("Reconciled RBLNSandboxDevicePlugin RoleBinding", "namespace", rbb.Namespace, "name", rbb.Name, "result", roleBindingRes)
+	h.log.Info("Reconciled RBLNDevicePlugin RoleBinding", "namespace", rbb.Namespace, "name", rbb.Name, "result", roleBindingRes)
 	return nil
 }
 
-func (h *sandboxDevicePluginPatcher) buildSandboxDevicePluginConfig() (string, error) {
+func (h *devicePluginPatcher) buildDevicePluginConfig() (string, error) {
 	configResources := make([]configResource, 0)
 
 	for _, resource := range h.desiredSpec.ResourceList {
@@ -280,7 +284,7 @@ func (h *sandboxDevicePluginPatcher) buildSandboxDevicePluginConfig() (string, e
 			DeviceType:     consts.DeviceTypeAccelerator,
 			Selectors: deviceSelector{
 				Vendors: []string{consts.RBLNVendorCode},
-				Drivers: []string{consts.RBLNSandboxDriverName},
+				Drivers: []string{consts.RBLNDriverName},
 				Devices: devices,
 			},
 		})
@@ -291,20 +295,20 @@ func (h *sandboxDevicePluginPatcher) buildSandboxDevicePluginConfig() (string, e
 	}
 	configDataBytes, err := json.MarshalIndent(configFile, "", "  ")
 	if err != nil {
-		h.log.Error(err, "Failed to marshal sandbox device plugin config")
+		h.log.Error(err, "Failed to marshal device plugin config")
 		return "", err
 	}
 
 	return string(configDataBytes), nil
 }
 
-func (h *sandboxDevicePluginPatcher) handleConfigMap(ctx context.Context, cp *rblnv1beta1.RBLNClusterPolicy) error {
+func (h *devicePluginPatcher) handleConfigMap(ctx context.Context, cp *rblnv1beta1.RBLNClusterPolicy) error {
 	builder := k8sutil.NewConfigMapBuilder(h.name+"-config", h.namespace)
 	cm := builder.Build()
 
-	configData, err := h.buildSandboxDevicePluginConfig()
+	configData, err := h.buildDevicePluginConfig()
 	if err != nil {
-		h.log.Error(err, "Failed to build sandbox device plugin config")
+		h.log.Error(err, "Failed to build device plugin config")
 		return err
 	}
 
@@ -318,144 +322,37 @@ func (h *sandboxDevicePluginPatcher) handleConfigMap(ctx context.Context, cp *rb
 		return nil
 	})
 	if err != nil {
-		h.log.Error(err, "Failed to reconcile RBLNSandboxDevicePlugin ConfigMap")
+		h.log.Error(err, "Failed to reconcile RBLNDevicePlugin ConfigMap")
 		return err
 	}
 
-	h.log.Info("Reconciled RBLNSandboxDevicePlugin ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", cmRes)
+	h.log.Info("Reconciled RBLNDevicePlugin ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", cmRes)
 	return nil
 }
 
-func (h *sandboxDevicePluginPatcher) buildVolumes(owner *rblnv1beta1.RBLNClusterPolicy) []corev1.Volume {
-	volumes := []corev1.Volume{
-		{
-			Name: validationsVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: validationsMountPath,
-					Type: ptr(corev1.HostPathDirectoryOrCreate),
-				},
-			},
-		},
-		{
-			Name: "devicesock",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/var/lib/kubelet/device-plugin",
-				},
-			},
-		},
-		{
-			Name: "plugins-registry",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/var/lib/kubelet/plugins_registry",
-				},
-			},
-		},
-		{
-			Name: "log",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/var/log",
-				},
-			},
-		},
-		{
-			Name: "device-info",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/var/run/k8s.cni.cncf.io/devinfo/dp",
-					Type: &[]corev1.HostPathType{"DirectoryOrCreate"}[0],
-				},
-			},
-		},
-		{
-			Name: "config-volume",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: h.name + "-config",
-					},
-					Items: []corev1.KeyToPath{
-						{
-							Key:  "config.json",
-							Path: "config.json",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	if owner.Spec.VFIOManager.IsEnabled() {
-		volumes = append(volumes, corev1.Volume{
-			Name: owner.Spec.BaseName + "-vfio-manager",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: owner.Spec.BaseName + "-vfio-manager-config",
-					},
-					DefaultMode: ptr(int32(448)),
-				},
-			},
-		})
-	}
-
-	return volumes
-}
-
-func (h *sandboxDevicePluginPatcher) buildVFIOBindCheckerInitContainer(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.Container {
-	return k8sutil.NewContainerBuilder().
-		WithName("vfio-bind-checker").
-		WithImage(
-			ComposeImageReference(h.desiredSpec.VFIOChecker.Registry, h.desiredSpec.VFIOChecker.Image),
-			h.desiredSpec.VFIOChecker.Version,
-			h.desiredSpec.ImagePullPolicy,
-		).
-		WithCommands([]string{
-			"/bin/sh",
-			"-c",
-			`TIMEOUT=300
-START=$(date +%s)
-until /bin/vfio-manage.sh check_bind --all; do
-    if [ $(($(date +%s) - $START)) -gt $TIMEOUT ]; then
-        echo "Timeout waiting for VFIO-PCI binding"
-        exit 1
-    fi
-    echo "Waiting for all VFIO-PCI bindings..."
-    sleep 2
-done
-echo "VFIO-PCI binding check completed."`,
-		}).
+func (h *devicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
+	ds := builder.Build()
+	validatorSpec := owner.Spec.Validator
+	initContainer := k8sutil.NewContainerBuilder().
+		WithName("toolkit-validation").
+		WithImage(ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, validatorSpec.ImagePullPolicy).
+		WithCommands([]string{"sh", "-c"}).
+		WithArgs([]string{"until [ -f /run/rbln/validations/toolkit-ready ]; do echo waiting for rbln container stack to be setup; sleep 5; done"}).
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged: ptr(true),
-			RunAsUser:  ptr(int64(0)),
 		}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{
-				Name:      owner.Spec.BaseName + "-vfio-manager",
-				MountPath: "/bin/vfio-manage.sh",
-				SubPath:   "vfio-manage.sh",
-				ReadOnly:  true,
+				Name:             validationsVolumeName,
+				MountPath:        validationsMountPath,
+				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
 			},
 		}).
 		Build()
-}
-
-func (h *sandboxDevicePluginPatcher) buildVFIOInitContainers(owner *rblnv1beta1.RBLNClusterPolicy) []*corev1.Container {
-	if !owner.Spec.VFIOManager.IsEnabled() {
-		return []*corev1.Container{}
+	if validatorSpec.ImagePullPolicy == "" {
+		initContainer.ImagePullPolicy = corev1.PullIfNotPresent
 	}
-
-	return []*corev1.Container{
-		h.buildVFIOBindCheckerInitContainer(owner),
-	}
-}
-
-func (h *sandboxDevicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
-	ds := builder.Build()
 	dsRes, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
 		ds = builder.
 			WithLabelSelectors(map[string]string{"app": h.name}).
@@ -463,18 +360,111 @@ func (h *sandboxDevicePluginPatcher) handleDaemonSet(ctx context.Context, owner 
 			WithAnnotations(h.desiredSpec.Annotations).
 			WithPodSpec(k8sutil.NewPodSpecBuilder().
 				WithServiceAccountName(h.name).
-				WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.sandbox-device-plugin": "true"}).
+				WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.device-plugin": "true"}).
 				WithAffinity(h.desiredSpec.Affinity).
 				WithTolerations(h.desiredSpec.Tolerations).
 				WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
-				WithVolumes(h.buildVolumes(owner)).
-				WithInitContainers(h.buildVFIOInitContainers(owner)).
+				WithVolumes([]corev1.Volume{
+					{
+						Name: validationsVolumeName,
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: validationsMountPath,
+								Type: ptr(corev1.HostPathDirectoryOrCreate),
+							},
+						},
+					},
+					{
+						Name: "devicesock",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/var/lib/kubelet/device-plugin",
+							},
+						},
+					},
+					{
+						Name: "plugins-registry",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/var/lib/kubelet/plugins_registry",
+							},
+						},
+					},
+					{
+						Name: "log",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/var/log",
+							},
+						},
+					},
+					{
+						Name: "device-info",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/var/run/k8s.cni.cncf.io/devinfo/dp",
+								Type: &[]corev1.HostPathType{"DirectoryOrCreate"}[0],
+							},
+						},
+					},
+					{
+						Name: "config-volume",
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: h.name + "-config",
+								},
+								Items: []corev1.KeyToPath{
+									{
+										Key:  "config.json",
+										Path: "config.json",
+									},
+								},
+							},
+						},
+					},
+					{
+						Name: "host-sys",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/sys",
+								Type: ptr(corev1.HostPathDirectory),
+							},
+						},
+					},
+					{
+						Name: "host-dev",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/dev",
+								Type: ptr(corev1.HostPathDirectory),
+							},
+						},
+					},
+					{
+						Name: hostUsrBinVolumeName,
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: hostUsrBinPath,
+								Type: ptr(corev1.HostPathDirectory),
+							},
+						},
+					},
+					{
+						Name: hostDriverUsrBinName,
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: hostDriverUsrBinPath,
+								Type: ptr(corev1.HostPathDirectoryOrCreate),
+							},
+						},
+					},
+				}).
+				WithInitContainers([]*corev1.Container{initContainer}).
 				WithContainers([]*corev1.Container{
 					k8sutil.NewContainerBuilder().
 						WithName(h.name).
 						WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
-						WithCommands([]string{"/usr/bin/sriovdp"}).
-						WithArgs([]string{"-v=10", "--logtostderr", "--use-cdi=false"}).
 						WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 						WithVolumeMounts([]corev1.VolumeMount{
 							{
@@ -499,6 +489,28 @@ func (h *sandboxDevicePluginPatcher) handleDaemonSet(ctx context.Context, owner 
 								Name:      "config-volume",
 								MountPath: "/etc/pcidp",
 							},
+							{
+								Name:      hostUsrBinVolumeName,
+								MountPath: hostUsrBinMountPath,
+								ReadOnly:  true,
+							},
+							{
+								Name:      hostDriverUsrBinName,
+								MountPath: hostDriverUsrBinMountPath,
+								ReadOnly:  true,
+							},
+							{
+								Name:      "host-dev",
+								MountPath: "/dev",
+							},
+							{
+								Name:      "host-sys",
+								MountPath: "/sys",
+							},
+						}).
+						WithSecurityContext(&corev1.SecurityContext{
+							Privileged: ptr(true),
+							RunAsUser:  ptr(int64(0)),
 						}).
 						Build(),
 				}).
@@ -509,10 +521,10 @@ func (h *sandboxDevicePluginPatcher) handleDaemonSet(ctx context.Context, owner 
 		return nil
 	})
 	if err != nil {
-		h.log.Error(err, "Failed to reconcile RBLNSandboxDevicePlugin DaemonSet")
+		h.log.Error(err, "Failed to reconcile RBLNDevicePlugin DaemonSet")
 		return err
 	}
 
-	h.log.Info("Reconciled RBLNSandboxDevicePlugin DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", dsRes)
+	h.log.Info("Reconciled RBLNDevicePlugin DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", dsRes)
 	return nil
 }
