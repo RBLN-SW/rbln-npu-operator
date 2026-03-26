@@ -565,6 +565,7 @@ func buildOperatorHelmValues(devicePluginEnabled, draKubeletPluginEnabled bool) 
 			},
 		},
 		"driver": map[string]interface{}{
+			"enabled":          true,
 			"imagePullSecrets": []string{registrySecretName},
 		},
 		"devicePlugin": map[string]interface{}{
@@ -586,6 +587,7 @@ func buildOperatorHelmValues(devicePluginEnabled, draKubeletPluginEnabled bool) 
 			},
 		},
 		"rblnDaemon": map[string]interface{}{
+			"enabled":          true,
 			"imagePullSecrets": []string{registrySecretName},
 		},
 		"validator": map[string]interface{}{

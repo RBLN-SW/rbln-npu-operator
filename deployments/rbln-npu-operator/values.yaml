@@ -83,7 +83,7 @@ operator:
 
 # Driver configuration
 driver:
-  enabled: true
+  enabled: false
   # Driver upgrade policy rendered under spec.driver.upgradePolicy.
   # If autoUpgrade is false, the remaining options are ignored.
   upgradePolicy:
@@ -218,7 +218,7 @@ metricsExporter:
 
 # RBLN Daemon configuration
 rblnDaemon:
-  enabled: true
+  enabled: false
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-daemon
