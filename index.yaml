@@ -2,8 +2,41 @@ apiVersion: v1
 entries:
   rbln-npu-operator:
   - apiVersion: v2
+    appVersion: v0.3.1
+    created: "2026-03-26T17:40:15.586768+09:00"
+    dependencies:
+    - condition: nfd.enabled
+      name: node-feature-discovery
+      repository: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+      tags:
+      - nfd
+      version: ~0.17.0
+    description: A Helm chart for Kubernetes to deploy Rebellions NPU Operator for
+      automated management and monitoring of Rebellions NPU devices
+    digest: 1534b22dfee9a6130c254be76e167e4bfed146e1b07e7b40d61aa78ae609f31b
+    home: https://github.com/rbln-sw/rbln-npu-operator
+    keywords:
+    - NPU
+    - AI
+    - acceleration
+    - inference
+    - operator
+    - rebellions
+    - kubernetes
+    maintainers:
+    - email: sw-sdk-cloud@rebellions.ai
+      name: Rebellions Team
+      url: https://rebellions.ai/
+    name: rbln-npu-operator
+    sources:
+    - https://github.com/rbln-sw/rbln-npu-operator
+    type: application
+    urls:
+    - stable/rbln-npu-operator-v0.3.1.tgz
+    version: v0.3.1
+  - apiVersion: v2
     appVersion: v0.3.0
-    created: "2026-03-03T22:08:21.899931+09:00"
+    created: "2026-03-26T17:40:15.584462+09:00"
     dependencies:
     - condition: nfd.enabled
       name: node-feature-discovery
@@ -14,7 +47,7 @@ entries:
     description: A Helm chart for Kubernetes to deploy Rebellions NPU Operator for
       automated management and monitoring of Rebellions NPU devices
     digest: f95968cc12d57354698ac5d280fbca76161ad9d4d0798e7947d4b5d165b03833
-    home: https://github.com/rebellions-sw/rbln-npu-operator
+    home: https://github.com/rbln-sw/rbln-npu-operator
     keywords:
     - NPU
     - AI
@@ -29,14 +62,14 @@ entries:
       url: https://rebellions.ai/
     name: rbln-npu-operator
     sources:
-    - https://github.com/rebellions-sw/rbln-npu-operator
+    - https://github.com/rbln-sw/rbln-npu-operator
     type: application
     urls:
     - stable/rbln-npu-operator-v0.3.0.tgz
     version: v0.3.0
   - apiVersion: v2
     appVersion: v0.2.2
-    created: "2026-03-03T22:08:21.897019+09:00"
+    created: "2026-03-26T17:40:15.579716+09:00"
     dependencies:
     - condition: nfd.enabled
       name: node-feature-discovery
@@ -47,7 +80,7 @@ entries:
     description: A Helm chart for Kubernetes to deploy Rebellions NPU Operator for
       automated management and monitoring of Rebellions NPU devices
     digest: 10e7b37480e4fec986944cdda0a19d97c228c7c6786a186750a0e27e4bd84358
-    home: https://github.com/rebellions-sw/rbln-npu-operator
+    home: https://github.com/rbln-sw/rbln-npu-operator
     keywords:
     - NPU
     - AI
@@ -62,14 +95,14 @@ entries:
       url: https://rebellions.ai/
     name: rbln-npu-operator
     sources:
-    - https://github.com/rebellions-sw/rbln-npu-operator
+    - https://github.com/rbln-sw/rbln-npu-operator
     type: application
     urls:
     - stable/rbln-npu-operator-v0.2.2.tgz
     version: v0.2.2
   - apiVersion: v2
     appVersion: v0.2.1
-    created: "2026-03-03T22:08:21.891081+09:00"
+    created: "2026-03-26T17:40:15.575395+09:00"
     dependencies:
     - condition: nfd.enabled
       name: node-feature-discovery
@@ -80,7 +113,7 @@ entries:
     description: A Helm chart for Kubernetes to deploy Rebellions NPU Operator for
       automated management and monitoring of Rebellions NPU devices
     digest: 8a7c2498a2c4bfc198f0644b84b807052b48a3b689d856e4b8fc891ffd2c015c
-    home: https://github.com/rebellions-sw/rbln-npu-operator
+    home: https://github.com/rbln-sw/rbln-npu-operator
     keywords:
     - NPU
     - AI
@@ -95,14 +128,14 @@ entries:
       url: https://rebellions.ai/
     name: rbln-npu-operator
     sources:
-    - https://github.com/rebellions-sw/rbln-npu-operator
+    - https://github.com/rbln-sw/rbln-npu-operator
     type: application
     urls:
     - stable/rbln-npu-operator-v0.2.1.tgz
     version: v0.2.1
   - apiVersion: v2
     appVersion: v0.2.0
-    created: "2026-03-03T22:08:21.885953+09:00"
+    created: "2026-03-26T17:40:15.570694+09:00"
     dependencies:
     - condition: nfd.enabled
       name: node-feature-discovery
@@ -113,7 +146,7 @@ entries:
     description: A Helm chart for Kubernetes to deploy Rebellions NPU Operator for
       automated management and monitoring of Rebellions NPU devices
     digest: 784b2835c310d4360576e3c74f408b41e14212e20dcf650014609a1f2ef49341
-    home: https://github.com/rebellions-sw/rbln-npu-operator
+    home: https://github.com/rbln-sw/rbln-npu-operator
     keywords:
     - NPU
     - AI
@@ -128,14 +161,14 @@ entries:
       url: https://rebellions.ai/
     name: rbln-npu-operator
     sources:
-    - https://github.com/rebellions-sw/rbln-npu-operator
+    - https://github.com/rbln-sw/rbln-npu-operator
     type: application
     urls:
     - stable/rbln-npu-operator-v0.2.0.tgz
     version: v0.2.0
   - apiVersion: v2
     appVersion: v0.1.0
-    created: "2026-03-03T22:08:21.878684+09:00"
+    created: "2026-03-26T17:40:15.565589+09:00"
     dependencies:
     - condition: nfd.enabled
       name: node-feature-discovery
@@ -146,7 +179,7 @@ entries:
     description: A Helm chart for Kubernetes to deploy Rebellions NPU Operator for
       automated management and monitoring of Rebellions NPU devices
     digest: 009fee83a69bb2c6b3b0b357e7886c4d793cc4b73e467e27af2a79dc2295e02b
-    home: https://github.com/rebellions-sw/rbln-npu-operator
+    home: https://github.com/rbln-sw/rbln-npu-operator
     keywords:
     - NPU
     - AI
@@ -161,9 +194,9 @@ entries:
       url: https://rebellions.ai/
     name: rbln-npu-operator
     sources:
-    - https://github.com/rebellions-sw/rbln-npu-operator
+    - https://github.com/rbln-sw/rbln-npu-operator
     type: application
     urls:
     - stable/rbln-npu-operator-v0.1.0.tgz
     version: v0.1.0
-generated: "2026-03-03T22:08:21.87201+09:00"
+generated: "2026-03-26T17:40:15.561153+09:00"

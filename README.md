@@ -9,6 +9,6 @@ The artifacts published in this branch are intended to be consumed as a **Helm C
 ## 📦 Add Helm Repository
 
 ```bash
-helm repo add rebellions https://rebellions-sw.github.io/rbln-npu-operator
+helm repo add rebellions https://rbln-sw.github.io/rbln-npu-operator
 helm repo update
 ```

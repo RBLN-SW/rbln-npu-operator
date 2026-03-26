@@ -17,7 +17,7 @@ curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scr
    && ./get_helm.sh
 
 # 2. Add the Rebellions Helm repository
-helm repo add rebellions https://rebellions-sw.github.io/rbln-npu-operator
+helm repo add rebellions https://rbln-sw.github.io/rbln-npu-operator
 helm repo update
 
 # 3. Install the NPU Operator
