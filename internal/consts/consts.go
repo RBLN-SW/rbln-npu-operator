@@ -15,6 +15,7 @@ const (
 	RBLNWorkloadConfigVMPassthrough = "vm-passthrough"
 	RBLNWorkloadConfigUnknown       = "unknown"
 	RBLNPresentLabelKey             = "rebellions.ai/npu.present"
+	RBLNDeploySkipLabelKey          = "rebellions.ai/npu.deploy.skip"
 	NFDLabelPrefix                  = "feature.node.kubernetes.io/"
 )
 

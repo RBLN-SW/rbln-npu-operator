@@ -1271,6 +1271,8 @@ spec:
                     default: latest
                     description: RBLN Container Toolkit image tag
                     type: string
+                required:
+                - enabled
                 type: object
               daemonsets:
                 description: DaemonSets is common spec of rbln daemonset components
@@ -3357,6 +3359,8 @@ spec:
                     default: latest
                     description: RBLN Device Plugin image tag
                     type: string
+                required:
+                - enabled
                 type: object
               draKubeletPlugin:
                 description: DRAKubeletPlugin component spec
@@ -4449,6 +4453,8 @@ spec:
                     default: latest
                     description: RBLN DRA kubelet plugin image tag
                     type: string
+                required:
+                - enabled
                 type: object
               driver:
                 description: Driver component spec
@@ -5639,6 +5645,8 @@ spec:
                     default: latest
                     description: RBLN Metrics Exporter image tag
                     type: string
+                required:
+                - enabled
                 type: object
               name:
                 default: rbln
@@ -6717,6 +6725,8 @@ spec:
                     default: latest
                     description: RBLN NPU Feature Discovery image tag
                     type: string
+                required:
+                - enabled
                 type: object
               rblnDaemon:
                 description: RBLN Daemon component spec
@@ -7955,6 +7965,8 @@ spec:
                     default: latest
                     description: RBLN Daemon image tag
                     type: string
+                required:
+                - enabled
                 type: object
               sandboxDevicePlugin:
                 description: SandboxDevicePlugin component spec
@@ -9076,6 +9088,8 @@ spec:
                         description: VFIO Checker image tag
                         type: string
                     type: object
+                required:
+                - enabled
                 type: object
               validator:
                 description: Validator defines the spec for operator-validator daemonset
@@ -11039,6 +11053,8 @@ spec:
                     default: latest
                     description: RBLN VFIO Manager image tag
                     type: string
+                required:
+                - enabled
                 type: object
               workloadType:
                 default: container

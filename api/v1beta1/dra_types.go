@@ -5,7 +5,7 @@ type RBLNDRAKubeletPluginSpec struct {
 	// Enabled indicates if deployment of RBLN DRA kubelet plugin is enabled
 	// +kubebuilder:default:=false
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Enable RBLN DRA Kubelet Plugin deployment",xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 
 	// RBLN DRA kubelet plugin image name
 	// +kubebuilder:validation:Optional

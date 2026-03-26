@@ -7,7 +7,7 @@ type RBLNContainerToolkitSpec struct {
 	// Enabled indicates if deployment of RBLN container toolkit is enabled
 	// +kubebuilder:default:=true
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Enable RBLN Container Toolkit deployment",xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 
 	// RBLN Container Toolkit image name
 	// +kubebuilder:validation:Optional

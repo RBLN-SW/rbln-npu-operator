@@ -5,7 +5,7 @@ type RBLNNPUFeatureDiscoverySpec struct {
 	// Enabled indicates if deployment of RBLN NPU feature discovery is enabled
 	// +kubebuilder:default:=true
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Enable RBLN NPU Feature Discovery deployment",xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 
 	// RBLN NPU Feature Discovery image name
 	// +kubebuilder:validation:Optional

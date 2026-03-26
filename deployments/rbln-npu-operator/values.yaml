@@ -30,10 +30,10 @@ daemonsets:
 operator:
   # Operator image configuration
   image:
-    registry: docker.io
+    registry: harbor.k8s.rebellions.in
     repository: rebellions/rbln-npu-operator
-    tag: latest
-    pullPolicy: IfNotPresent
+    tag: v0.3.2
+    pullPolicy: Always
   # Resource configuration
   replicas: 1
   resources:
@@ -297,10 +297,10 @@ vfioManager:
 # Validator configuration
 validator:
   image:
-    registry: docker.io
+    registry: harbor.k8s.rebellions.in
     repository: rebellions/rbln-npu-operator-validator
-    tag: latest
-    pullPolicy: IfNotPresent
+    tag: v0.3.2
+    pullPolicy: Always
   imagePullSecrets: []
   resources: {}
   args: []

@@ -24,7 +24,6 @@ import (
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterpolicy"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
@@ -33,14 +32,12 @@ const (
 	maxDelayCR = 3 * time.Second
 )
 
-// RBLNClusterPolicyReconciler reconciles a RBLNClusterPolicy object
 type RBLNClusterPolicyReconciler struct {
 	client.Client
-	Log              logr.Logger
-	Scheme           *runtime.Scheme
-	SingletonCRName  string
-	ClusterInfo      *clusterinfo.Info
-	conditionUpdater conditions.ConditionUpdater
+	Log             logr.Logger
+	Scheme          *runtime.Scheme
+	SingletonCRName string
+	ClusterInfo     *clusterinfo.Info
 }
 
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusterversions;proxies,verbs=get;list;watch
@@ -77,6 +74,25 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
+	nodeList, err := clusterpolicy.ListNodes(ctx, r.Client)
+	if err != nil {
+		r.Log.Error(err, "")
+		return ctrl.Result{}, err
+	}
+
+	nfdInstalled := clusterpolicy.HasNFDLabeledNodes(nodeList)
+
+	if !nfdInstalled {
+		return r.returnClusterNotReady(
+			ctx,
+			instance,
+			ctrl.Result{RequeueAfter: 30 * time.Second},
+			r.Log.V(consts.LogLevelWarning).Info,
+			"NodeFeatureDiscovery labels not found",
+			"requeue_after", 30*time.Second,
+		)
+	}
+
 	service := clusterpolicy.NewClusterPolicyService(
 		r.Client,
 		r.Log,
@@ -87,32 +103,26 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		r.ClusterInfo.ContainerRuntime,
 	)
 
-	err = service.ApplyDriverAutoUpgradeAnnotation(ctx)
+	rblnNodes, err := service.ReconcileNodeLabels(ctx, nodeList)
 	if err != nil {
 		r.Log.Error(err, "")
 		return ctrl.Result{}, err
-	}
-
-	nfdInstalled, rblnNodes, err := service.LabelNodes(ctx)
-	if err != nil {
-		r.Log.Error(err, "")
-		return ctrl.Result{}, err
-	}
-
-	if !nfdInstalled {
-		r.Log.V(consts.LogLevelWarning).Info("WARNING: NodeFeatureDiscovery is not installed, Rebellions NPU cannot be discovered. Requeue after 30 seconds.")
-		if stateErr := updateCRState(ctx, r, instance, rblnv1beta1.ClusterNotReady); stateErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(stateErr, "failed to set ClusterPolicy state")
-		}
-		return ctrl.Result{RequeueAfter: time.Second * 30}, nil
 	}
 
 	if rblnNodes == 0 {
-		r.Log.Info("INFO: No Rebellions NPU discovered. Skip further reconciling.")
-		if stateErr := updateCRState(ctx, r, instance, rblnv1beta1.ClusterNotReady); stateErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(stateErr, "failed to set ClusterPolicy state")
-		}
-		return ctrl.Result{}, nil
+		return r.returnClusterNotReady(
+			ctx,
+			instance,
+			ctrl.Result{},
+			r.Log.Info,
+			"No Rebellions NPU discovered; skipping reconcile",
+		)
+	}
+
+	err = clusterpolicy.ReconcileDriverAutoUpgradeAnnotations(ctx, r.Client, instance)
+	if err != nil {
+		r.Log.Error(err, "")
+		return ctrl.Result{}, err
 	}
 
 	if err := service.PatchComponents(ctx); err != nil {
@@ -197,11 +207,22 @@ func updateCRState(
 	return nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
-func (r *RBLNClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// initialize condition updater
-	r.conditionUpdater = conditions.NewClusterPolicyConditionMgr(mgr.GetClient())
+func (r *RBLNClusterPolicyReconciler) returnClusterNotReady(
+	ctx context.Context,
+	instance *rblnv1beta1.RBLNClusterPolicy,
+	result ctrl.Result,
+	logFunc func(string, ...interface{}),
+	message string,
+	keysAndValues ...interface{},
+) (ctrl.Result, error) {
+	logFunc(message, keysAndValues...)
+	if err := updateCRState(ctx, r, instance, rblnv1beta1.ClusterNotReady); err != nil {
+		r.Log.V(consts.LogLevelDebug).Error(err, "failed to set ClusterPolicy state")
+	}
+	return result, nil
+}
 
+func (r *RBLNClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&rblnv1beta1.RBLNClusterPolicy{}).
 		Owns(&appsv1.DaemonSet{}).
@@ -241,7 +262,6 @@ func (r *RBLNClusterPolicyReconciler) rblnNodeLabelUpdated() predicate.Funcs {
 			if !ok1 || !ok2 {
 				return false
 			}
-			// check labels start with rebellions.ai
 			oldRblnLabels := k8sutil.FilterMapWithPrefix(oldNode.Labels, "rebellions.ai/")
 			newRblnLabels := k8sutil.FilterMapWithPrefix(newNode.Labels, "rebellions.ai/")
 			return !reflect.DeepEqual(oldRblnLabels, newRblnLabels)

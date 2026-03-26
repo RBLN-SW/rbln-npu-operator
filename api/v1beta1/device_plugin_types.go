@@ -5,7 +5,7 @@ type RBLNDevicePluginSpec struct {
 	// Enabled indicates if deployment of RBLN device plugin is enabled
 	// +kubebuilder:default:=true
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Enable RBLN Device Plugin deployment",xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 
 	// RBLN Device Plugin image name
 	// +kubebuilder:validation:Optional
@@ -53,7 +53,7 @@ type RBLNSandboxDevicePluginSpec struct {
 	// Enabled indicates if deployment of RBLN sandbox device plugin is enabled
 	// +kubebuilder:default:=true
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Enable RBLN Sandbox Device Plugin deployment",xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 
 	// RBLN Sandbox Device Plugin image name
 	// +kubebuilder:validation:Optional

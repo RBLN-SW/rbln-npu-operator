@@ -7,7 +7,7 @@ type RBLNMetricsExporterSpec struct {
 	// Enabled indicates if deployment of RBLN metrics exporter is enabled
 	// +kubebuilder:default:=true
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Enable RBLN Metrics Exporter deployment",xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 
 	// RBLN Metrics Exporter image name
 	// +kubebuilder:validation:Optional
@@ -43,7 +43,7 @@ type RBLNDaemonSpec struct {
 	// Enabled indicates if deployment of RBLN daemon is enabled
 	// +kubebuilder:default:=true
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Enable RBLN Daemon deployment",xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 
 	// RBLN Daemon image name
 	// +kubebuilder:validation:Optional
