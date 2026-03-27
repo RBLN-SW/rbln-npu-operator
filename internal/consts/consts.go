@@ -32,6 +32,15 @@ const (
 	RBLNConditionTypeComponentsReady = "ComponentsReady"
 )
 
+// Condition reasons
+const (
+	RBLNConditionReasonNFDNotFound        = "NodeFeatureDiscoveryNotFound"
+	RBLNConditionReasonNoRBLNNodes        = "NoRBLNNodesDiscovered"
+	RBLNConditionReasonPolicyIgnored      = "PolicyIgnored"
+	RBLNConditionReasonAllComponentsReady = "AllComponentsReady"
+	RBLNConditionReasonSomeNotReady       = "SomeComponentsNotReady"
+)
+
 // Device plugin constants
 const (
 	RBLNDevicePluginName     = "device-plugin"

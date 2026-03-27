@@ -3,16 +3,12 @@ package components
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/go-logr/logr"
-	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
-	kapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -22,6 +18,8 @@ import (
 )
 
 const (
+	hostUsrBinVolumeName      = "host-usr-bin"
+	hostUsrBinPath            = "/usr/bin"
 	hostUsrBinMountPath       = "/host/usr/bin"
 	hostDriverUsrBinPath      = "/run/rbln/driver/usr/bin"
 	hostDriverUsrBinName      = "host-driver-usr-bin"
@@ -29,255 +27,67 @@ const (
 )
 
 type devicePluginPatcher struct {
-	client client.Client
-	log    logr.Logger
-	scheme *runtime.Scheme
-
-	desiredSpec      *rblnv1beta1.RBLNDevicePluginSpec
-	name             string
-	namespace        string
-	openshiftVersion string
+	basePatcher
+	desiredSpec *rblnv1beta1.RBLNDevicePluginSpec
 }
 
 func NewDevicePluginPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
-	patcher := &devicePluginPatcher{
-		client: client,
-		log:    log,
-		scheme: scheme,
-
-		name:             cpSpec.BaseName + "-" + consts.RBLNDevicePluginName,
-		namespace:        namespace,
-		openshiftVersion: openshiftVersion,
-	}
-
 	synced := syncSpec(cpSpec, cpSpec.DevicePlugin)
-	patcher.desiredSpec = &synced
-	return patcher
-}
-
-func (h *devicePluginPatcher) IsEnabled() bool {
-	if h.desiredSpec == nil {
-		return false
+	return &devicePluginPatcher{
+		basePatcher: basePatcher{
+			client:           client,
+			log:              log,
+			scheme:           scheme,
+			name:             cpSpec.BaseName + "-" + consts.RBLNDevicePluginName,
+			namespace:        namespace,
+			openshiftVersion: openshiftVersion,
+			enabled:          synced.IsEnabled(),
+		},
+		desiredSpec: &synced,
 	}
-
-	return h.desiredSpec.IsEnabled()
 }
 
 func (h *devicePluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	if !h.desiredSpec.IsEnabled() {
+	if !h.IsEnabled() {
 		return nil
 	}
-
-	// reconcile serviceaccount
-	if err := h.handleServiceAccount(ctx, owner); err != nil {
+	if err := h.reconcileServiceAccount(ctx, owner); err != nil {
 		return err
 	}
-
-	if h.openshiftVersion != "" {
-		if err := h.handleRole(ctx, owner); err != nil {
-			return err
-		}
-		if err := h.handleRoleBinding(ctx, owner); err != nil {
-			return err
-		}
+	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
+		return err
 	}
-
-	// reconcile configmap
 	if err := h.handleConfigMap(ctx, owner); err != nil {
 		return err
 	}
-
-	// reconcile daemonset
-	if err := h.handleDaemonSet(ctx, owner); err != nil {
-		return err
-	}
-
-	return nil
+	return h.handleDaemonSet(ctx, owner)
 }
 
 func (h *devicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	h.log.Info("WARNING: Device Plugin is disabled. Remove all Device Plugin resources")
-	if err := h.client.Delete(ctx, &v1.DaemonSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
-	if err := h.client.Delete(ctx, &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name + "-config",
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteIfExists(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name + "-config", Namespace: h.namespace},
+	}); err != nil {
 		return err
 	}
-
-	if h.openshiftVersion != "" {
-		if err := h.client.Delete(ctx, &rbacv1.RoleBinding{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      h.name,
-				Namespace: h.namespace,
-			},
-		}); err != nil && !kapierrors.IsNotFound(err) {
-			return err
-		}
-		if err := h.client.Delete(ctx, &rbacv1.Role{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      h.name,
-				Namespace: h.namespace,
-			},
-		}); err != nil && !kapierrors.IsNotFound(err) {
-			return err
-		}
-	}
-	if err := h.client.Delete(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
 		return err
 	}
-	return nil
-}
-
-func (h *devicePluginPatcher) ConditionReport(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) ([]metav1.Condition, error) {
-	var ds v1.DaemonSet
-	if err := h.client.Get(ctx, types.NamespacedName{Name: h.name, Namespace: h.namespace}, &ds); err != nil {
-		return []metav1.Condition{{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             DaemonSetNotFound,
-			Message:            fmt.Sprintf("DaemonSet %s/%s could not be found: %v", h.namespace, h.name, err),
-			LastTransitionTime: metav1.Now(),
-		}}, nil
-	}
-
-	ready := ds.Status.DesiredNumberScheduled > 0 &&
-		ds.Status.NumberReady == ds.Status.DesiredNumberScheduled &&
-		ds.Status.NumberUnavailable == 0
-
-	observedGen := ds.GetGeneration()
-
-	if !ready {
-		return []metav1.Condition{
-			{
-				Type:   DaemonSetReady,
-				Status: metav1.ConditionFalse,
-				Reason: DaemonSetPodsNotReady,
-				Message: fmt.Sprintf(
-					"DaemonSet %s/%s is progressing: %d of %d pods are Ready (%d unavailable)",
-					h.namespace,
-					h.name,
-					ds.Status.NumberReady,
-					ds.Status.DesiredNumberScheduled,
-					ds.Status.NumberUnavailable,
-				),
-				LastTransitionTime: metav1.Now(),
-				ObservedGeneration: observedGen,
-			},
-		}, nil
-	}
-
-	return []metav1.Condition{
-		{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             DaemonSetAllPodsReady,
-			Message:            fmt.Sprintf("All pods in DaemonSet %s/%s are running", h.namespace, h.name),
-			LastTransitionTime: metav1.Now(),
-			ObservedGeneration: observedGen,
-		},
-	}, nil
-}
-
-func (h *devicePluginPatcher) ComponentName() string {
-	return h.name
-}
-
-func (h *devicePluginPatcher) ComponentNamespace() string {
-	return h.namespace
-}
-
-func (h *devicePluginPatcher) handleServiceAccount(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewServiceAccountBuilder(h.name, h.namespace)
-	sa := builder.Build()
-
-	saRes, err := controllerutil.CreateOrPatch(ctx, h.client, sa, func() error {
-		sa = builder.WithOwner(owner, h.scheme).Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile RBLNDevicePlugin ServiceAccount")
-		return err
-	}
-	h.log.Info("Reconciled RBLNDevicePlugin ServiceAccount", "namespace", sa.Namespace, "name", sa.Name, "result", saRes)
-	return nil
-}
-
-func (h *devicePluginPatcher) handleRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewRoleBuilder(h.name, h.namespace)
-	rb := builder.Build()
-
-	roleRes, err := controllerutil.CreateOrPatch(ctx, h.client, rb, func() error {
-		rb = builder.
-			WithRules(rbacv1.PolicyRule{
-				APIGroups:     []string{"security.openshift.io"},
-				Resources:     []string{"securitycontextconstraints"},
-				ResourceNames: []string{"privileged"},
-				Verbs:         []string{"use"},
-			}).
-			WithOwner(owner, h.scheme).Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile RBLNDevicePlugin Role")
-		return err
-	}
-	h.log.Info("Reconciled RBLNDevicePlugin Role", "namespace", rb.Namespace, "name", rb.Name, "result", roleRes)
-	return nil
-}
-
-func (h *devicePluginPatcher) handleRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewRoleBindingBuilder(h.name, h.namespace)
-	rbb := builder.Build()
-
-	roleBindingRes, err := controllerutil.CreateOrPatch(ctx, h.client, rbb, func() error {
-		rbb = builder.
-			WithRoleRef(rbacv1.RoleRef{
-				APIGroup: "rbac.authorization.k8s.io",
-				Kind:     "Role",
-				Name:     h.name,
-			}).
-			WithSubjects(rbacv1.Subject{
-				Kind:      "ServiceAccount",
-				Name:      h.name,
-				Namespace: h.namespace,
-			}).
-			WithOwner(owner, h.scheme).Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile RBLNDevicePlugin RoleBinding")
-		return err
-	}
-	h.log.Info("Reconciled RBLNDevicePlugin RoleBinding", "namespace", rbb.Namespace, "name", rbb.Name, "result", roleBindingRes)
-	return nil
+	return h.deleteServiceAccount(ctx)
 }
 
 func (h *devicePluginPatcher) buildDevicePluginConfig() (string, error) {
 	configResources := make([]configResource, 0)
 
 	for _, resource := range h.desiredSpec.ResourceList {
-
 		devices, err := collectDevices(resource.ProductCardNames)
 		if err != nil {
 			h.log.Error(err, "Failed to collect devices for resource", "resourceName", resource.ResourceName)
 			return "", err
 		}
-
 		configResources = append(configResources, configResource{
 			ResourceName:   resource.ResourceName,
 			ResourcePrefix: resource.ResourcePrefix,
@@ -290,241 +100,128 @@ func (h *devicePluginPatcher) buildDevicePluginConfig() (string, error) {
 		})
 	}
 
-	configFile := configResourceList{
-		ResourceList: configResources,
-	}
-	configDataBytes, err := json.MarshalIndent(configFile, "", "  ")
+	configDataBytes, err := json.MarshalIndent(configResourceList{ResourceList: configResources}, "", "  ")
 	if err != nil {
 		h.log.Error(err, "Failed to marshal device plugin config")
 		return "", err
 	}
-
 	return string(configDataBytes), nil
 }
 
 func (h *devicePluginPatcher) handleConfigMap(ctx context.Context, cp *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewConfigMapBuilder(h.name+"-config", h.namespace)
-	cm := builder.Build()
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name + "-config", Namespace: h.namespace},
+	}
 
 	configData, err := h.buildDevicePluginConfig()
 	if err != nil {
-		h.log.Error(err, "Failed to build device plugin config")
 		return err
 	}
 
-	cmRes, err := controllerutil.CreateOrPatch(ctx, h.client, cm, func() error {
-		cm = builder.
-			WithData(map[string]string{
-				"config.json": configData,
-			}).
-			WithOwner(cp, h.scheme).
-			Build()
-		return nil
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, cm, func() error {
+		cm.Data = map[string]string{"config.json": configData}
+		return ctrl.SetControllerReference(cp, cm, h.scheme)
 	})
 	if err != nil {
-		h.log.Error(err, "Failed to reconcile RBLNDevicePlugin ConfigMap")
+		h.log.Error(err, "Failed to reconcile DevicePlugin ConfigMap")
 		return err
 	}
-
-	h.log.Info("Reconciled RBLNDevicePlugin ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", cmRes)
+	h.log.Info("Reconciled DevicePlugin ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", res)
 	return nil
 }
 
-func (h *devicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
-	ds := builder.Build()
-	validatorSpec := owner.Spec.Validator
-	initContainer := k8sutil.NewContainerBuilder().
-		WithName("toolkit-validation").
-		WithImage(ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, validatorSpec.ImagePullPolicy).
-		WithCommands([]string{"sh", "-c"}).
-		WithArgs([]string{"until [ -f /run/rbln/validations/toolkit-ready ]; do echo waiting for rbln container stack to be setup; sleep 5; done"}).
-		WithSecurityContext(&corev1.SecurityContext{
-			Privileged: ptr(true),
-		}).
-		WithVolumeMounts([]corev1.VolumeMount{
+func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
+	initContainer := buildToolkitValidationInitContainer(owner.Spec.Validator)
+
+	return k8sutil.NewPodSpecBuilder().
+		WithServiceAccountName(h.name).
+		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.device-plugin": "true"}).
+		WithAffinity(h.desiredSpec.Affinity).
+		WithTolerations(h.desiredSpec.Tolerations).
+		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithVolumes([]corev1.Volume{
+			hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
 			{
-				Name:             validationsVolumeName,
-				MountPath:        validationsMountPath,
-				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
+				Name: "devicesock",
+				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
+					Path: "/var/lib/kubelet/device-plugin",
+				}},
 			},
+			{
+				Name: "plugins-registry",
+				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
+					Path: "/var/lib/kubelet/plugins_registry",
+				}},
+			},
+			{
+				Name: "log",
+				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
+					Path: "/var/log",
+				}},
+			},
+			{
+				Name: "device-info",
+				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
+					Path: "/var/run/k8s.cni.cncf.io/devinfo/dp",
+					Type: ptr(corev1.HostPathDirectoryOrCreate),
+				}},
+			},
+			{
+				Name: "config-volume",
+				VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: h.name + "-config"},
+					Items:                []corev1.KeyToPath{{Key: "config.json", Path: "config.json"}},
+				}},
+			},
+			hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
+			hostPathVolume("host-dev", "/dev", corev1.HostPathDirectory),
+			hostPathVolume(hostUsrBinVolumeName, hostUsrBinPath, corev1.HostPathDirectory),
+			hostPathVolume(hostDriverUsrBinName, hostDriverUsrBinPath, corev1.HostPathDirectoryOrCreate),
+		}).
+		WithInitContainers([]*corev1.Container{initContainer}).
+		WithContainers([]*corev1.Container{
+			k8sutil.NewContainerBuilder().
+				WithName(h.name).
+				WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
+				WithVolumeMounts([]corev1.VolumeMount{
+					{Name: "devicesock", MountPath: "/var/lib/kubelet/device-plugins"},
+					{Name: "plugins-registry", MountPath: "/var/lib/kubelet/plugins_registry"},
+					{Name: "log", MountPath: "/var/log"},
+					{Name: "device-info", MountPath: "/var/run/k8s.cni.cncf.io/devinfo/dp"},
+					{Name: "config-volume", MountPath: "/etc/pcidp"},
+					{Name: hostUsrBinVolumeName, MountPath: hostUsrBinMountPath, ReadOnly: true},
+					{Name: hostDriverUsrBinName, MountPath: hostDriverUsrBinMountPath, ReadOnly: true},
+					{Name: "host-dev", MountPath: "/dev"},
+					{Name: "host-sys", MountPath: "/sys"},
+				}).
+				WithSecurityContext(&corev1.SecurityContext{
+					Privileged: ptr(true),
+					RunAsUser:  ptr(int64(0)),
+				}).
+				Build(),
 		}).
 		Build()
-	if validatorSpec.ImagePullPolicy == "" {
-		initContainer.ImagePullPolicy = corev1.PullIfNotPresent
-	}
-	dsRes, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
-		ds = builder.
+}
+
+func (h *devicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	podSpec := h.buildPodSpec(owner)
+
+	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
+	ds := builder.Build()
+
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
+		builder.
 			WithLabelSelectors(map[string]string{"app": h.name}).
 			WithLabels(h.desiredSpec.Labels).
 			WithAnnotations(h.desiredSpec.Annotations).
-			WithPodSpec(k8sutil.NewPodSpecBuilder().
-				WithServiceAccountName(h.name).
-				WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.device-plugin": "true"}).
-				WithAffinity(h.desiredSpec.Affinity).
-				WithTolerations(h.desiredSpec.Tolerations).
-				WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
-				WithVolumes([]corev1.Volume{
-					{
-						Name: validationsVolumeName,
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: validationsMountPath,
-								Type: ptr(corev1.HostPathDirectoryOrCreate),
-							},
-						},
-					},
-					{
-						Name: "devicesock",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/var/lib/kubelet/device-plugin",
-							},
-						},
-					},
-					{
-						Name: "plugins-registry",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/var/lib/kubelet/plugins_registry",
-							},
-						},
-					},
-					{
-						Name: "log",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/var/log",
-							},
-						},
-					},
-					{
-						Name: "device-info",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/var/run/k8s.cni.cncf.io/devinfo/dp",
-								Type: &[]corev1.HostPathType{"DirectoryOrCreate"}[0],
-							},
-						},
-					},
-					{
-						Name: "config-volume",
-						VolumeSource: corev1.VolumeSource{
-							ConfigMap: &corev1.ConfigMapVolumeSource{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: h.name + "-config",
-								},
-								Items: []corev1.KeyToPath{
-									{
-										Key:  "config.json",
-										Path: "config.json",
-									},
-								},
-							},
-						},
-					},
-					{
-						Name: "host-sys",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/sys",
-								Type: ptr(corev1.HostPathDirectory),
-							},
-						},
-					},
-					{
-						Name: "host-dev",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/dev",
-								Type: ptr(corev1.HostPathDirectory),
-							},
-						},
-					},
-					{
-						Name: hostUsrBinVolumeName,
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: hostUsrBinPath,
-								Type: ptr(corev1.HostPathDirectory),
-							},
-						},
-					},
-					{
-						Name: hostDriverUsrBinName,
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: hostDriverUsrBinPath,
-								Type: ptr(corev1.HostPathDirectoryOrCreate),
-							},
-						},
-					},
-				}).
-				WithInitContainers([]*corev1.Container{initContainer}).
-				WithContainers([]*corev1.Container{
-					k8sutil.NewContainerBuilder().
-						WithName(h.name).
-						WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
-						WithResources(h.desiredSpec.Resources, "250m", "40Mi").
-						WithVolumeMounts([]corev1.VolumeMount{
-							{
-								Name:      "devicesock",
-								MountPath: "/var/lib/kubelet/device-plugins",
-								ReadOnly:  false,
-							},
-							{
-								Name:      "plugins-registry",
-								MountPath: "/var/lib/kubelet/plugins_registry",
-								ReadOnly:  false,
-							},
-							{
-								Name:      "log",
-								MountPath: "/var/log",
-							},
-							{
-								Name:      "device-info",
-								MountPath: "/var/run/k8s.cni.cncf.io/devinfo/dp",
-							},
-							{
-								Name:      "config-volume",
-								MountPath: "/etc/pcidp",
-							},
-							{
-								Name:      hostUsrBinVolumeName,
-								MountPath: hostUsrBinMountPath,
-								ReadOnly:  true,
-							},
-							{
-								Name:      hostDriverUsrBinName,
-								MountPath: hostDriverUsrBinMountPath,
-								ReadOnly:  true,
-							},
-							{
-								Name:      "host-dev",
-								MountPath: "/dev",
-							},
-							{
-								Name:      "host-sys",
-								MountPath: "/sys",
-							},
-						}).
-						WithSecurityContext(&corev1.SecurityContext{
-							Privileged: ptr(true),
-							RunAsUser:  ptr(int64(0)),
-						}).
-						Build(),
-				}).
-				Build(),
-			).
-			WithOwner(owner, h.scheme).
-			Build()
-		return nil
+			WithPodSpec(podSpec)
+		return ctrl.SetControllerReference(owner, ds, h.scheme)
 	})
 	if err != nil {
-		h.log.Error(err, "Failed to reconcile RBLNDevicePlugin DaemonSet")
+		h.log.Error(err, "Failed to reconcile DevicePlugin DaemonSet")
 		return err
 	}
-
-	h.log.Info("Reconciled RBLNDevicePlugin DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", dsRes)
+	h.log.Info("Reconciled DevicePlugin DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
 	return nil
 }

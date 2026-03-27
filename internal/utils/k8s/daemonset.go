@@ -7,7 +7,7 @@ import (
 )
 
 type DaemonSetBuilder struct {
-	*OwnableBuilder[appsv1.DaemonSet, *appsv1.DaemonSet]
+	*Builder[appsv1.DaemonSet]
 }
 
 func NewDaemonSetBuilder(name, namespace string) *DaemonSetBuilder {
@@ -29,9 +29,7 @@ func NewDaemonSetBuilder(name, namespace string) *DaemonSetBuilder {
 		},
 	}
 	return &DaemonSetBuilder{
-		OwnableBuilder: &OwnableBuilder[appsv1.DaemonSet, *appsv1.DaemonSet]{
-			Builder: NewBuilder[appsv1.DaemonSet](ds),
-		},
+		Builder: NewBuilder[appsv1.DaemonSet](ds),
 	}
 }
 

@@ -6,17 +6,15 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterpolicy/components"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
-const (
-	driverAutoUpgradeAnnotationKey = "rebellions.ai/npu-driver-upgrade-enabled"
-)
-
+// ClusterPolicyService orchestrates reconciliation of all components
+// managed by a single RBLNClusterPolicy.
 type ClusterPolicyService struct {
 	client     client.Client
 	log        logr.Logger
@@ -51,48 +49,6 @@ func NewClusterPolicyService(
 	}
 }
 
-func (s *ClusterPolicyService) PatchComponents(ctx context.Context) error {
-	for _, c := range s.components {
-		if c.IsEnabled() {
-			if err := c.Patch(ctx, s.policy); err != nil {
-				return fmt.Errorf("patch %s: %w", c.ComponentName(), err)
-			}
-			continue
-		}
-		if err := c.CleanUp(ctx, s.policy); err != nil {
-			return fmt.Errorf("cleanup %s: %w", c.ComponentName(), err)
-		}
-	}
-	return nil
-}
-
-func (s *ClusterPolicyService) AssembleComponentStatus(ctx context.Context) []rblnv1beta1.RBLNComponentStatus {
-	statuses := make([]rblnv1beta1.RBLNComponentStatus, 0, len(s.components))
-
-	for _, c := range s.components {
-		if !c.IsEnabled() {
-			continue
-		}
-
-		componentStatus := rblnv1beta1.RBLNComponentStatus{
-			Name:      c.ComponentName(),
-			Namespace: c.ComponentNamespace(),
-		}
-
-		conditions, err := c.ConditionReport(ctx, s.policy)
-		componentStatus.Conditions = conditions
-		if err != nil {
-			componentStatus.State = rblnv1beta1.ComponentStateNotReady
-		} else {
-			componentStatus.State = rblnv1beta1.ComponentStateReady
-		}
-
-		statuses = append(statuses, componentStatus)
-	}
-
-	return statuses
-}
-
 func newComponents(
 	client client.Client,
 	log logr.Logger,
@@ -113,4 +69,52 @@ func newComponents(
 		components.NewContainerToolkitPatcher(client, log, namespace, spec, scheme, openShiftVersion, containerRuntime),
 		components.NewValidatorPatcher(client, log, namespace, spec, scheme, openShiftVersion),
 	}
+}
+
+// PatchComponents applies or removes each managed component according to
+// whether it is enabled in the policy spec.
+func (s *ClusterPolicyService) PatchComponents(ctx context.Context) error {
+	for _, c := range s.components {
+		if c.IsEnabled() {
+			if err := c.Patch(ctx, s.policy); err != nil {
+				return fmt.Errorf("patch %s: %w", c.ComponentName(), err)
+			}
+			continue
+		}
+		if err := c.CleanUp(ctx, s.policy); err != nil {
+			return fmt.Errorf("cleanup %s: %w", c.ComponentName(), err)
+		}
+	}
+	return nil
+}
+
+// AssembleComponentStatus returns the readiness state of each enabled component.
+// Status writing is the caller's responsibility.
+func (s *ClusterPolicyService) AssembleComponentStatus(ctx context.Context) []rblnv1beta1.RBLNComponentStatus {
+	statuses := make([]rblnv1beta1.RBLNComponentStatus, 0, len(s.components))
+
+	for _, c := range s.components {
+		if !c.IsEnabled() {
+			continue
+		}
+
+		status := rblnv1beta1.RBLNComponentStatus{
+			Name:      c.ComponentName(),
+			Namespace: c.ComponentNamespace(),
+		}
+
+		if err := c.IsReady(ctx); err != nil {
+			status.State = rblnv1beta1.ComponentStateNotReady
+			s.log.V(consts.LogLevelDebug).Info("component not ready",
+				"component", c.ComponentName(),
+				"reason", err.Error(),
+			)
+		} else {
+			status.State = rblnv1beta1.ComponentStateReady
+		}
+
+		statuses = append(statuses, status)
+	}
+
+	return statuses
 }

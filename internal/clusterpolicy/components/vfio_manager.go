@@ -2,271 +2,81 @@ package components
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-logr/logr"
-	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
-	kapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
-
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 type vfioManagerPatcher struct {
-	client client.Client
-	log    logr.Logger
-	scheme *runtime.Scheme
-
-	desiredSpec      *rblnv1beta1.RBLNVFIOManagerSpec
-	name             string
-	namespace        string
-	openshiftVersion string
+	basePatcher
+	desiredSpec *rblnv1beta1.RBLNVFIOManagerSpec
 }
 
 func NewVFIOManagerPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
-	patcher := &vfioManagerPatcher{
-		client: client,
-		log:    log,
-		scheme: scheme,
-
-		name:             cpSpec.BaseName + "-" + consts.RBLNVFIOManagerName,
-		namespace:        namespace,
-		openshiftVersion: openshiftVersion,
-	}
-
 	synced := syncSpec(cpSpec, cpSpec.VFIOManager)
-	patcher.desiredSpec = &synced
-	return patcher
-}
-
-func (h *vfioManagerPatcher) IsEnabled() bool {
-	if h.desiredSpec == nil {
-		return false
+	return &vfioManagerPatcher{
+		basePatcher: basePatcher{
+			client:           client,
+			log:              log,
+			scheme:           scheme,
+			name:             cpSpec.BaseName + "-" + consts.RBLNVFIOManagerName,
+			namespace:        namespace,
+			openshiftVersion: openshiftVersion,
+			enabled:          synced.IsEnabled(),
+		},
+		desiredSpec: &synced,
 	}
-
-	return h.desiredSpec.IsEnabled()
 }
 
 func (h *vfioManagerPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	if !h.desiredSpec.IsEnabled() {
+	if !h.IsEnabled() {
 		return nil
 	}
-
-	// reconcile serviceaccount
-	if err := h.handleServiceAccount(ctx, owner); err != nil {
+	if err := h.reconcileServiceAccount(ctx, owner); err != nil {
 		return err
 	}
-
-	if h.openshiftVersion != "" {
-		if err := h.handleRole(ctx, owner); err != nil {
-			return err
-		}
-		if err := h.handleRoleBinding(ctx, owner); err != nil {
-			return err
-		}
+	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
+		return err
 	}
-
-	// reconcile configmap
 	if err := h.handleConfigMap(ctx, owner); err != nil {
 		return err
 	}
-
-	// reconcile daemonset
-	if err := h.handleDaemonSet(ctx, owner); err != nil {
-		return err
-	}
-
-	return nil
+	return h.handleDaemonSet(ctx, owner)
 }
 
 func (h *vfioManagerPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	h.log.Info("WARNING: VFIO Manager is disabled. Remove all VFIO Manager resources")
-	if err := h.client.Delete(ctx, &v1.DaemonSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
-	if err := h.client.Delete(ctx, &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name + "-config",
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteIfExists(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name + "-config", Namespace: h.namespace},
+	}); err != nil {
 		return err
 	}
-
-	if h.openshiftVersion != "" {
-		if err := h.client.Delete(ctx, &rbacv1.RoleBinding{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      h.name,
-				Namespace: h.namespace,
-			},
-		}); err != nil && !kapierrors.IsNotFound(err) {
-			return err
-		}
-		if err := h.client.Delete(ctx, &rbacv1.Role{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      h.name,
-				Namespace: h.namespace,
-			},
-		}); err != nil && !kapierrors.IsNotFound(err) {
-			return err
-		}
-	}
-	if err := h.client.Delete(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
 		return err
 	}
-	return nil
-}
-
-func (h *vfioManagerPatcher) ConditionReport(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) ([]metav1.Condition, error) {
-	var ds v1.DaemonSet
-	if err := h.client.Get(ctx, types.NamespacedName{Name: h.name, Namespace: h.namespace}, &ds); err != nil {
-		return []metav1.Condition{{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             DaemonSetNotFound,
-			Message:            fmt.Sprintf("DaemonSet %s/%s could not be found: %v", h.namespace, h.name, err),
-			LastTransitionTime: metav1.Now(),
-		}}, nil
-	}
-
-	ready := ds.Status.DesiredNumberScheduled > 0 &&
-		ds.Status.NumberReady == ds.Status.DesiredNumberScheduled &&
-		ds.Status.NumberUnavailable == 0
-
-	observedGen := ds.GetGeneration()
-
-	if !ready {
-		return []metav1.Condition{
-			{
-				Type:   DaemonSetReady,
-				Status: metav1.ConditionFalse,
-				Reason: DaemonSetPodsNotReady,
-				Message: fmt.Sprintf(
-					"DaemonSet %s/%s is progressing: %d of %d pods are Ready (%d unavailable)",
-					h.namespace,
-					h.name,
-					ds.Status.NumberReady,
-					ds.Status.DesiredNumberScheduled,
-					ds.Status.NumberUnavailable,
-				),
-				LastTransitionTime: metav1.Now(),
-				ObservedGeneration: observedGen,
-			},
-		}, nil
-	}
-
-	return []metav1.Condition{
-		{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             DaemonSetAllPodsReady,
-			Message:            fmt.Sprintf("All pods in DaemonSet %s/%s are running", h.namespace, h.name),
-			LastTransitionTime: metav1.Now(),
-			ObservedGeneration: observedGen,
-		},
-	}, nil
-}
-
-func (h *vfioManagerPatcher) ComponentName() string {
-	return h.name
-}
-
-func (h *vfioManagerPatcher) ComponentNamespace() string {
-	return h.namespace
-}
-
-func (h *vfioManagerPatcher) handleServiceAccount(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewServiceAccountBuilder(h.name, h.namespace)
-	sa := builder.Build()
-
-	saRes, err := controllerutil.CreateOrPatch(ctx, h.client, sa, func() error {
-		sa = builder.WithOwner(owner, h.scheme).Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile VFIOManager ServiceAccount")
-		return err
-	}
-	h.log.Info("Reconciled VFIOManager ServiceAccount", "namespace", sa.Namespace, "name", sa.Name, "result", saRes)
-	return nil
-}
-
-func (h *vfioManagerPatcher) handleRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewRoleBuilder(h.name, h.namespace)
-	rb := builder.Build()
-
-	roleRes, err := controllerutil.CreateOrPatch(ctx, h.client, rb, func() error {
-		rb = builder.
-			WithRules(rbacv1.PolicyRule{
-				APIGroups:     []string{"security.openshift.io"},
-				Resources:     []string{"securitycontextconstraints"},
-				ResourceNames: []string{"privileged"},
-				Verbs:         []string{"use"},
-			}).
-			WithOwner(owner, h.scheme).Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile VFIOManager Role")
-		return err
-	}
-	h.log.Info("Reconciled VFIOManager Role", "namespace", rb.Namespace, "name", rb.Name, "result", roleRes)
-	return nil
-}
-
-func (h *vfioManagerPatcher) handleRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewRoleBindingBuilder(h.name, h.namespace)
-	rbb := builder.Build()
-
-	roleBindingRes, err := controllerutil.CreateOrPatch(ctx, h.client, rbb, func() error {
-		rbb = builder.
-			WithRoleRef(rbacv1.RoleRef{
-				APIGroup: "rbac.authorization.k8s.io",
-				Kind:     "Role",
-				Name:     h.name,
-			}).
-			WithSubjects(rbacv1.Subject{
-				Kind:      "ServiceAccount",
-				Name:      h.name,
-				Namespace: h.namespace,
-			}).
-			WithOwner(owner, h.scheme).Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile VFIOManager RoleBinding")
-		return err
-	}
-	h.log.Info("Reconciled VFIOManager RoleBinding", "namespace", rbb.Namespace, "name", rbb.Name, "result", roleBindingRes)
-	return nil
+	return h.deleteServiceAccount(ctx)
 }
 
 func (h *vfioManagerPatcher) handleConfigMap(ctx context.Context, cp *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewConfigMapBuilder(h.name+"-config", h.namespace)
-	cm := builder.Build()
-	cmRes, err := controllerutil.CreateOrPatch(ctx, h.client, cm, func() error {
-		cm = builder.
-			WithData(map[string]string{
-				"vfio-manage.sh": `#!/bin/bash
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name + "-config", Namespace: h.namespace},
+	}
+
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, cm, func() error {
+		cm.Data = map[string]string{
+			"vfio-manage.sh": `#!/bin/bash
 
 set -Eeuo pipefail
 
@@ -549,117 +359,84 @@ case "$command" in
     usage
     ;;
 esac`,
-			}).
-			WithOwner(cp, h.scheme).
-			Build()
-		return nil
+		}
+		return ctrl.SetControllerReference(cp, cm, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile VFIOManager ConfigMap")
 		return err
 	}
-
-	h.log.Info("Reconciled VFIOManager ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", cmRes)
+	h.log.Info("Reconciled VFIOManager ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", res)
 	return nil
 }
 
-func (h *vfioManagerPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
-	ds := builder.Build()
-	dsRes, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
-		ds = builder.
-			WithLabelSelectors(map[string]string{"app": h.name}).
-			WithLabels(h.desiredSpec.Labels).
-			WithAnnotations(h.desiredSpec.Annotations).
-			WithPodSpec(k8sutil.NewPodSpecBuilder().
-				WithServiceAccountName(h.name).
-				WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.vfio-manager": "true"}).
-				WithAffinity(h.desiredSpec.Affinity).
-				WithTolerations(h.desiredSpec.Tolerations).
-				WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
-				WithPriorityClassName(h.desiredSpec.PriorityClassName).
-				WithTerminationGracePeriodSeconds(30).
-				WithContainers([]*corev1.Container{
-					k8sutil.NewContainerBuilder().
-						WithName(h.name).
-						WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
-						WithCommands([]string{"/bin/bash", "-c"}).
-						WithArgs([]string{"/bin/vfio-manage.sh bind --all && sleep inf"}).
-						WithResources(h.desiredSpec.Resources, "100m", "200Mi").
-						WithVolumeMounts([]corev1.VolumeMount{
-							{
-								Name:      h.name,
-								MountPath: "/bin/vfio-manage.sh",
-								SubPath:   "vfio-manage.sh",
-								ReadOnly:  true,
-							},
-							{
-								Name:      "host-sys",
-								MountPath: "/sys",
-							},
-							{
-								Name:      "host-root",
-								MountPath: "/host",
-							},
-						}).
-						WithSecurityContext(&corev1.SecurityContext{
-							RunAsUser:  ptr(int64(0)),
-							Privileged: ptr(true),
-							SELinuxOptions: &corev1.SELinuxOptions{
-								Level: "s0",
-							},
-						}).
-						WithLifeCycle(&corev1.Lifecycle{
-							PreStop: &corev1.LifecycleHandler{
-								Exec: &corev1.ExecAction{
-									Command: []string{"/bin/sh", "-c", "/bin/vfio-manage.sh unbind --all"},
-								},
-							},
-						}).
-						Build(),
+func (h *vfioManagerPatcher) buildPodSpec() *corev1.PodSpec {
+	return k8sutil.NewPodSpecBuilder().
+		WithServiceAccountName(h.name).
+		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.vfio-manager": "true"}).
+		WithAffinity(h.desiredSpec.Affinity).
+		WithTolerations(h.desiredSpec.Tolerations).
+		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithPriorityClassName(h.desiredSpec.PriorityClassName).
+		WithTerminationGracePeriodSeconds(30).
+		WithVolumes([]corev1.Volume{
+			{
+				Name: h.name,
+				VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: h.name + "-config"},
+					DefaultMode:          ptr(int32(448)),
+				}},
+			},
+			hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
+			hostPathVolume("host-root", "/", corev1.HostPathDirectory),
+		}).
+		WithContainers([]*corev1.Container{
+			k8sutil.NewContainerBuilder().
+				WithName(h.name).
+				WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+				WithCommands([]string{"/bin/bash", "-c"}).
+				WithArgs([]string{"/bin/vfio-manage.sh bind --all && sleep inf"}).
+				WithResources(h.desiredSpec.Resources, "100m", "200Mi").
+				WithVolumeMounts([]corev1.VolumeMount{
+					{Name: h.name, MountPath: "/bin/vfio-manage.sh", SubPath: "vfio-manage.sh", ReadOnly: true},
+					{Name: "host-sys", MountPath: "/sys"},
+					{Name: "host-root", MountPath: "/host"},
 				}).
-				WithVolumes([]corev1.Volume{
-					{
-						Name: h.name,
-						VolumeSource: corev1.VolumeSource{
-							ConfigMap: &corev1.ConfigMapVolumeSource{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: h.name + "-config",
-								},
-								DefaultMode: ptr(int32(448)),
-							},
-						},
-					},
-					{
-						Name: "host-sys",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/sys",
-								Type: ptr(corev1.HostPathDirectory),
-							},
-						},
-					},
-					{
-						Name: "host-root",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/",
-								Type: ptr(corev1.HostPathDirectory),
-							},
+				WithSecurityContext(&corev1.SecurityContext{
+					RunAsUser:      ptr(int64(0)),
+					Privileged:     ptr(true),
+					SELinuxOptions: &corev1.SELinuxOptions{Level: "s0"},
+				}).
+				WithLifeCycle(&corev1.Lifecycle{
+					PreStop: &corev1.LifecycleHandler{
+						Exec: &corev1.ExecAction{
+							Command: []string{"/bin/sh", "-c", "/bin/vfio-manage.sh unbind --all"},
 						},
 					},
 				}).
 				Build(),
-			).
-			WithOwner(owner, h.scheme).
-			Build()
-		return nil
+		}).
+		Build()
+}
+
+func (h *vfioManagerPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	podSpec := h.buildPodSpec()
+
+	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
+	ds := builder.Build()
+
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
+		builder.
+			WithLabelSelectors(map[string]string{"app": h.name}).
+			WithLabels(h.desiredSpec.Labels).
+			WithAnnotations(h.desiredSpec.Annotations).
+			WithPodSpec(podSpec)
+		return ctrl.SetControllerReference(owner, ds, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile VFIOManager DaemonSet")
 		return err
 	}
-
-	h.log.Info("Reconciled VFIOManager DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", dsRes)
+	h.log.Info("Reconciled VFIOManager DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
 	return nil
 }

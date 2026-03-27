@@ -1,11 +1,9 @@
 package components
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -13,6 +11,11 @@ import (
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
+)
+
+const (
+	validationsVolumeName = "run-rbln-validations"
+	validationsMountPath  = "/run/rbln/validations"
 )
 
 // ComponentSpec defines the common interface for component specs.
@@ -35,6 +38,10 @@ type configResource struct {
 
 type configResourceList struct {
 	ResourceList []configResource `json:"resourceList"`
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }
 
 func ComposeImageReference(registry, image string) string {
@@ -77,6 +84,41 @@ func syncSpec[T ComponentSpec](cpSpec *rblnv1beta1.RBLNClusterPolicySpec, compon
 	return syncedSpec
 }
 
+// hostPathVolume is a concise constructor for HostPath-backed volumes.
+func hostPathVolume(name, path string, t corev1.HostPathType) corev1.Volume {
+	return corev1.Volume{
+		Name: name,
+		VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{
+				Path: path,
+				Type: ptr(t),
+			},
+		},
+	}
+}
+
+// mergeEnvVars merges one or more lists of env vars into base,
+// with later entries overriding earlier ones when names collide.
+func mergeEnvVars(base []corev1.EnvVar, additions ...[]corev1.EnvVar) []corev1.EnvVar {
+	merged := slices.Clone(base)
+	for _, list := range additions {
+		for _, env := range list {
+			replaced := false
+			for idx := range merged {
+				if merged[idx].Name == env.Name {
+					merged[idx] = env
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				merged = append(merged, env)
+			}
+		}
+	}
+	return merged
+}
+
 func collectDevices(productCardNames []string) ([]string, error) {
 	devices := make([]string, 0)
 	for _, productCardName := range productCardNames {
@@ -87,14 +129,4 @@ func collectDevices(productCardNames []string) ([]string, error) {
 		devices = append(devices, deviceList...)
 	}
 	return devices, nil
-}
-
-func GetObjectHash(obj any) string {
-	raw, err := json.Marshal(obj)
-	if err != nil {
-		// Fallback keeps function total-orderable even for non-JSON-serializable inputs.
-		raw = fmt.Appendf(nil, "%#v", obj)
-	}
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:])
 }

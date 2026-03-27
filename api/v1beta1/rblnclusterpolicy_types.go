@@ -114,7 +114,3 @@ type RBLNClusterPolicyList struct {
 func init() {
 	SchemeBuilder.Register(&RBLNClusterPolicy{}, &RBLNClusterPolicyList{})
 }
-
-func (p *RBLNClusterPolicy) SetStatus(s ClusterState) {
-	p.Status.State = s
-}

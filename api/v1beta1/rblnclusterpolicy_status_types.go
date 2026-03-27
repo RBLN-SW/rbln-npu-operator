@@ -4,16 +4,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type (
-	ClusterState   string
-	ComponentState string
-)
-
-const (
-	ClusterReady    ClusterState = "ready"
-	ClusterNotReady ClusterState = "notReady"
-	ClusterIgnored  ClusterState = "ignored"
-)
+type ComponentState string
 
 const (
 	ComponentStateReady    ComponentState = "ready"
@@ -21,18 +12,16 @@ const (
 )
 
 type RBLNComponentStatus struct {
-	Name       string             `json:"name"`
-	Namespace  string             `json:"namespace"`
-	State      ComponentState     `json:"state"`
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Name      string         `json:"name"`
+	Namespace string         `json:"namespace"`
+	State     ComponentState `json:"state"`
 }
 
 // RBLNClusterPolicyStatus defines the observed state of RBLNClusterPolicy
 type RBLNClusterPolicyStatus struct {
-	// +kubebuilder:validation:Enum=ready;notReady;ignored
+	// ObservedGeneration is the most recent generation observed by the controller.
 	// +optional
-	// State indicates status of ClusterPolicy
-	State ClusterState `json:"state,omitempty"`
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// Components is a list of components and their status
 	// +operator-sdk:csv:customresourcedefinitions:type=status,displayName="Components",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	Components []RBLNComponentStatus `json:"components,omitempty"`

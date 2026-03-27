@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	kapierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -83,14 +86,11 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	nfdInstalled := clusterpolicy.HasNFDLabeledNodes(nodeList)
 
 	if !nfdInstalled {
-		return r.returnClusterNotReady(
-			ctx,
-			instance,
-			ctrl.Result{RequeueAfter: 30 * time.Second},
-			r.Log.V(consts.LogLevelWarning).Info,
-			"NodeFeatureDiscovery labels not found",
-			"requeue_after", 30*time.Second,
-		)
+		r.Log.V(consts.LogLevelWarning).Info("NodeFeatureDiscovery labels not found", "requeue_after", 30*time.Second)
+		if err := r.setNotReadyStatus(ctx, instance, consts.RBLNConditionReasonNFDNotFound, "NodeFeatureDiscovery labels not found"); err != nil {
+			r.Log.V(consts.LogLevelDebug).Error(err, "failed to set ClusterPolicy status")
+		}
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
 	service := clusterpolicy.NewClusterPolicyService(
@@ -110,16 +110,14 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	if rblnNodes == 0 {
-		return r.returnClusterNotReady(
-			ctx,
-			instance,
-			ctrl.Result{},
-			r.Log.Info,
-			"No Rebellions NPU discovered; skipping reconcile",
-		)
+		r.Log.Info("No Rebellions NPU discovered; skipping reconcile")
+		if err := r.setNotReadyStatus(ctx, instance, consts.RBLNConditionReasonNoRBLNNodes, "No Rebellions NPU discovered"); err != nil {
+			r.Log.V(consts.LogLevelDebug).Error(err, "failed to set ClusterPolicy status")
+		}
+		return ctrl.Result{}, nil
 	}
 
-	err = clusterpolicy.ReconcileDriverAutoUpgradeAnnotations(ctx, r.Client, instance)
+	err = clusterpolicy.ReconcileDriverAutoUpgradeAnnotations(ctx, r.Client, instance, nodeList)
 	if err != nil {
 		r.Log.Error(err, "")
 		return ctrl.Result{}, err
@@ -130,7 +128,8 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	if err := service.ReconcileStatus(ctx); err != nil {
+	componentStatuses := service.AssembleComponentStatus(ctx)
+	if err := r.reconcileStatus(ctx, instance, componentStatuses); err != nil {
 		r.Log.Error(err, "Failed to reconcile status in RBLNClusterPolicy Scope")
 		return ctrl.Result{}, err
 	}
@@ -166,7 +165,7 @@ func (r *RBLNClusterPolicyReconciler) handleSingletonPolicy(
 ) (bool, error) {
 	if r.SingletonCRName != "" && r.SingletonCRName != instance.Name {
 		r.Log.V(consts.LogLevelDebug).Info("Set RBLNClusterPolicy status as ignored")
-		if err := updateCRState(ctx, r, instance, rblnv1beta1.ClusterIgnored); err != nil {
+		if err := r.setNotReadyStatus(ctx, instance, consts.RBLNConditionReasonPolicyIgnored, "Another RBLNClusterPolicy is already active; this policy is ignored"); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -190,16 +189,19 @@ func resolveNamespace(instance *rblnv1beta1.RBLNClusterPolicy) (string, error) {
 	return "", fmt.Errorf("namespace is not configured. Set OPERATOR_NAMESPACE env variable or spec.namespace")
 }
 
-func updateCRState(
+func (r *RBLNClusterPolicyReconciler) setNotReadyStatus(
 	ctx context.Context,
-	r *RBLNClusterPolicyReconciler,
 	instance *rblnv1beta1.RBLNClusterPolicy,
-	state rblnv1beta1.ClusterState,
+	reason, message string,
 ) error {
-	if instance.Status.State == state {
-		return nil
-	}
-	instance.SetStatus(state)
+	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+		Type:               consts.RBLNConditionTypeReady,
+		Status:             metav1.ConditionFalse,
+		ObservedGeneration: instance.Generation,
+		Reason:             reason,
+		Message:            message,
+	})
+	instance.Status.ObservedGeneration = instance.Generation
 	if err := r.Client.Status().Update(ctx, instance); err != nil {
 		r.Log.Error(err, "Failed to update ClusterPolicy status")
 		return err
@@ -207,32 +209,84 @@ func updateCRState(
 	return nil
 }
 
-func (r *RBLNClusterPolicyReconciler) returnClusterNotReady(
+func (r *RBLNClusterPolicyReconciler) reconcileStatus(
 	ctx context.Context,
-	instance *rblnv1beta1.RBLNClusterPolicy,
-	result ctrl.Result,
-	logFunc func(string, ...interface{}),
-	message string,
-	keysAndValues ...interface{},
-) (ctrl.Result, error) {
-	logFunc(message, keysAndValues...)
-	if err := updateCRState(ctx, r, instance, rblnv1beta1.ClusterNotReady); err != nil {
-		r.Log.V(consts.LogLevelDebug).Error(err, "failed to set ClusterPolicy state")
+	policy *rblnv1beta1.RBLNClusterPolicy,
+	componentStatuses []rblnv1beta1.RBLNComponentStatus,
+) error {
+	instance := &rblnv1beta1.RBLNClusterPolicy{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(policy), instance); err != nil {
+		return fmt.Errorf("get cluster policy for status update: %w", err)
 	}
-	return result, nil
+
+	instance.Status.Components = componentStatuses
+	instance.Status.ObservedGeneration = instance.Generation
+
+	allReady := true
+	for _, c := range componentStatuses {
+		if c.State != rblnv1beta1.ComponentStateReady {
+			allReady = false
+			break
+		}
+	}
+
+	if allReady {
+		n := len(componentStatuses)
+		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+			Type:               consts.RBLNConditionTypeComponentsReady,
+			Status:             metav1.ConditionTrue,
+			ObservedGeneration: instance.Generation,
+			Reason:             consts.RBLNConditionReasonAllComponentsReady,
+			Message:            "All managed components are Ready",
+		})
+		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+			Type:               consts.RBLNConditionTypeReady,
+			Status:             metav1.ConditionTrue,
+			ObservedGeneration: instance.Generation,
+			Reason:             consts.RBLNConditionReasonAllComponentsReady,
+			Message:            fmt.Sprintf("All components are Ready (%d/%d)", n, n),
+		})
+	} else {
+		notReady := make([]string, 0, len(componentStatuses))
+		for _, c := range componentStatuses {
+			if c.State != rblnv1beta1.ComponentStateReady {
+				notReady = append(notReady, fmt.Sprintf("%s/%s", c.Namespace, c.Name))
+			}
+		}
+		message := fmt.Sprintf("Components not ready: %s", strings.Join(notReady, ", "))
+		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+			Type:               consts.RBLNConditionTypeComponentsReady,
+			Status:             metav1.ConditionFalse,
+			ObservedGeneration: instance.Generation,
+			Reason:             consts.RBLNConditionReasonSomeNotReady,
+			Message:            message,
+		})
+		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+			Type:               consts.RBLNConditionTypeReady,
+			Status:             metav1.ConditionFalse,
+			ObservedGeneration: instance.Generation,
+			Reason:             consts.RBLNConditionReasonSomeNotReady,
+			Message:            message,
+		})
+	}
+
+	if err := r.Client.Status().Update(ctx, instance); err != nil {
+		return fmt.Errorf("update cluster policy status: %w", err)
+	}
+	return nil
 }
 
 func (r *RBLNClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	genChanged := predicate.GenerationChangedPredicate{}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&rblnv1beta1.RBLNClusterPolicy{}).
-		Owns(&appsv1.DaemonSet{}).
-		Owns(&corev1.ConfigMap{}).
-		Owns(&corev1.Service{}).
-		// Watch Node objects
+		Owns(&appsv1.DaemonSet{}, builder.WithPredicates(genChanged)).
+		Owns(&corev1.ConfigMap{}, builder.WithPredicates(genChanged)).
+		Owns(&corev1.Service{}, builder.WithPredicates(genChanged)).
 		Watches(
 			&corev1.Node{},
 			handler.EnqueueRequestsFromMapFunc(r.singletonRequest),
-			builder.WithPredicates(r.rblnNodeLabelUpdated()),
+			builder.WithPredicates(r.rblnNodePredicate()),
 		).
 		Complete(r)
 }
@@ -251,19 +305,17 @@ func (r *RBLNClusterPolicyReconciler) singletonRequest(_ context.Context, o clie
 	return nil
 }
 
-func (r *RBLNClusterPolicyReconciler) rblnNodeLabelUpdated() predicate.Funcs {
+func (r *RBLNClusterPolicyReconciler) rblnNodePredicate() predicate.Funcs {
+	hasRBLNLabels := func(labels map[string]string) bool {
+		return len(k8sutil.FilterMapWithPrefix(labels, "rebellions.ai/")) > 0
+	}
 	return predicate.Funcs{
-		CreateFunc:  func(e event.CreateEvent) bool { return true },
-		DeleteFunc:  func(e event.DeleteEvent) bool { return true },
+		CreateFunc:  func(e event.CreateEvent) bool { return hasRBLNLabels(e.Object.GetLabels()) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return hasRBLNLabels(e.Object.GetLabels()) },
 		GenericFunc: func(e event.GenericEvent) bool { return false },
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldNode, ok1 := e.ObjectOld.(*corev1.Node)
-			newNode, ok2 := e.ObjectNew.(*corev1.Node)
-			if !ok1 || !ok2 {
-				return false
-			}
-			oldRblnLabels := k8sutil.FilterMapWithPrefix(oldNode.Labels, "rebellions.ai/")
-			newRblnLabels := k8sutil.FilterMapWithPrefix(newNode.Labels, "rebellions.ai/")
+			oldRblnLabels := k8sutil.FilterMapWithPrefix(e.ObjectOld.GetLabels(), "rebellions.ai/")
+			newRblnLabels := k8sutil.FilterMapWithPrefix(e.ObjectNew.GetLabels(), "rebellions.ai/")
 			return !reflect.DeepEqual(oldRblnLabels, newRblnLabels)
 		},
 	}

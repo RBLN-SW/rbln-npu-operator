@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterpolicy/components"
@@ -16,7 +15,6 @@ type fakePatcher struct {
 	name       string
 	namespace  string
 	enabled    bool
-	conditions []metav1.Condition
 	patchErr   error
 	cleanupErr error
 	reportErr  error
@@ -38,8 +36,8 @@ func (f *fakePatcher) CleanUp(context.Context, *rblnv1beta1.RBLNClusterPolicy) e
 	return f.cleanupErr
 }
 
-func (f *fakePatcher) ConditionReport(context.Context, *rblnv1beta1.RBLNClusterPolicy) ([]metav1.Condition, error) {
-	return f.conditions, f.reportErr
+func (f *fakePatcher) IsReady(context.Context) error {
+	return f.reportErr
 }
 
 func (f *fakePatcher) ComponentName() string      { return f.name }
@@ -106,27 +104,25 @@ func TestPatchComponents(t *testing.T) {
 			}
 
 			err := service.PatchComponents(context.Background())
-			if tc.want.err == nil {
-				if err != nil {
-					t.Fatalf("%s: PatchComponents() unexpected error: %v", tc.reason, err)
-				}
-			} else {
-				if err == nil {
-					t.Fatalf("%s: PatchComponents() expected error, got nil", tc.reason)
-				}
+
+			wantErr := tc.want.err != nil
+			if (err != nil) != wantErr {
+				t.Fatalf("%s: PatchComponents() error = %v, wantErr %t", tc.reason, err, wantErr)
+			}
+			if wantErr {
 				if !errors.Is(err, tc.want.err) {
-					t.Fatalf("%s: PatchComponents() error = %v, want wrapped %v", tc.reason, err, tc.want.err)
+					t.Errorf("%s: PatchComponents() error = %v, want wrapped %v", tc.reason, err, tc.want.err)
 				}
 				if got := err.Error(); got != tc.want.errString {
-					t.Fatalf("%s: PatchComponents() error = %q, want %q", tc.reason, got, tc.want.errString)
+					t.Errorf("%s: PatchComponents() error = %q, want %q", tc.reason, got, tc.want.errString)
 				}
 			}
 
 			if diff := cmp.Diff(tc.want.patchCalls, patchCallCounts(tc.patchers)); diff != "" {
-				t.Fatalf("%s: patch call counts -want, +got:\n%s", tc.reason, diff)
+				t.Errorf("%s: patch call counts -want, +got:\n%s", tc.reason, diff)
 			}
 			if diff := cmp.Diff(tc.want.cleanCalls, cleanCallCounts(tc.patchers)); diff != "" {
-				t.Fatalf("%s: clean call counts -want, +got:\n%s", tc.reason, diff)
+				t.Errorf("%s: clean call counts -want, +got:\n%s", tc.reason, diff)
 			}
 		})
 	}
@@ -141,50 +137,30 @@ func TestAssembleComponentStatus(t *testing.T) {
 		"returns status only for enabled components": {
 			reason: "enabled components should be returned with ready state derived from ConditionReport errors",
 			patchers: []*fakePatcher{
-				{
-					name:      "device-plugin",
-					namespace: "rbln-system",
-					enabled:   true,
-					conditions: []metav1.Condition{{
-						Type:   "Ready",
-						Status: metav1.ConditionTrue,
-					}},
-				},
-				{
-					name:      "disabled-component",
-					namespace: "rbln-system",
-					enabled:   false,
-				},
-				{
-					name:      "vfio-manager",
-					namespace: "rbln-system",
-					enabled:   true,
-					conditions: []metav1.Condition{{
-						Type:   "Ready",
-						Status: metav1.ConditionFalse,
-					}},
-					reportErr: errors.New("not ready"),
-				},
+				{name: "device-plugin", namespace: "rbln-system", enabled: true},
+				{name: "disabled-component", namespace: "rbln-system", enabled: false},
+				{name: "vfio-manager", namespace: "rbln-system", enabled: true, reportErr: errors.New("not ready")},
 			},
 			want: []rblnv1beta1.RBLNComponentStatus{
-				{
-					Name:      "device-plugin",
-					Namespace: "rbln-system",
-					State:     rblnv1beta1.ComponentStateReady,
-					Conditions: []metav1.Condition{{
-						Type:   "Ready",
-						Status: metav1.ConditionTrue,
-					}},
-				},
-				{
-					Name:      "vfio-manager",
-					Namespace: "rbln-system",
-					State:     rblnv1beta1.ComponentStateNotReady,
-					Conditions: []metav1.Condition{{
-						Type:   "Ready",
-						Status: metav1.ConditionFalse,
-					}},
-				},
+				{Name: "device-plugin", Namespace: "rbln-system", State: rblnv1beta1.ComponentStateReady},
+				{Name: "vfio-manager", Namespace: "rbln-system", State: rblnv1beta1.ComponentStateNotReady},
+			},
+		},
+		"returns empty slice when all components are disabled": {
+			reason: "disabled components should be excluded from status entirely",
+			patchers: []*fakePatcher{
+				{name: "device-plugin", namespace: "rbln-system", enabled: false},
+				{name: "vfio-manager", namespace: "rbln-system", enabled: false},
+			},
+			want: []rblnv1beta1.RBLNComponentStatus{},
+		},
+		"marks Ready when ConditionReport returns no error": {
+			reason: "a component reporting no error should be marked as Ready",
+			patchers: []*fakePatcher{
+				{name: "device-plugin", namespace: "rbln-system", enabled: true},
+			},
+			want: []rblnv1beta1.RBLNComponentStatus{
+				{Name: "device-plugin", Namespace: "rbln-system", State: rblnv1beta1.ComponentStateReady},
 			},
 		},
 	}

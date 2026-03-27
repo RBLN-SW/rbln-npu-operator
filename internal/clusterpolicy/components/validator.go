@@ -2,17 +2,13 @@ package components
 
 import (
 	"context"
-	"fmt"
-	"slices"
 
 	"github.com/go-logr/logr"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	kapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -36,49 +32,36 @@ const (
 )
 
 type validatorPatcher struct {
-	client client.Client
-	log    logr.Logger
-	scheme *runtime.Scheme
-
-	desiredSpec      *rblnv1beta1.ValidatorSpec
-	name             string
-	namespace        string
-	openshiftVersion string
-	daemonsets       *rblnv1beta1.DaemonsetsSpec
+	basePatcher
+	desiredSpec *rblnv1beta1.ValidatorSpec
+	daemonsets  *rblnv1beta1.DaemonsetsSpec
 }
 
 func NewValidatorPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
-	patcher := &validatorPatcher{
-		client: client,
-		log:    log,
-		scheme: scheme,
-
-		name:             cpSpec.BaseName + "-" + consts.RBLNValidatorName,
-		namespace:        namespace,
-		openshiftVersion: openshiftVersion,
-		daemonsets:       cpSpec.Daemonsets,
+	return &validatorPatcher{
+		basePatcher: basePatcher{
+			client:           client,
+			log:              log,
+			scheme:           scheme,
+			name:             cpSpec.BaseName + "-" + consts.RBLNValidatorName,
+			namespace:        namespace,
+			openshiftVersion: openshiftVersion,
+			enabled:          true,
+		},
+		desiredSpec: &cpSpec.Validator,
+		daemonsets:  cpSpec.Daemonsets,
 	}
-
-	patcher.desiredSpec = &cpSpec.Validator
-	return patcher
-}
-
-func (h *validatorPatcher) IsEnabled() bool {
-	return h.desiredSpec != nil
 }
 
 func (h *validatorPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	if !h.IsEnabled() {
-		return nil
-	}
-
-	if err := h.handleServiceAccount(ctx, owner); err != nil {
+	if err := h.reconcileServiceAccount(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleRole(ctx, owner); err != nil {
+	// Validator always needs RBAC (pods + daemonsets access), not just on OpenShift.
+	if err := h.reconcileValidatorRole(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleRoleBinding(ctx, owner); err != nil {
+	if err := h.reconcileRoleBinding(ctx, owner); err != nil {
 		return err
 	}
 	if err := h.handleClusterRole(ctx); err != nil {
@@ -87,144 +70,45 @@ func (h *validatorPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClu
 	if err := h.handleClusterRoleBinding(ctx); err != nil {
 		return err
 	}
-	if err := h.handleDaemonSet(ctx, owner); err != nil {
-		return err
-	}
-	return nil
+	return h.handleDaemonSet(ctx, owner)
 }
 
 func (h *validatorPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	h.log.Info("WARNING: Validator is disabled. Remove all Validator resources")
-
-	if err := h.client.Delete(ctx, &appsv1.DaemonSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
-	if err := h.client.Delete(ctx, &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: h.name,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name},
+	}); err != nil {
 		return err
 	}
-	if err := h.client.Delete(ctx, &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: h.name,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name},
+	}); err != nil {
 		return err
 	}
-	if err := h.client.Delete(ctx, &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteIfExists(ctx, &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
+	}); err != nil {
 		return err
 	}
-	if err := h.client.Delete(ctx, &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteIfExists(ctx, &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
+	}); err != nil {
 		return err
 	}
-	if err := h.client.Delete(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
-		return err
-	}
-
-	return nil
+	return h.deleteServiceAccount(ctx)
 }
 
-func (h *validatorPatcher) ConditionReport(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) ([]metav1.Condition, error) {
-	var ds appsv1.DaemonSet
-	if err := h.client.Get(ctx, types.NamespacedName{Name: h.name, Namespace: h.namespace}, &ds); err != nil {
-		return []metav1.Condition{{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             DaemonSetNotFound,
-			Message:            fmt.Sprintf("DaemonSet %s/%s could not be found: %v", h.namespace, h.name, err),
-			LastTransitionTime: metav1.Now(),
-		}}, nil
+// reconcileValidatorRole creates a Role with pods + daemonsets access, and
+// additionally grants OpenShift SCC privileges when running on OpenShift.
+func (h *validatorPatcher) reconcileValidatorRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
 	}
 
-	ready := ds.Status.DesiredNumberScheduled > 0 &&
-		ds.Status.NumberReady == ds.Status.DesiredNumberScheduled &&
-		ds.Status.NumberUnavailable == 0
-
-	observedGen := ds.GetGeneration()
-
-	if !ready {
-		return []metav1.Condition{
-			{
-				Type:   DaemonSetReady,
-				Status: metav1.ConditionFalse,
-				Reason: DaemonSetPodsNotReady,
-				Message: fmt.Sprintf(
-					"DaemonSet %s/%s is progressing: %d of %d pods are Ready (%d unavailable)",
-					h.namespace,
-					h.name,
-					ds.Status.NumberReady,
-					ds.Status.DesiredNumberScheduled,
-					ds.Status.NumberUnavailable,
-				),
-				LastTransitionTime: metav1.Now(),
-				ObservedGeneration: observedGen,
-			},
-		}, nil
-	}
-
-	return []metav1.Condition{
-		{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             DaemonSetAllPodsReady,
-			Message:            fmt.Sprintf("All pods in DaemonSet %s/%s are running", h.namespace, h.name),
-			LastTransitionTime: metav1.Now(),
-			ObservedGeneration: observedGen,
-		},
-	}, nil
-}
-
-func (h *validatorPatcher) ComponentName() string {
-	return h.name
-}
-
-func (h *validatorPatcher) ComponentNamespace() string {
-	return h.namespace
-}
-
-func (h *validatorPatcher) handleServiceAccount(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewServiceAccountBuilder(h.name, h.namespace)
-	sa := builder.Build()
-
-	saRes, err := controllerutil.CreateOrPatch(ctx, h.client, sa, func() error {
-		sa = builder.WithOwner(owner, h.scheme).Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile Validator ServiceAccount")
-		return err
-	}
-	h.log.Info("Reconciled Validator ServiceAccount", "namespace", sa.Namespace, "name", sa.Name, "result", saRes)
-	return nil
-}
-
-func (h *validatorPatcher) handleRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewRoleBuilder(h.name, h.namespace)
-	role := builder.Build()
-
-	roleRes, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
 		rules := []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{""},
@@ -245,57 +129,21 @@ func (h *validatorPatcher) handleRole(ctx context.Context, owner *rblnv1beta1.RB
 				Verbs:         []string{"use"},
 			})
 		}
-
-		role = builder.
-			WithRules(rules...).
-			WithOwner(owner, h.scheme).
-			Build()
-		return nil
+		role.Rules = rules
+		return ctrl.SetControllerReference(owner, role, h.scheme)
 	})
 	if err != nil {
-		h.log.Error(err, "Failed to reconcile Validator Role")
+		h.log.Error(err, "Failed to reconcile Validator Role", "name", h.name)
 		return err
 	}
-	h.log.Info("Reconciled Validator Role", "namespace", role.Namespace, "name", role.Name, "result", roleRes)
-	return nil
-}
-
-func (h *validatorPatcher) handleRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewRoleBindingBuilder(h.name, h.namespace)
-	binding := builder.Build()
-
-	bindingRes, err := controllerutil.CreateOrPatch(ctx, h.client, binding, func() error {
-		binding = builder.
-			WithRoleRef(rbacv1.RoleRef{
-				APIGroup: rbacv1.GroupName,
-				Kind:     "Role",
-				Name:     h.name,
-			}).
-			WithSubjects(rbacv1.Subject{
-				Kind:      rbacv1.ServiceAccountKind,
-				Name:      h.name,
-				Namespace: h.namespace,
-			}).
-			WithOwner(owner, h.scheme).
-			Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile Validator RoleBinding")
-		return err
-	}
-	h.log.Info("Reconciled Validator RoleBinding", "namespace", binding.Namespace, "name", binding.Name, "result", bindingRes)
+	h.log.Info("Reconciled Validator Role", "name", role.Name, "namespace", role.Namespace, "result", res)
 	return nil
 }
 
 func (h *validatorPatcher) handleClusterRole(ctx context.Context) error {
-	role := &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: h.name,
-		},
-	}
+	role := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: h.name}}
 
-	roleRes, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
 		role.Rules = []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{""},
@@ -309,18 +157,14 @@ func (h *validatorPatcher) handleClusterRole(ctx context.Context) error {
 		h.log.Error(err, "Failed to reconcile Validator ClusterRole")
 		return err
 	}
-	h.log.Info("Reconciled Validator ClusterRole", "name", role.Name, "result", roleRes)
+	h.log.Info("Reconciled Validator ClusterRole", "name", role.Name, "result", res)
 	return nil
 }
 
 func (h *validatorPatcher) handleClusterRoleBinding(ctx context.Context) error {
-	binding := &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: h.name,
-		},
-	}
+	binding := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: h.name}}
 
-	bindingRes, err := controllerutil.CreateOrPatch(ctx, h.client, binding, func() error {
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, binding, func() error {
 		binding.RoleRef = rbacv1.RoleRef{
 			APIGroup: rbacv1.GroupName,
 			Kind:     "ClusterRole",
@@ -339,14 +183,11 @@ func (h *validatorPatcher) handleClusterRoleBinding(ctx context.Context) error {
 		h.log.Error(err, "Failed to reconcile Validator ClusterRoleBinding")
 		return err
 	}
-	h.log.Info("Reconciled Validator ClusterRoleBinding", "name", binding.Name, "result", bindingRes)
+	h.log.Info("Reconciled Validator ClusterRoleBinding", "name", binding.Name, "result", res)
 	return nil
 }
 
-func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
-	ds := builder.Build()
-
+func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 	validatorSpec := h.desiredSpec
 	imagePullPolicy := validatorSpec.ImagePullPolicy
 	if imagePullPolicy == "" {
@@ -358,23 +199,12 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 	driverArgs := validatorComponentArgs(validatorSpec.Args, validatorComponentDriver)
 	toolkitArgs := validatorComponentArgs(validatorSpec.Args, validatorComponentToolkit)
 	baseEnv := mergeEnvVars(
-		[]corev1.EnvVar{
-			{
-				Name:  "TMPDIR",
-				Value: validationsMountPath,
-			},
-		},
+		[]corev1.EnvVar{{Name: "TMPDIR", Value: validationsMountPath}},
 		validatorSpec.Env,
 	)
+	driverEnv := mergeEnvVars(baseEnv, validatorSpec.Driver.Env)
+	toolkitEnv := mergeEnvVars(baseEnv, validatorSpec.Toolkit.Env)
 
-	driverEnv := mergeEnvVars(
-		baseEnv,
-		validatorSpec.Driver.Env,
-	)
-	toolkitEnv := mergeEnvVars(
-		baseEnv,
-		validatorSpec.Toolkit.Env,
-	)
 	driverInit := k8sutil.NewContainerBuilder().
 		WithName("driver-validation").
 		WithImage(validatorImage, validatorSpec.Version, imagePullPolicy).
@@ -421,10 +251,7 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 				MountPath:        validationsMountPath,
 				MountPropagation: ptr(corev1.MountPropagationBidirectional),
 			},
-			{
-				Name:      validatorCDIRootVolumeName,
-				MountPath: validatorCDIRootPath,
-			},
+			{Name: validatorCDIRootVolumeName, MountPath: validatorCDIRootPath},
 		}).
 		Build()
 
@@ -455,90 +282,60 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 	if validatorSpec.Resources != nil {
 		mainContainerBuilder.WithResources(*validatorSpec.Resources, "250m", "40Mi")
 	}
-	mainContainer := mainContainerBuilder.Build()
 
-	labels := map[string]string{"app": h.name}
-	annotations := map[string]string(nil)
 	affinity := (*corev1.Affinity)(nil)
 	tolerations := []corev1.Toleration(nil)
 	priorityClassName := ""
 	if h.daemonsets != nil {
-		labels = k8sutil.MergeMaps(labels, h.daemonsets.Labels)
-		annotations = h.daemonsets.Annotations
 		affinity = h.daemonsets.Affinity
 		tolerations = h.daemonsets.Tolerations
 		priorityClassName = h.daemonsets.PriorityClassName
 	}
 
-	dsRes, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
-		ds = builder.
+	return k8sutil.NewPodSpecBuilder().
+		WithServiceAccountName(h.name).
+		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.operator-validator": "true"}).
+		WithAffinity(affinity).
+		WithTolerations(tolerations).
+		WithImagePullSecrets(validatorSpec.ImagePullSecrets).
+		WithPriorityClassName(priorityClassName).
+		WithVolumes([]corev1.Volume{
+			hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
+			hostPathVolume(validatorHostDriverVolumeName, validatorHostDriverPath, corev1.HostPathDirectoryOrCreate),
+			hostPathVolume(validatorHostRootVolumeName, validatorHostRootPath, corev1.HostPathDirectory),
+			hostPathVolume(validatorCDIRootVolumeName, validatorCDIRootPath, corev1.HostPathDirectoryOrCreate),
+		}).
+		WithInitContainers([]*corev1.Container{driverInit, toolkitInit}).
+		WithContainers([]*corev1.Container{mainContainerBuilder.Build()}).
+		Build()
+}
+
+func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	podSpec := h.buildPodSpec()
+
+	labels := map[string]string{"app": h.name}
+	annotations := map[string]string(nil)
+	if h.daemonsets != nil {
+		labels = k8sutil.MergeMaps(labels, h.daemonsets.Labels)
+		annotations = h.daemonsets.Annotations
+	}
+
+	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
+	ds := builder.Build()
+
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
+		builder.
 			WithLabelSelectors(map[string]string{"app": h.name}).
 			WithLabels(labels).
 			WithAnnotations(annotations).
-			WithPodSpec(k8sutil.NewPodSpecBuilder().
-				WithServiceAccountName(h.name).
-				WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.operator-validator": "true"}).
-				WithAffinity(affinity).
-				WithTolerations(tolerations).
-				WithImagePullSecrets(validatorSpec.ImagePullSecrets).
-				WithPriorityClassName(priorityClassName).
-				WithVolumes([]corev1.Volume{
-					{
-						Name: validationsVolumeName,
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: validationsMountPath,
-								Type: ptr(corev1.HostPathDirectoryOrCreate),
-							},
-						},
-					},
-					{
-						Name: validatorHostDriverVolumeName,
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: validatorHostDriverPath,
-								Type: ptr(corev1.HostPathDirectoryOrCreate),
-							},
-						},
-					},
-					{
-						Name: validatorHostRootVolumeName,
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: validatorHostRootPath,
-								Type: ptr(corev1.HostPathDirectory),
-							},
-						},
-					},
-					{
-						Name: validatorCDIRootVolumeName,
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: validatorCDIRootPath,
-								Type: ptr(corev1.HostPathDirectoryOrCreate),
-							},
-						},
-					},
-				}).
-				WithInitContainers([]*corev1.Container{
-					driverInit,
-					toolkitInit,
-				}).
-				WithContainers([]*corev1.Container{
-					mainContainer,
-				}).
-				Build(),
-			).
-			WithOwner(owner, h.scheme).
-			Build()
-		return nil
+			WithPodSpec(podSpec)
+		return ctrl.SetControllerReference(owner, ds, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile Validator DaemonSet")
 		return err
 	}
-
-	h.log.Info("Reconciled Validator DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", dsRes)
+	h.log.Info("Reconciled Validator DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
 	return nil
 }
 
@@ -548,24 +345,4 @@ func validatorComponentArgs(baseArgs []string, component string) []string {
 		args = append(args, baseArgs...)
 	}
 	return args
-}
-
-func mergeEnvVars(base []corev1.EnvVar, additions ...[]corev1.EnvVar) []corev1.EnvVar {
-	merged := slices.Clone(base)
-	for _, list := range additions {
-		for _, env := range list {
-			replaced := false
-			for idx := range merged {
-				if merged[idx].Name == env.Name {
-					merged[idx] = env
-					replaced = true
-					break
-				}
-			}
-			if !replaced {
-				merged = append(merged, env)
-			}
-		}
-	}
-	return merged
 }

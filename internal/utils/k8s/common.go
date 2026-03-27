@@ -1,12 +1,7 @@
 package k8sutil
 
 import (
-	"log"
 	"strings"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 // Builder is a generic builder for any type T
@@ -20,34 +15,6 @@ func NewBuilder[T any](obj *T) *Builder[T] {
 
 func (b *Builder[T]) Build() *T {
 	return b.obj
-}
-
-// OwnableBuilder extends Builder for types that implement metav1.Object
-type OwnableBuilder[T any, PT interface {
-	*T
-	metav1.Object
-}] struct {
-	*Builder[T]
-}
-
-func NewOwnableBuilder[T any, PT interface {
-	*T
-	metav1.Object
-}](name, namespace string) *OwnableBuilder[T, PT] {
-	// Create a new instance of T
-	obj := new(T)
-	// Convert to PT and set ObjectMeta
-	pt := PT(obj)
-	pt.SetName(name)
-	pt.SetNamespace(namespace)
-	return &OwnableBuilder[T, PT]{Builder: NewBuilder[T](obj)}
-}
-
-func (b *OwnableBuilder[T, PT]) WithOwner(owner metav1.Object, scheme *runtime.Scheme) *OwnableBuilder[T, PT] {
-	if err := ctrl.SetControllerReference(owner, PT(b.obj), scheme); err != nil {
-		log.Fatal(err, "Failed to set controller reference")
-	}
-	return b
 }
 
 // MergeMaps merges two maps, with the second map taking precedence.

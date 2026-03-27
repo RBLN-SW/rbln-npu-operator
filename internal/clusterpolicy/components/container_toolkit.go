@@ -2,18 +2,15 @@ package components
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	kapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -41,196 +38,83 @@ const (
 )
 
 type containerToolkitPatcher struct {
-	client client.Client
-	log    logr.Logger
-	scheme *runtime.Scheme
-
+	basePatcher
 	desiredSpec      *rblnv1beta1.RBLNContainerToolkitSpec
-	name             string
-	namespace        string
-	openshiftVersion string
 	containerRuntime string
 }
 
 func NewContainerToolkitPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string, containerRuntime string) Patcher {
-	patcher := &containerToolkitPatcher{
-		client: client,
-		log:    log,
-		scheme: scheme,
-
-		name:             cpSpec.BaseName + "-" + consts.RBLNContainerToolkitName,
-		namespace:        namespace,
-		openshiftVersion: openshiftVersion,
+	synced := syncSpec(cpSpec, cpSpec.ContainerToolkit)
+	return &containerToolkitPatcher{
+		basePatcher: basePatcher{
+			client:           client,
+			log:              log,
+			scheme:           scheme,
+			name:             cpSpec.BaseName + "-" + consts.RBLNContainerToolkitName,
+			namespace:        namespace,
+			openshiftVersion: openshiftVersion,
+			enabled:          synced.IsEnabled(),
+		},
+		desiredSpec:      &synced,
 		containerRuntime: containerRuntime,
 	}
-
-	synced := syncSpec(cpSpec, cpSpec.ContainerToolkit)
-	patcher.desiredSpec = &synced
-	return patcher
-}
-
-func (h *containerToolkitPatcher) IsEnabled() bool {
-	if h.desiredSpec == nil {
-		return false
-	}
-	return h.desiredSpec.IsEnabled()
 }
 
 func (h *containerToolkitPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	if !h.IsEnabled() {
 		return nil
 	}
-
-	if err := h.handleServiceAccount(ctx, owner); err != nil {
+	if err := h.reconcileServiceAccount(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleRole(ctx, owner); err != nil {
+	// ContainerToolkit always needs RBAC (apps/daemonsets list), not just on OpenShift.
+	if err := h.reconcileContainerToolkitRole(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleRoleBinding(ctx, owner); err != nil {
+	if err := h.reconcileRoleBinding(ctx, owner); err != nil {
 		return err
 	}
 	if err := h.handleConfigMap(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleDaemonSet(ctx, owner); err != nil {
-		return err
-	}
-
-	return nil
+	return h.handleDaemonSet(ctx, owner)
 }
 
 func (h *containerToolkitPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	h.log.Info("WARNING: Container Toolkit is disabled. Remove all Container Toolkit resources")
-
-	if err := h.client.Delete(ctx, &appsv1.DaemonSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
-
-	if err := h.client.Delete(ctx, &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteIfExists(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: h.entrypointConfigMapName(), Namespace: h.namespace},
+	}); err != nil {
 		return err
 	}
-	if err := h.client.Delete(ctx, &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteIfExists(ctx, &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
+	}); err != nil {
 		return err
 	}
-	if err := h.client.Delete(ctx, &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.entrypointConfigMapName(),
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteIfExists(ctx, &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
+	}); err != nil {
 		return err
 	}
-	if err := h.client.Delete(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
-		return err
-	}
-
-	return nil
-}
-
-func (h *containerToolkitPatcher) ConditionReport(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) ([]metav1.Condition, error) {
-	var ds appsv1.DaemonSet
-	if err := h.client.Get(ctx, types.NamespacedName{Name: h.name, Namespace: h.namespace}, &ds); err != nil {
-		return []metav1.Condition{{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             DaemonSetNotFound,
-			Message:            fmt.Sprintf("DaemonSet %s/%s could not be found: %v", h.namespace, h.name, err),
-			LastTransitionTime: metav1.Now(),
-		}}, nil
-	}
-
-	ready := ds.Status.DesiredNumberScheduled > 0 &&
-		ds.Status.NumberReady == ds.Status.DesiredNumberScheduled &&
-		ds.Status.NumberUnavailable == 0
-
-	observedGen := ds.GetGeneration()
-
-	if !ready {
-		return []metav1.Condition{
-			{
-				Type:   DaemonSetReady,
-				Status: metav1.ConditionFalse,
-				Reason: DaemonSetPodsNotReady,
-				Message: fmt.Sprintf(
-					"DaemonSet %s/%s is progressing: %d of %d pods are Ready (%d unavailable)",
-					h.namespace,
-					h.name,
-					ds.Status.NumberReady,
-					ds.Status.DesiredNumberScheduled,
-					ds.Status.NumberUnavailable,
-				),
-				LastTransitionTime: metav1.Now(),
-				ObservedGeneration: observedGen,
-			},
-		}, nil
-	}
-
-	return []metav1.Condition{
-		{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             DaemonSetAllPodsReady,
-			Message:            fmt.Sprintf("All pods in DaemonSet %s/%s are running", h.namespace, h.name),
-			LastTransitionTime: metav1.Now(),
-			ObservedGeneration: observedGen,
-		},
-	}, nil
-}
-
-func (h *containerToolkitPatcher) ComponentName() string {
-	return h.name
-}
-
-func (h *containerToolkitPatcher) ComponentNamespace() string {
-	return h.namespace
+	return h.deleteServiceAccount(ctx)
 }
 
 func (h *containerToolkitPatcher) entrypointConfigMapName() string {
 	return h.name + "-entrypoint"
 }
 
-func (h *containerToolkitPatcher) handleServiceAccount(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewServiceAccountBuilder(h.name, h.namespace)
-	sa := builder.Build()
-
-	saRes, err := controllerutil.CreateOrPatch(ctx, h.client, sa, func() error {
-		sa = builder.WithOwner(owner, h.scheme).Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile Container Toolkit ServiceAccount")
-		return err
+// reconcileContainerToolkitRole creates a Role that always includes apps/daemonsets access,
+// and additionally grants OpenShift SCC privileges when running on OpenShift.
+func (h *containerToolkitPatcher) reconcileContainerToolkitRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
 	}
-	h.log.Info("Reconciled Container Toolkit ServiceAccount", "namespace", sa.Namespace, "name", sa.Name, "result", saRes)
-	return nil
-}
 
-func (h *containerToolkitPatcher) handleRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewRoleBuilder(h.name, h.namespace)
-	role := builder.Build()
-
-	roleRes, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
 		rules := []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{"apps"},
@@ -246,52 +130,21 @@ func (h *containerToolkitPatcher) handleRole(ctx context.Context, owner *rblnv1b
 				Verbs:         []string{"use"},
 			})
 		}
-
-		role = builder.
-			WithRules(rules...).
-			WithOwner(owner, h.scheme).
-			Build()
-		return nil
+		role.Rules = rules
+		return ctrl.SetControllerReference(owner, role, h.scheme)
 	})
 	if err != nil {
-		h.log.Error(err, "Failed to reconcile Container Toolkit Role")
+		h.log.Error(err, "Failed to reconcile Container Toolkit Role", "name", h.name)
 		return err
 	}
-	h.log.Info("Reconciled Container Toolkit Role", "namespace", role.Namespace, "name", role.Name, "result", roleRes)
-	return nil
-}
-
-func (h *containerToolkitPatcher) handleRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewRoleBindingBuilder(h.name, h.namespace)
-	binding := builder.Build()
-
-	bindingRes, err := controllerutil.CreateOrPatch(ctx, h.client, binding, func() error {
-		binding = builder.
-			WithRoleRef(rbacv1.RoleRef{
-				APIGroup: rbacv1.GroupName,
-				Kind:     "Role",
-				Name:     h.name,
-			}).
-			WithSubjects(rbacv1.Subject{
-				Kind:      rbacv1.ServiceAccountKind,
-				Name:      h.name,
-				Namespace: h.namespace,
-			}).
-			WithOwner(owner, h.scheme).
-			Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile Container Toolkit RoleBinding")
-		return err
-	}
-	h.log.Info("Reconciled Container Toolkit RoleBinding", "namespace", binding.Namespace, "name", binding.Name, "result", bindingRes)
+	h.log.Info("Reconciled Container Toolkit Role", "name", role.Name, "namespace", role.Namespace, "result", res)
 	return nil
 }
 
 func (h *containerToolkitPatcher) handleConfigMap(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewConfigMapBuilder(h.entrypointConfigMapName(), h.namespace)
-	cm := builder.Build()
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: h.entrypointConfigMapName(), Namespace: h.namespace},
+	}
 
 	script := strings.Join([]string{
 		"#!/bin/sh",
@@ -314,33 +167,47 @@ func (h *containerToolkitPatcher) handleConfigMap(ctx context.Context, owner *rb
 		"exec rbln-ctk-daemon \"$@\"",
 	}, "\n") + "\n"
 
-	cmRes, err := controllerutil.CreateOrPatch(ctx, h.client, cm, func() error {
-		cm = builder.
-			WithData(map[string]string{
-				containerToolkitEntrypointKey: script,
-			}).
-			WithOwner(owner, h.scheme).
-			Build()
-		return nil
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, cm, func() error {
+		cm.Data = map[string]string{containerToolkitEntrypointKey: script}
+		return ctrl.SetControllerReference(owner, cm, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile Container Toolkit ConfigMap")
 		return err
 	}
-	h.log.Info("Reconciled Container Toolkit ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", cmRes)
+	h.log.Info("Reconciled Container Toolkit ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", res)
 	return nil
 }
 
-func (h *containerToolkitPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
-	ds := builder.Build()
+func (h *containerToolkitPatcher) buildRuntimeMountsAndVolumes() ([]corev1.VolumeMount, []corev1.Volume) {
+	switch h.containerRuntime {
+	case consts.Containerd:
+		return []corev1.VolumeMount{
+				{Name: containerdSockVolumeName, MountPath: containerdSockPath},
+			}, []corev1.Volume{
+				hostPathVolume(containerdSockVolumeName, containerdSockPath, corev1.HostPathSocket),
+			}
+	case consts.Docker:
+		return []corev1.VolumeMount{
+				{Name: dockerSockVolumeName, MountPath: dockerSockPath},
+			}, []corev1.Volume{
+				hostPathVolume(dockerSockVolumeName, dockerSockPath, corev1.HostPathSocket),
+			}
+	case consts.CRIO:
+		return []corev1.VolumeMount{
+				{Name: crioSockVolumeName, MountPath: crioSockPath},
+			}, []corev1.Volume{
+				hostPathVolume(crioSockVolumeName, crioSockPath, corev1.HostPathSocket),
+			}
+	default:
+		return nil, nil
+	}
+}
 
+func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
 	validatorSpec := owner.Spec.Validator
 	driverArgs := containerToolkitValidatorArgs(validatorSpec.Args)
-	baseEnv := mergeContainerToolkitEnv(
-		validatorSpec.Env,
-		validatorSpec.Driver.Env,
-	)
+	baseEnv := mergeEnvVars(validatorSpec.Env, validatorSpec.Driver.Env)
 
 	driverInit := k8sutil.NewContainerBuilder().
 		WithName("driver-validation").
@@ -378,33 +245,34 @@ func (h *containerToolkitPatcher) handleDaemonSet(ctx context.Context, owner *rb
 		imagePullPolicy = corev1.PullIfNotPresent
 	}
 
+	runtimeMounts, runtimeVolumes := h.buildRuntimeMountsAndVolumes()
+
 	runtimeEnv := []corev1.EnvVar{}
+	switch h.containerRuntime {
+	case consts.Containerd:
+		runtimeEnv = append(runtimeEnv,
+			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_RUNTIME", Value: consts.Containerd},
+			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_SOCKET", Value: containerdSockPath},
+		)
+	case consts.Docker:
+		runtimeEnv = append(runtimeEnv,
+			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_RUNTIME", Value: consts.Docker},
+			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_SOCKET", Value: dockerSockPath},
+		)
+	case consts.CRIO:
+		runtimeEnv = append(runtimeEnv,
+			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_RUNTIME", Value: consts.CRIO},
+			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_SOCKET", Value: crioSockPath},
+		)
+	}
+
 	toolkitVolumeMounts := []corev1.VolumeMount{
-		{
-			Name:      validationsVolumeName,
-			MountPath: validationsMountPath,
-		},
-		{
-			Name:      validatorHostDriverVolumeName,
-			MountPath: validatorHostDriverPath,
-		},
-		{
-			Name:      validatorHostRootVolumeName,
-			MountPath: "/host",
-			ReadOnly:  true,
-		},
-		{
-			Name:      containerToolkitCDIRootVolumeName,
-			MountPath: containerToolkitCDIRootPath,
-		},
-		{
-			Name:      containerToolkitRunVolumeName,
-			MountPath: containerToolkitRunPath,
-		},
-		{
-			Name:      containerToolkitHostBinVolumeName,
-			MountPath: containerToolkitHostBinMountPath,
-		},
+		{Name: validationsVolumeName, MountPath: validationsMountPath},
+		{Name: validatorHostDriverVolumeName, MountPath: validatorHostDriverPath},
+		{Name: validatorHostRootVolumeName, MountPath: "/host", ReadOnly: true},
+		{Name: containerToolkitCDIRootVolumeName, MountPath: containerToolkitCDIRootPath},
+		{Name: containerToolkitRunVolumeName, MountPath: containerToolkitRunPath},
+		{Name: containerToolkitHostBinVolumeName, MountPath: containerToolkitHostBinMountPath},
 		{
 			Name:      h.entrypointConfigMapName(),
 			MountPath: containerToolkitEntrypointPath,
@@ -412,136 +280,13 @@ func (h *containerToolkitPatcher) handleDaemonSet(ctx context.Context, owner *rb
 			ReadOnly:  true,
 		},
 	}
-	toolkitVolumes := []corev1.Volume{
-		{
-			Name: validationsVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: validationsMountPath,
-					Type: ptr(corev1.HostPathDirectoryOrCreate),
-				},
-			},
-		},
-		{
-			Name: validatorHostDriverVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: validatorHostDriverPath,
-					Type: ptr(corev1.HostPathDirectoryOrCreate),
-				},
-			},
-		},
-		{
-			Name: validatorHostRootVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: validatorHostRootPath,
-					Type: ptr(corev1.HostPathDirectory),
-				},
-			},
-		},
-		{
-			Name: containerToolkitCDIRootVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: containerToolkitCDIRootPath,
-					Type: ptr(corev1.HostPathDirectoryOrCreate),
-				},
-			},
-		},
-		{
-			Name: containerToolkitRunVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: containerToolkitRunPath,
-					Type: ptr(corev1.HostPathDirectoryOrCreate),
-				},
-			},
-		},
-		{
-			Name: containerToolkitHostBinVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: containerToolkitHostBinPath,
-					Type: ptr(corev1.HostPathDirectoryOrCreate),
-				},
-			},
-		},
-		{
-			Name: h.entrypointConfigMapName(),
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: h.entrypointConfigMapName(),
-					},
-					Items: []corev1.KeyToPath{
-						{
-							Key:  containerToolkitEntrypointKey,
-							Path: containerToolkitEntrypointKey,
-						},
-					},
-					DefaultMode: ptr(int32(0o755)),
-				},
-			},
-		},
-	}
-
-	switch h.containerRuntime {
-	case consts.Containerd:
-		runtimeEnv = append(runtimeEnv, corev1.EnvVar{Name: "RBLN_CTK_DAEMON_RUNTIME", Value: consts.Containerd})
-		runtimeEnv = append(runtimeEnv, corev1.EnvVar{Name: "RBLN_CTK_DAEMON_SOCKET", Value: containerdSockPath})
-		toolkitVolumeMounts = append(toolkitVolumeMounts, corev1.VolumeMount{
-			Name:      containerdSockVolumeName,
-			MountPath: containerdSockPath,
-		})
-		toolkitVolumes = append(toolkitVolumes, corev1.Volume{
-			Name: containerdSockVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: containerdSockPath,
-					Type: ptr(corev1.HostPathSocket),
-				},
-			},
-		})
-	case consts.Docker:
-		runtimeEnv = append(runtimeEnv, corev1.EnvVar{Name: "RBLN_CTK_DAEMON_RUNTIME", Value: consts.Docker})
-		runtimeEnv = append(runtimeEnv, corev1.EnvVar{Name: "RBLN_CTK_DAEMON_SOCKET", Value: dockerSockPath})
-		toolkitVolumeMounts = append(toolkitVolumeMounts, corev1.VolumeMount{
-			Name:      dockerSockVolumeName,
-			MountPath: dockerSockPath,
-		})
-		toolkitVolumes = append(toolkitVolumes, corev1.Volume{
-			Name: dockerSockVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: dockerSockPath,
-					Type: ptr(corev1.HostPathSocket),
-				},
-			},
-		})
-	case consts.CRIO:
-		runtimeEnv = append(runtimeEnv, corev1.EnvVar{Name: "RBLN_CTK_DAEMON_RUNTIME", Value: consts.CRIO})
-		runtimeEnv = append(runtimeEnv, corev1.EnvVar{Name: "RBLN_CTK_DAEMON_SOCKET", Value: crioSockPath})
-		toolkitVolumeMounts = append(toolkitVolumeMounts, corev1.VolumeMount{
-			Name:      crioSockVolumeName,
-			MountPath: crioSockPath,
-		})
-		toolkitVolumes = append(toolkitVolumes, corev1.Volume{
-			Name: crioSockVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: crioSockPath,
-					Type: ptr(corev1.HostPathSocket),
-				},
-			},
-		})
-	}
+	toolkitVolumeMounts = append(toolkitVolumeMounts, runtimeMounts...)
 
 	toolkitContainer := k8sutil.NewContainerBuilder().
 		WithName(h.name).
 		WithImage(ComposeImageReference(toolkitSpec.Registry, toolkitSpec.Image), toolkitSpec.Version, imagePullPolicy).
 		WithCommands([]string{containerToolkitEntrypointPath}).
-		WithEnvs(mergeContainerToolkitEnv(runtimeEnv, toolkitSpec.Env)).
+		WithEnvs(mergeEnvVars(runtimeEnv, toolkitSpec.Env)).
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged: ptr(true),
 			RunAsUser:  ptr(int64(0)),
@@ -553,34 +298,59 @@ func (h *containerToolkitPatcher) handleDaemonSet(ctx context.Context, owner *rb
 		toolkitContainer.Args = slices.Clone(toolkitSpec.Args)
 	}
 
-	dsRes, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
-		ds = builder.
+	toolkitVolumes := []corev1.Volume{
+		hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
+		hostPathVolume(validatorHostDriverVolumeName, validatorHostDriverPath, corev1.HostPathDirectoryOrCreate),
+		hostPathVolume(validatorHostRootVolumeName, validatorHostRootPath, corev1.HostPathDirectory),
+		hostPathVolume(containerToolkitCDIRootVolumeName, containerToolkitCDIRootPath, corev1.HostPathDirectoryOrCreate),
+		hostPathVolume(containerToolkitRunVolumeName, containerToolkitRunPath, corev1.HostPathDirectoryOrCreate),
+		hostPathVolume(containerToolkitHostBinVolumeName, containerToolkitHostBinPath, corev1.HostPathDirectoryOrCreate),
+		{
+			Name: h.entrypointConfigMapName(),
+			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: h.entrypointConfigMapName()},
+				Items: []corev1.KeyToPath{
+					{Key: containerToolkitEntrypointKey, Path: containerToolkitEntrypointKey},
+				},
+				DefaultMode: ptr(int32(0o755)),
+			}},
+		},
+	}
+	toolkitVolumes = append(toolkitVolumes, runtimeVolumes...)
+
+	return k8sutil.NewPodSpecBuilder().
+		WithServiceAccountName(h.name).
+		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.container-toolkit": "true"}).
+		WithAffinity(h.desiredSpec.Affinity).
+		WithTolerations(h.desiredSpec.Tolerations).
+		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithPriorityClassName(h.desiredSpec.PriorityClassName).
+		WithHostPID(true).
+		WithVolumes(toolkitVolumes).
+		WithInitContainers([]*corev1.Container{driverInit}).
+		WithContainers([]*corev1.Container{toolkitContainer}).
+		Build()
+}
+
+func (h *containerToolkitPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	podSpec := h.buildPodSpec(owner)
+
+	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
+	ds := builder.Build()
+
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
+		builder.
 			WithLabelSelectors(map[string]string{"app": h.name}).
 			WithLabels(h.desiredSpec.Labels).
 			WithAnnotations(h.desiredSpec.Annotations).
-			WithPodSpec(k8sutil.NewPodSpecBuilder().
-				WithServiceAccountName(h.name).
-				WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.container-toolkit": "true"}).
-				WithAffinity(h.desiredSpec.Affinity).
-				WithTolerations(h.desiredSpec.Tolerations).
-				WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
-				WithPriorityClassName(h.desiredSpec.PriorityClassName).
-				WithHostPID(true).
-				WithVolumes(toolkitVolumes).
-				WithInitContainers([]*corev1.Container{driverInit}).
-				WithContainers([]*corev1.Container{toolkitContainer}).
-				Build(),
-			).
-			WithOwner(owner, h.scheme).
-			Build()
-		return nil
+			WithPodSpec(podSpec)
+		return ctrl.SetControllerReference(owner, ds, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile Container Toolkit DaemonSet")
 		return err
 	}
-
-	h.log.Info("Reconciled Container Toolkit DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", dsRes)
+	h.log.Info("Reconciled Container Toolkit DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
 	return nil
 }
 
@@ -590,24 +360,4 @@ func containerToolkitValidatorArgs(baseArgs []string) []string {
 		args = append(args, baseArgs...)
 	}
 	return args
-}
-
-func mergeContainerToolkitEnv(base []corev1.EnvVar, additions ...[]corev1.EnvVar) []corev1.EnvVar {
-	merged := slices.Clone(base)
-	for _, list := range additions {
-		for _, env := range list {
-			replaced := false
-			for idx := range merged {
-				if merged[idx].Name == env.Name {
-					merged[idx] = env
-					replaced = true
-					break
-				}
-			}
-			if !replaced {
-				merged = append(merged, env)
-			}
-		}
-	}
-	return merged
 }

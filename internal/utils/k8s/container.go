@@ -91,3 +91,13 @@ func (b *ContainerBuilder) WithEnvs(envs []corev1.EnvVar) *ContainerBuilder {
 	b.obj.Env = envs
 	return b
 }
+
+func (b *ContainerBuilder) WithPorts(ports []corev1.ContainerPort) *ContainerBuilder {
+	b.obj.Ports = ports
+	return b
+}
+
+func (b *ContainerBuilder) WithLivenessProbe(probe *corev1.Probe) *ContainerBuilder {
+	b.obj.LivenessProbe = probe
+	return b
+}

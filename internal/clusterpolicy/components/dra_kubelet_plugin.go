@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	resourcev1 "k8s.io/api/resource/v1"
@@ -14,7 +13,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -34,61 +33,39 @@ const (
 )
 
 type draKubeletPluginPatcher struct {
-	client client.Client
-	log    logr.Logger
-	scheme *runtime.Scheme
-
-	desiredSpec      *rblnv1beta1.RBLNDRAKubeletPluginSpec
-	name             string
-	namespace        string
-	openshiftVersion string
+	basePatcher
+	desiredSpec *rblnv1beta1.RBLNDRAKubeletPluginSpec
 }
 
 func NewDRAKubeletPluginPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
-	patcher := &draKubeletPluginPatcher{
-		client: client,
-		log:    log,
-		scheme: scheme,
-
-		name:             cpSpec.BaseName + "-" + consts.RBLNDRAKubeletPluginName,
-		namespace:        namespace,
-		openshiftVersion: openshiftVersion,
-	}
-
 	synced := syncSpec(cpSpec, cpSpec.DRAKubeletPlugin)
-	patcher.desiredSpec = &synced
-	return patcher
-}
-
-func (h *draKubeletPluginPatcher) IsEnabled() bool {
-	if h.desiredSpec == nil {
-		return false
+	return &draKubeletPluginPatcher{
+		basePatcher: basePatcher{
+			client:           client,
+			log:              log,
+			scheme:           scheme,
+			name:             cpSpec.BaseName + "-" + consts.RBLNDRAKubeletPluginName,
+			namespace:        namespace,
+			openshiftVersion: openshiftVersion,
+			enabled:          synced.IsEnabled(),
+		},
+		desiredSpec: &synced,
 	}
-	return h.desiredSpec.IsEnabled()
 }
 
 func (h *draKubeletPluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	if !h.IsEnabled() {
 		return nil
 	}
-
 	if !owner.Spec.ContainerToolkit.IsEnabled() {
 		return fmt.Errorf("DRA kubelet plugin requires containerToolkit to be enabled")
 	}
-
-	if err := h.handleServiceAccount(ctx, owner); err != nil {
+	if err := h.reconcileServiceAccount(ctx, owner); err != nil {
 		return err
 	}
-
-	if h.openshiftVersion != "" {
-		if err := h.handleRole(ctx, owner); err != nil {
-			return err
-		}
-		if err := h.handleRoleBinding(ctx, owner); err != nil {
-			return err
-		}
+	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
+		return err
 	}
-
 	if err := h.handleClusterRole(ctx); err != nil {
 		return err
 	}
@@ -98,130 +75,31 @@ func (h *draKubeletPluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.
 	if err := h.handleDRAClass(ctx); err != nil {
 		return err
 	}
-	if err := h.handleDaemonSet(ctx, owner); err != nil {
-		return err
-	}
-
-	return nil
+	return h.handleDaemonSet(ctx, owner)
 }
 
 func (h *draKubeletPluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	h.log.Info("WARNING: DRA kubelet plugin is disabled. Remove all DRA kubelet plugin resources")
-
-	if err := h.client.Delete(ctx, &appsv1.DaemonSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
-
 	if err := h.deleteDeviceClass(ctx); err != nil {
 		return err
 	}
-
-	if err := h.client.Delete(ctx, &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: h.clusterRoleBindingName(),
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: h.clusterRoleBindingName()},
+	}); err != nil {
 		return err
 	}
-
-	if err := h.client.Delete(ctx, &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: h.clusterRoleName(),
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: h.clusterRoleName()},
+	}); err != nil {
 		return err
 	}
-
-	if err := h.client.Delete(ctx, &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
+	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
 		return err
 	}
-
-	if err := h.client.Delete(ctx, &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
-		return err
-	}
-
-	if err := h.client.Delete(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name,
-			Namespace: h.namespace,
-		},
-	}); err != nil && !kapierrors.IsNotFound(err) {
-		return err
-	}
-
-	return nil
-}
-
-func (h *draKubeletPluginPatcher) ConditionReport(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) ([]metav1.Condition, error) {
-	var ds appsv1.DaemonSet
-	if err := h.client.Get(ctx, types.NamespacedName{Name: h.name, Namespace: h.namespace}, &ds); err != nil {
-		return []metav1.Condition{{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             DaemonSetNotFound,
-			Message:            fmt.Sprintf("DaemonSet %s/%s could not be found: %v", h.namespace, h.name, err),
-			LastTransitionTime: metav1.Now(),
-		}}, nil
-	}
-
-	ready := ds.Status.DesiredNumberScheduled > 0 &&
-		ds.Status.NumberReady == ds.Status.DesiredNumberScheduled &&
-		ds.Status.NumberUnavailable == 0
-
-	observedGen := ds.GetGeneration()
-	if !ready {
-		return []metav1.Condition{
-			{
-				Type:   DaemonSetReady,
-				Status: metav1.ConditionFalse,
-				Reason: DaemonSetPodsNotReady,
-				Message: fmt.Sprintf(
-					"DaemonSet %s/%s is progressing: %d of %d pods are Ready (%d unavailable)",
-					h.namespace,
-					h.name,
-					ds.Status.NumberReady,
-					ds.Status.DesiredNumberScheduled,
-					ds.Status.NumberUnavailable,
-				),
-				LastTransitionTime: metav1.Now(),
-				ObservedGeneration: observedGen,
-			},
-		}, nil
-	}
-
-	return []metav1.Condition{
-		{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             DaemonSetAllPodsReady,
-			Message:            fmt.Sprintf("All pods in DaemonSet %s/%s are running", h.namespace, h.name),
-			LastTransitionTime: metav1.Now(),
-			ObservedGeneration: observedGen,
-		},
-	}, nil
-}
-
-func (h *draKubeletPluginPatcher) ComponentName() string {
-	return h.name
-}
-
-func (h *draKubeletPluginPatcher) ComponentNamespace() string {
-	return h.namespace
+	return h.deleteServiceAccount(ctx)
 }
 
 func (h *draKubeletPluginPatcher) clusterRoleName() string {
@@ -245,12 +123,10 @@ func (h *draKubeletPluginPatcher) handleDRAClass(ctx context.Context) error {
 
 func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context) error {
 	deviceClass := &resourcev1.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: h.className(),
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: h.className()},
 	}
 
-	classRes, err := controllerutil.CreateOrPatch(ctx, h.client, deviceClass, func() error {
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, deviceClass, func() error {
 		deviceClass.Spec = resourcev1.DeviceClassSpec{
 			Selectors: []resourcev1.DeviceSelector{
 				{
@@ -266,16 +142,13 @@ func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	h.log.Info("Reconciled DRA DeviceClass", "name", deviceClass.Name, "apiVersion", "resource.k8s.io/v1", "result", classRes)
+	h.log.Info("Reconciled DRA DeviceClass", "name", deviceClass.Name, "apiVersion", "resource.k8s.io/v1", "result", res)
 	return nil
 }
 
 func (h *draKubeletPluginPatcher) deleteDeviceClass(ctx context.Context) error {
 	if err := h.client.Delete(ctx, &resourcev1.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: h.className(),
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: h.className()},
 	}); err != nil && !kapierrors.IsNotFound(err) && !isNoMatchError(err) {
 		return err
 	}
@@ -289,82 +162,10 @@ func isNoMatchError(err error) bool {
 	return apimeta.IsNoMatchError(err) || runtime.IsNotRegisteredError(err) || strings.Contains(err.Error(), "no matches for kind")
 }
 
-func (h *draKubeletPluginPatcher) handleServiceAccount(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewServiceAccountBuilder(h.name, h.namespace)
-	sa := builder.Build()
-
-	saRes, err := controllerutil.CreateOrPatch(ctx, h.client, sa, func() error {
-		sa = builder.WithOwner(owner, h.scheme).Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile DRA kubelet plugin ServiceAccount")
-		return err
-	}
-	h.log.Info("Reconciled DRA kubelet plugin ServiceAccount", "namespace", sa.Namespace, "name", sa.Name, "result", saRes)
-	return nil
-}
-
-func (h *draKubeletPluginPatcher) handleRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewRoleBuilder(h.name, h.namespace)
-	role := builder.Build()
-
-	roleRes, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
-		role = builder.
-			WithRules(rbacv1.PolicyRule{
-				APIGroups:     []string{"security.openshift.io"},
-				Resources:     []string{"securitycontextconstraints"},
-				ResourceNames: []string{"privileged"},
-				Verbs:         []string{"use"},
-			}).
-			WithOwner(owner, h.scheme).
-			Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile DRA kubelet plugin Role")
-		return err
-	}
-	h.log.Info("Reconciled DRA kubelet plugin Role", "namespace", role.Namespace, "name", role.Name, "result", roleRes)
-	return nil
-}
-
-func (h *draKubeletPluginPatcher) handleRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewRoleBindingBuilder(h.name, h.namespace)
-	roleBinding := builder.Build()
-
-	bindingRes, err := controllerutil.CreateOrPatch(ctx, h.client, roleBinding, func() error {
-		roleBinding = builder.
-			WithRoleRef(rbacv1.RoleRef{
-				APIGroup: rbacv1.GroupName,
-				Kind:     "Role",
-				Name:     h.name,
-			}).
-			WithSubjects(rbacv1.Subject{
-				Kind:      rbacv1.ServiceAccountKind,
-				Name:      h.name,
-				Namespace: h.namespace,
-			}).
-			WithOwner(owner, h.scheme).
-			Build()
-		return nil
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile DRA kubelet plugin RoleBinding")
-		return err
-	}
-	h.log.Info("Reconciled DRA kubelet plugin RoleBinding", "namespace", roleBinding.Namespace, "name", roleBinding.Name, "result", bindingRes)
-	return nil
-}
-
 func (h *draKubeletPluginPatcher) handleClusterRole(ctx context.Context) error {
-	clusterRole := &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: h.clusterRoleName(),
-		},
-	}
+	clusterRole := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: h.clusterRoleName()}}
 
-	roleRes, err := controllerutil.CreateOrPatch(ctx, h.client, clusterRole, func() error {
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, clusterRole, func() error {
 		clusterRole.Rules = []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{"resource.k8s.io"},
@@ -393,18 +194,14 @@ func (h *draKubeletPluginPatcher) handleClusterRole(ctx context.Context) error {
 		h.log.Error(err, "Failed to reconcile DRA kubelet plugin ClusterRole")
 		return err
 	}
-	h.log.Info("Reconciled DRA kubelet plugin ClusterRole", "name", clusterRole.Name, "result", roleRes)
+	h.log.Info("Reconciled DRA kubelet plugin ClusterRole", "name", clusterRole.Name, "result", res)
 	return nil
 }
 
 func (h *draKubeletPluginPatcher) handleClusterRoleBinding(ctx context.Context) error {
-	binding := &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: h.clusterRoleBindingName(),
-		},
-	}
+	binding := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: h.clusterRoleBindingName()}}
 
-	bindingRes, err := controllerutil.CreateOrPatch(ctx, h.client, binding, func() error {
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, binding, func() error {
 		binding.RoleRef = rbacv1.RoleRef{
 			APIGroup: rbacv1.GroupName,
 			Kind:     "ClusterRole",
@@ -423,116 +220,37 @@ func (h *draKubeletPluginPatcher) handleClusterRoleBinding(ctx context.Context) 
 		h.log.Error(err, "Failed to reconcile DRA kubelet plugin ClusterRoleBinding")
 		return err
 	}
-	h.log.Info("Reconciled DRA kubelet plugin ClusterRoleBinding", "name", binding.Name, "result", bindingRes)
+	h.log.Info("Reconciled DRA kubelet plugin ClusterRoleBinding", "name", binding.Name, "result", res)
 	return nil
 }
 
-func (h *draKubeletPluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
-	ds := builder.Build()
-
-	validatorSpec := owner.Spec.Validator
-	toolkitValidationInit := k8sutil.NewContainerBuilder().
-		WithName("toolkit-validation").
-		WithImage(ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, validatorSpec.ImagePullPolicy).
-		WithCommands([]string{"sh", "-c"}).
-		WithArgs([]string{"until [ -f " + validationsMountPath + "/toolkit-ready ]; do echo waiting for rbln container stack to be setup; sleep 5; done"}).
-		WithSecurityContext(&corev1.SecurityContext{
-			Privileged: ptr(true),
-		}).
-		WithVolumeMounts([]corev1.VolumeMount{
-			{
-				Name:             validationsVolumeName,
-				MountPath:        validationsMountPath,
-				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
-			},
-		}).
-		Build()
-	if validatorSpec.ImagePullPolicy == "" {
-		toolkitValidationInit.ImagePullPolicy = corev1.PullIfNotPresent
+func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
+	env := []corev1.EnvVar{
+		{Name: "DRIVER_NAME", Value: h.desiredSpec.DriverName},
+		{Name: "CDI_ROOT", Value: draCDIRootPath},
+		{Name: "KUBELET_REGISTRAR_DIRECTORY_PATH", Value: h.desiredSpec.KubeletRegistrarDirectoryPath},
+		{Name: "KUBELET_PLUGINS_DIRECTORY_PATH", Value: h.desiredSpec.KubeletPluginsDirectoryPath},
+		{
+			Name: "NODE_NAME",
+			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "spec.nodeName",
+			}},
+		},
+		{
+			Name: "NAMESPACE",
+			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.namespace",
+			}},
+		},
 	}
 
-	draContainer := k8sutil.NewContainerBuilder().
-		WithName(h.name).
-		WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
-		WithCommands([]string{"npu-kubelet-plugin"}).
-		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
-		WithSecurityContext(&corev1.SecurityContext{
-			Privileged: ptr(true),
-		}).
-		WithEnvs([]corev1.EnvVar{
-			{
-				Name:  "DRIVER_NAME",
-				Value: h.desiredSpec.DriverName,
-			},
-			{
-				Name:  "CDI_ROOT",
-				Value: draCDIRootPath,
-			},
-			{
-				Name:  "KUBELET_REGISTRAR_DIRECTORY_PATH",
-				Value: h.desiredSpec.KubeletRegistrarDirectoryPath,
-			},
-			{
-				Name:  "KUBELET_PLUGINS_DIRECTORY_PATH",
-				Value: h.desiredSpec.KubeletPluginsDirectoryPath,
-			},
-			{
-				Name: "NODE_NAME",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath: "spec.nodeName",
-					},
-				},
-			},
-			{
-				Name: "NAMESPACE",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath: "metadata.namespace",
-					},
-				},
-			},
-		}).
-		WithVolumeMounts([]corev1.VolumeMount{
-			{
-				Name:      validationsVolumeName,
-				MountPath: validationsMountPath,
-			},
-			{
-				Name:      "plugins-registry",
-				MountPath: h.desiredSpec.KubeletRegistrarDirectoryPath,
-			},
-			{
-				Name:      "plugins",
-				MountPath: h.desiredSpec.KubeletPluginsDirectoryPath,
-			},
-			{
-				Name:      "cdi",
-				MountPath: draCDIRootPath,
-			},
-			{
-				Name:      "host-dev",
-				MountPath: "/dev",
-			},
-			{
-				Name:      "host-run-rbln",
-				MountPath: draHostRunRBLNPath,
-			},
-			{
-				Name:      "host-usr-bin",
-				MountPath: draHostUsrBinMount,
-				ReadOnly:  true,
-			},
-		}).
-		Build()
-
+	var livenessProbe *corev1.Probe
 	if h.desiredSpec.HealthcheckPort > 0 {
-		draContainer.Env = append(draContainer.Env, corev1.EnvVar{
+		env = append(env, corev1.EnvVar{
 			Name:  "HEALTHCHECK_PORT",
 			Value: fmt.Sprintf("%d", h.desiredSpec.HealthcheckPort),
 		})
-		draContainer.LivenessProbe = &corev1.Probe{
+		livenessProbe = &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				GRPC: &corev1.GRPCAction{
 					Port:    h.desiredSpec.HealthcheckPort,
@@ -544,96 +262,79 @@ func (h *draKubeletPluginPatcher) handleDaemonSet(ctx context.Context, owner *rb
 		}
 	}
 
-	dsRes, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
-		ds = builder.
+	return k8sutil.NewContainerBuilder().
+		WithName(h.name).
+		WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+		WithCommands([]string{"npu-kubelet-plugin"}).
+		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
+		WithSecurityContext(&corev1.SecurityContext{Privileged: ptr(true)}).
+		WithEnvs(env).
+		WithLivenessProbe(livenessProbe).
+		WithVolumeMounts([]corev1.VolumeMount{
+			{Name: validationsVolumeName, MountPath: validationsMountPath},
+			{Name: "plugins-registry", MountPath: h.desiredSpec.KubeletRegistrarDirectoryPath},
+			{Name: "plugins", MountPath: h.desiredSpec.KubeletPluginsDirectoryPath},
+			{Name: "cdi", MountPath: draCDIRootPath},
+			{Name: "host-dev", MountPath: "/dev"},
+			{Name: "host-run-rbln", MountPath: draHostRunRBLNPath},
+			{Name: "host-usr-bin", MountPath: draHostUsrBinMount, ReadOnly: true},
+		}).
+		Build()
+}
+
+func (h *draKubeletPluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
+	initContainer := buildToolkitValidationInitContainer(owner.Spec.Validator)
+	draContainer := h.buildDRAContainer()
+
+	return k8sutil.NewPodSpecBuilder().
+		WithServiceAccountName(h.name).
+		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.dra-kubelet-plugin": "true"}).
+		WithAffinity(h.desiredSpec.Affinity).
+		WithTolerations(h.desiredSpec.Tolerations).
+		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithPriorityClassName(h.desiredSpec.PriorityClassName).
+		WithVolumes([]corev1.Volume{
+			hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
+			{
+				Name: "plugins-registry",
+				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
+					Path: h.desiredSpec.KubeletRegistrarDirectoryPath, Type: ptr(corev1.HostPathDirectoryOrCreate),
+				}},
+			},
+			{
+				Name: "plugins",
+				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
+					Path: h.desiredSpec.KubeletPluginsDirectoryPath, Type: ptr(corev1.HostPathDirectoryOrCreate),
+				}},
+			},
+			hostPathVolume("cdi", draCDIRootPath, corev1.HostPathDirectoryOrCreate),
+			hostPathVolume("host-dev", "/dev", corev1.HostPathDirectory),
+			hostPathVolume("host-run-rbln", draHostRunRBLNPath, corev1.HostPathDirectoryOrCreate),
+			hostPathVolume("host-usr-bin", draHostUsrBinPath, corev1.HostPathDirectory),
+		}).
+		WithInitContainers([]*corev1.Container{initContainer}).
+		WithContainers([]*corev1.Container{draContainer}).
+		Build()
+}
+
+func (h *draKubeletPluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	podSpec := h.buildPodSpec(owner)
+
+	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
+	ds := builder.Build()
+
+	res, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
+		builder.
 			WithLabelSelectors(map[string]string{"app": h.name}).
 			WithLabels(h.desiredSpec.Labels).
 			WithAnnotations(h.desiredSpec.Annotations).
-			WithPodSpec(k8sutil.NewPodSpecBuilder().
-				WithServiceAccountName(h.name).
-				WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.dra-kubelet-plugin": "true"}).
-				WithAffinity(h.desiredSpec.Affinity).
-				WithTolerations(h.desiredSpec.Tolerations).
-				WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
-				WithPriorityClassName(h.desiredSpec.PriorityClassName).
-				WithVolumes([]corev1.Volume{
-					{
-						Name: validationsVolumeName,
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: validationsMountPath,
-								Type: ptr(corev1.HostPathDirectoryOrCreate),
-							},
-						},
-					},
-					{
-						Name: "plugins-registry",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: h.desiredSpec.KubeletRegistrarDirectoryPath,
-								Type: ptr(corev1.HostPathDirectoryOrCreate),
-							},
-						},
-					},
-					{
-						Name: "plugins",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: h.desiredSpec.KubeletPluginsDirectoryPath,
-								Type: ptr(corev1.HostPathDirectoryOrCreate),
-							},
-						},
-					},
-					{
-						Name: "cdi",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: draCDIRootPath,
-								Type: ptr(corev1.HostPathDirectoryOrCreate),
-							},
-						},
-					},
-					{
-						Name: "host-dev",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/dev",
-								Type: ptr(corev1.HostPathDirectory),
-							},
-						},
-					},
-					{
-						Name: "host-run-rbln",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: draHostRunRBLNPath,
-								Type: ptr(corev1.HostPathDirectoryOrCreate),
-							},
-						},
-					},
-					{
-						Name: "host-usr-bin",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: draHostUsrBinPath,
-								Type: ptr(corev1.HostPathDirectory),
-							},
-						},
-					},
-				}).
-				WithInitContainers([]*corev1.Container{toolkitValidationInit}).
-				WithContainers([]*corev1.Container{draContainer}).
-				Build(),
-			).
-			WithOwner(owner, h.scheme).
-			Build()
-		return nil
+			WithPodSpec(podSpec)
+		return ctrl.SetControllerReference(owner, ds, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile DRA kubelet plugin DaemonSet")
 		return err
 	}
-
-	h.log.Info("Reconciled DRA kubelet plugin DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", dsRes)
+	h.log.Info("Reconciled DRA kubelet plugin DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
 	return nil
 }

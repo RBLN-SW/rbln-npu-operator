@@ -8,28 +8,28 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+)
+
+const (
+	driverAutoUpgradeAnnotationKey = "rebellions.ai/npu-driver-upgrade-enabled"
 )
 
 func ReconcileDriverAutoUpgradeAnnotations(
 	ctx context.Context,
 	k8sClient client.Client,
 	policy *rblnv1beta1.RBLNClusterPolicy,
+	nodeList *corev1.NodeList,
 ) error {
-	list := &corev1.NodeList{}
-	if err := k8sClient.List(ctx, list, client.MatchingLabels{
-		consts.RBLNPresentLabelKey: labelValueTrue,
-	}); err != nil {
-		return fmt.Errorf("list nodes for driver auto-upgrade annotation: %w", err)
-	}
-
 	shouldEnable := shouldEnableDriverAutoUpgrade(policy)
 
-	for i := range list.Items {
+	for i := range nodeList.Items {
+		if !hasRBLNPresentLabel(nodeList.Items[i].GetLabels()) {
+			continue
+		}
 		if err := reconcileDriverAutoUpgradeAnnotationForNode(
 			ctx,
 			k8sClient,
-			&list.Items[i],
+			&nodeList.Items[i],
 			shouldEnable,
 		); err != nil {
 			return err

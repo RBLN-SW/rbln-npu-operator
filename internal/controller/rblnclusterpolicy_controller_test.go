@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
@@ -106,6 +107,9 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			By("not creating vm-passthrough resources")
 			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-vfio-manager", containerNS, 5*time.Second)
 			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-sandbox-device-plugin", containerNS, 5*time.Second)
+
+			By("marking the policy not ready until pods are running")
+			expectReadyCondition(ctx, nn, consts.RBLNConditionReasonSomeNotReady)
 		})
 
 		It("Should clean up DevicePlugin artifacts when the component is disabled", func() {
@@ -155,6 +159,9 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			By("not creating container workload resources")
 			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-device-plugin", vmNS, 5*time.Second)
 			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-npu-feature-discovery", vmNS, 5*time.Second)
+
+			By("marking the policy not ready until pods are running")
+			expectReadyCondition(ctx, nn, consts.RBLNConditionReasonSomeNotReady)
 		})
 	})
 
@@ -176,8 +183,8 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			result := reconcileClusterPolicyWithResult(ctx, reconciler, nn)
 			Expect(result).To(Equal(ctrl.Result{}))
 
-			By("marking the cluster policy as not ready")
-			expectClusterPolicyState(ctx, nn, rblnv1beta1.ClusterNotReady, 5*time.Second)
+			By("marking the cluster policy as not ready (no deployable nodes)")
+			expectReadyCondition(ctx, nn, consts.RBLNConditionReasonNoRBLNNodes)
 
 			By("not creating component resources for the skipped node")
 			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-device-plugin", skipNS, 5*time.Second)
@@ -215,8 +222,8 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			By("requesting a retry after 30 seconds")
 			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 30 * time.Second}))
 
-			By("marking the cluster policy as not ready")
-			expectClusterPolicyState(ctx, nn, rblnv1beta1.ClusterNotReady, 5*time.Second)
+			By("marking the cluster policy as not ready (NFD not found)")
+			expectReadyCondition(ctx, nn, consts.RBLNConditionReasonNFDNotFound)
 		})
 	})
 
@@ -245,7 +252,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			Expect(result).To(Equal(ctrl.Result{}))
 
 			By("marking the second policy as ignored")
-			expectClusterPolicyState(ctx, ignoredNN, rblnv1beta1.ClusterIgnored, 5*time.Second)
+			expectReadyCondition(ctx, ignoredNN, consts.RBLNConditionReasonPolicyIgnored)
 
 			By("keeping resources only in the active policy namespace")
 			expectResource(ctx, &appsv1.DaemonSet{}, "rbln-device-plugin", activeNS, 5*time.Second)
@@ -279,22 +286,14 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 	})
 })
 
-func expectResource[T client.Object](ctx context.Context, obj T, name, ns string, timeout time.Duration) {
-	Eventually(func() error {
-		return k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, obj)
-	}, timeout, 250*time.Millisecond).Should(Succeed(), "expected %T %s/%s to exist", obj, ns, name)
-}
-
-func expectResourceDeleted[T client.Object](ctx context.Context, obj T, name, ns string, timeout time.Duration) {
-	Eventually(func() bool {
-		err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, obj)
-		return apierrors.IsNotFound(err)
-	}, timeout, 250*time.Millisecond).Should(BeTrue(), "expected %T %s/%s to be removed", obj, ns, name)
-}
+// ---------------------------------------------------------------------------
+// Reconciler factory
+// ---------------------------------------------------------------------------
 
 func newTestClusterPolicyReconciler(openShiftVersion string) *RBLNClusterPolicyReconciler {
 	return &RBLNClusterPolicyReconciler{
 		Client: k8sClient,
+		Log:    logf.Log,
 		Scheme: k8sClient.Scheme(),
 		ClusterInfo: &clusterinfo.Info{
 			OpenShiftVersion: openShiftVersion,
@@ -302,39 +301,9 @@ func newTestClusterPolicyReconciler(openShiftVersion string) *RBLNClusterPolicyR
 	}
 }
 
-func createTestNamespace(ctx context.Context, prefix string) string {
-	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{GenerateName: prefix + "-"},
-	}
-	Expect(k8sClient.Create(ctx, ns)).To(Succeed())
-	DeferCleanup(func() {
-		_ = k8sClient.Delete(ctx, &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{Name: ns.Name},
-		})
-	})
-	return ns.Name
-}
-
-func createClusterPolicyFixture(ctx context.Context, policy *rblnv1beta1.RBLNClusterPolicy) types.NamespacedName {
-	Expect(k8sClient.Create(ctx, policy)).To(Succeed())
-	DeferCleanup(func() { _ = k8sClient.Delete(ctx, policy) })
-	return types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}
-}
-
-func reconcileClusterPolicy(ctx context.Context, reconciler *RBLNClusterPolicyReconciler, nn types.NamespacedName) {
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-	Expect(err).NotTo(HaveOccurred())
-}
-
-func reconcileClusterPolicyWithResult(
-	ctx context.Context,
-	reconciler *RBLNClusterPolicyReconciler,
-	nn types.NamespacedName,
-) ctrl.Result {
-	result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-	Expect(err).NotTo(HaveOccurred())
-	return result
-}
+// ---------------------------------------------------------------------------
+// Fixture builders
+// ---------------------------------------------------------------------------
 
 func newContainerClusterPolicyFixture(name, namespace string) *rblnv1beta1.RBLNClusterPolicy {
 	return &rblnv1beta1.RBLNClusterPolicy{
@@ -343,7 +312,7 @@ func newContainerClusterPolicyFixture(name, namespace string) *rblnv1beta1.RBLNC
 			Namespace: "default",
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
-			WorkloadType: "container",
+			WorkloadType: consts.RBLNWorkloadConfigContainer,
 			Namespace:    namespace,
 			VFIOManager: rblnv1beta1.RBLNVFIOManagerSpec{
 				Enabled: false,
@@ -371,7 +340,7 @@ func newVMPassthroughClusterPolicyFixture(name, namespace string) *rblnv1beta1.R
 			Namespace: "default",
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
-			WorkloadType: "vm-passthrough",
+			WorkloadType: consts.RBLNWorkloadConfigVMPassthrough,
 			Namespace:    namespace,
 			VFIOManager: rblnv1beta1.RBLNVFIOManagerSpec{
 				Enabled: true,
@@ -392,13 +361,102 @@ func newVMPassthroughClusterPolicyFixture(name, namespace string) *rblnv1beta1.R
 	}
 }
 
-func patchDevicePluginEnabled(ctx context.Context, nn types.NamespacedName, enabled bool) {
-	var policy rblnv1beta1.RBLNClusterPolicy
-	Expect(k8sClient.Get(ctx, nn, &policy)).To(Succeed())
+// ---------------------------------------------------------------------------
+// Kubernetes resource lifecycle helpers
+// ---------------------------------------------------------------------------
 
-	patch := []byte(fmt.Sprintf(`[{"op": "replace", "path": "/spec/devicePlugin/enabled", "value": %t}]`, enabled))
-	Expect(k8sClient.Patch(ctx, &policy, client.RawPatch(types.JSONPatchType, patch))).To(Succeed())
+func createTestNamespace(ctx context.Context, prefix string) string {
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: prefix + "-"},
+	}
+	Expect(k8sClient.Create(ctx, ns)).To(Succeed())
+	DeferCleanup(func() {
+		_ = k8sClient.Delete(ctx, &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: ns.Name},
+		})
+	})
+	return ns.Name
 }
+
+func createClusterPolicyFixture(ctx context.Context, policy *rblnv1beta1.RBLNClusterPolicy) types.NamespacedName {
+	Expect(k8sClient.Create(ctx, policy)).To(Succeed())
+	DeferCleanup(func() { _ = k8sClient.Delete(ctx, policy) })
+	return types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}
+}
+
+// ---------------------------------------------------------------------------
+// Reconcile helpers
+// ---------------------------------------------------------------------------
+
+func reconcileClusterPolicy(ctx context.Context, reconciler *RBLNClusterPolicyReconciler, nn types.NamespacedName) {
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+	Expect(err).NotTo(HaveOccurred())
+}
+
+func reconcileClusterPolicyWithResult(
+	ctx context.Context,
+	reconciler *RBLNClusterPolicyReconciler,
+	nn types.NamespacedName,
+) ctrl.Result {
+	result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+	Expect(err).NotTo(HaveOccurred())
+	return result
+}
+
+// ---------------------------------------------------------------------------
+// Assertion helpers
+// ---------------------------------------------------------------------------
+
+func expectResource[T client.Object](ctx context.Context, obj T, name, ns string, timeout time.Duration) {
+	Eventually(func() error {
+		return k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, obj)
+	}, timeout, 250*time.Millisecond).Should(Succeed(), "expected %T %s/%s to exist", obj, ns, name)
+}
+
+func expectResourceDeleted[T client.Object](ctx context.Context, obj T, name, ns string, timeout time.Duration) {
+	Eventually(func() bool {
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, obj)
+		return apierrors.IsNotFound(err)
+	}, timeout, 250*time.Millisecond).Should(BeTrue(), "expected %T %s/%s to be removed", obj, ns, name)
+}
+
+func expectReadyCondition(
+	ctx context.Context,
+	nn types.NamespacedName,
+	reason string,
+) {
+	Eventually(func() bool {
+		var policy rblnv1beta1.RBLNClusterPolicy
+		Expect(k8sClient.Get(ctx, nn, &policy)).To(Succeed())
+		for _, c := range policy.Status.Conditions {
+			if c.Type == consts.RBLNConditionTypeReady && c.Status == metav1.ConditionFalse && c.Reason == reason {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "expected Ready condition status=%s reason=%s", metav1.ConditionFalse, reason)
+}
+
+func expectNodeLabel(ctx context.Context, nodeName, key, want string, timeout time.Duration) {
+	Eventually(func() string {
+		var node corev1.Node
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
+		return node.Labels[key]
+	}, timeout, 250*time.Millisecond).Should(Equal(want), "expected node %s label %s=%s", nodeName, key, want)
+}
+
+func expectNodeHasNoLabel(ctx context.Context, nodeName, key string, timeout time.Duration) {
+	Eventually(func() bool {
+		var node corev1.Node
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
+		_, exists := node.Labels[key]
+		return exists
+	}, timeout, 250*time.Millisecond).Should(BeFalse(), "expected node %s label %s to be removed", nodeName, key)
+}
+
+// ---------------------------------------------------------------------------
+// Node manipulation helpers
+// ---------------------------------------------------------------------------
 
 func setNodeLabel(ctx context.Context, nodeName, key, value string) {
 	var node corev1.Node
@@ -419,36 +477,6 @@ func removeNodeLabel(ctx context.Context, nodeName, key string) {
 	_ = k8sClient.Update(ctx, &node)
 }
 
-func expectNodeLabel(ctx context.Context, nodeName, key, want string, timeout time.Duration) {
-	Eventually(func() string {
-		var node corev1.Node
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
-		return node.Labels[key]
-	}, timeout, 250*time.Millisecond).Should(Equal(want), "expected node %s label %s=%s", nodeName, key, want)
-}
-
-func expectNodeHasNoLabel(ctx context.Context, nodeName, key string, timeout time.Duration) {
-	Eventually(func() bool {
-		var node corev1.Node
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
-		_, exists := node.Labels[key]
-		return exists
-	}, timeout, 250*time.Millisecond).Should(BeFalse(), "expected node %s label %s to be removed", nodeName, key)
-}
-
-func expectClusterPolicyState(
-	ctx context.Context,
-	nn types.NamespacedName,
-	want rblnv1beta1.ClusterState,
-	timeout time.Duration,
-) {
-	Eventually(func() rblnv1beta1.ClusterState {
-		var policy rblnv1beta1.RBLNClusterPolicy
-		Expect(k8sClient.Get(ctx, nn, &policy)).To(Succeed())
-		return policy.Status.State
-	}, timeout, 250*time.Millisecond).Should(Equal(want))
-}
-
 func replaceNodeLabels(ctx context.Context, nodeName string, labels map[string]string) map[string]string {
 	var node corev1.Node
 	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
@@ -459,6 +487,18 @@ func replaceNodeLabels(ctx context.Context, nodeName string, labels map[string]s
 
 	return previous
 }
+
+func patchDevicePluginEnabled(ctx context.Context, nn types.NamespacedName, enabled bool) {
+	var policy rblnv1beta1.RBLNClusterPolicy
+	Expect(k8sClient.Get(ctx, nn, &policy)).To(Succeed())
+
+	patch := []byte(fmt.Sprintf(`[{"op": "replace", "path": "/spec/devicePlugin/enabled", "value": %t}]`, enabled))
+	Expect(k8sClient.Patch(ctx, &policy, client.RawPatch(types.JSONPatchType, patch))).To(Succeed())
+}
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
 
 func cloneLabels(in map[string]string) map[string]string {
 	if in == nil {
