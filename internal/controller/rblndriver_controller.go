@@ -41,7 +41,6 @@ import (
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/driver"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/validator"
 )
 
 // RBLNDriverReconciler reconciles a RBLNDriver object
@@ -50,7 +49,7 @@ type RBLNDriverReconciler struct {
 	Log                   logr.Logger
 	Scheme                *runtime.Scheme
 	ClusterInfo           *clusterinfo.Info
-	nodeSelectorValidator validator.NodeSelectorValidator
+	nodeSelectorValidator driver.NodeSelectorValidator
 }
 
 const (
@@ -108,7 +107,7 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	nodeSelectorValidator := r.nodeSelectorValidator
 	if nodeSelectorValidator == nil {
-		nodeSelectorValidator = validator.NewNodeSelectorValidator(r.Client)
+		nodeSelectorValidator = driver.NewNodeSelectorValidator(r.Client)
 		r.nodeSelectorValidator = nodeSelectorValidator
 	}
 	if err := nodeSelectorValidator.Validate(ctx, instance); err != nil {
@@ -170,7 +169,7 @@ func (r *RBLNDriverReconciler) setDriverStatusNotReady(ctx context.Context, inst
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RBLNDriverReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	r.nodeSelectorValidator = validator.NewNodeSelectorValidator(mgr.GetClient())
+	r.nodeSelectorValidator = driver.NewNodeSelectorValidator(mgr.GetClient())
 
 	mapFn := func(ctx context.Context, _ client.Object) []reconcile.Request {
 		list := &rebellionsaiv1alpha1.RBLNDriverList{}

@@ -1,4 +1,4 @@
-package validator
+package driver
 
 import (
 	"context"
@@ -37,14 +37,14 @@ func (v *nodeSelectorValidator) Validate(ctx context.Context, instance *rebellio
 		return fmt.Errorf("list RBLNDriver resources for selector validation: %w", err)
 	}
 
-	for _, driver := range driverList.Items {
-		if driver.Name == instance.Name && driver.Namespace == instance.Namespace {
+	for _, d := range driverList.Items {
+		if d.Name == instance.Name && d.Namespace == instance.Namespace {
 			continue
 		}
-		otherSelector := driver.GetNodeSelector()
+		otherSelector := d.GetNodeSelector()
 		for _, node := range nodes.Items {
 			if labelsMatch(node.Labels, otherSelector) {
-				return fmt.Errorf("nodeSelector conflicts with RBLNDriver %q", driver.Name)
+				return fmt.Errorf("nodeSelector conflicts with RBLNDriver %q", d.Name)
 			}
 		}
 	}
