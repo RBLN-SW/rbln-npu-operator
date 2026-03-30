@@ -55,7 +55,7 @@ func (h *metricsExporterPatcher) Patch(ctx context.Context, owner *rblnv1beta1.R
 }
 
 func (h *metricsExporterPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.Info("WARNING: Metrics Exporter is disabled. Remove all Metrics Exporter resources")
+	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "Metrics Exporter")
 	if err := h.deleteIfExists(ctx, &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: h.name + "-service", Namespace: h.namespace},
 	}); err != nil {
@@ -105,7 +105,7 @@ func (h *metricsExporterPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPoli
 		WithTolerations(h.desiredSpec.Tolerations).
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithVolumes([]corev1.Volume{
-			hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
+			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume("pod-resources", "/var/lib/kubelet/pod-resources", corev1.HostPathDirectory),
 			hostPathVolume("sysfs", "/sys", corev1.HostPathDirectory),
 		}).
@@ -113,7 +113,7 @@ func (h *metricsExporterPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPoli
 		WithContainers([]*corev1.Container{
 			k8sutil.NewContainerBuilder().
 				WithName(h.name).
-				WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
 				WithVolumeMounts([]corev1.VolumeMount{
 					{Name: "pod-resources", MountPath: "/var/lib/kubelet/pod-resources", ReadOnly: true},
 					{Name: "sysfs", MountPath: "/sys", ReadOnly: true},

@@ -55,9 +55,6 @@ type RBLNDriverReconciler struct {
 
 const (
 	driverNodeDeployLabelKey = "rebellions.ai/npu.deploy.driver"
-	nfdOSReleaseIDLabelKey   = "feature.node.kubernetes.io/system-os_release.ID"
-	nfdOSVersionIDLabelKey   = "feature.node.kubernetes.io/system-os_release.VERSION_ID"
-	nfdKernelLabelKey        = "feature.node.kubernetes.io/kernel-version.full"
 )
 
 // +kubebuilder:rbac:groups=rebellions.ai,resources=rblndrivers,verbs=get;list;watch;create;update;patch;delete
@@ -203,9 +200,9 @@ func (r *RBLNDriverReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(mapFn),
 			builder.WithPredicates(k8sutil.NodeLabelChangedPredicate(
 				driverNodeDeployLabelKey,
-				nfdOSReleaseIDLabelKey,
-				nfdOSVersionIDLabelKey,
-				nfdKernelLabelKey,
+				consts.NFDOSReleaseIDLabelKey,
+				consts.NFDOSVersionIDLabelKey,
+				consts.NFDKernelLabelKey,
 			)),
 		).
 		Complete(r)

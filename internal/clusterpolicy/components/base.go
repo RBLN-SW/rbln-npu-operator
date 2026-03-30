@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
@@ -87,14 +88,14 @@ func buildToolkitValidationInitContainer(validatorSpec rblnv1beta1.ValidatorSpec
 	}
 	return k8sutil.NewContainerBuilder().
 		WithName("toolkit-validation").
-		WithImage(ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, pullPolicy).
+		WithImage(k8sutil.ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, pullPolicy).
 		WithCommands([]string{"sh", "-c"}).
-		WithArgs([]string{"until [ -f " + validationsMountPath + "/toolkit-ready ]; do echo waiting for rbln container stack to be setup; sleep 5; done"}).
+		WithArgs([]string{"until [ -f " + consts.ValidationsMountPath + "/toolkit-ready ]; do echo waiting for rbln container stack to be setup; sleep 5; done"}).
 		WithSecurityContext(&corev1.SecurityContext{Privileged: ptr(true)}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{
-				Name:             validationsVolumeName,
-				MountPath:        validationsMountPath,
+				Name:             consts.ValidationsVolumeName,
+				MountPath:        consts.ValidationsMountPath,
 				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
 			},
 		}).

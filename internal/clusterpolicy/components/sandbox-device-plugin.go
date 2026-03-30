@@ -55,7 +55,7 @@ func (h *sandboxDevicePluginPatcher) Patch(ctx context.Context, owner *rblnv1bet
 }
 
 func (h *sandboxDevicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.Info("WARNING: Sandbox Device Plugin is disabled. Remove all Sandbox Device Plugin resources")
+	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "Sandbox Device Plugin")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
@@ -149,7 +149,7 @@ func (h *sandboxDevicePluginPatcher) buildPodSpec() *corev1.PodSpec {
 		WithContainers([]*corev1.Container{
 			k8sutil.NewContainerBuilder().
 				WithName(h.name).
-				WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
 				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 				WithVolumeMounts([]corev1.VolumeMount{
 					{Name: "devicesock", MountPath: "/var/lib/kubelet/device-plugins"},

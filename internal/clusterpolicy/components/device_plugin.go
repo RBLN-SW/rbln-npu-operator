@@ -64,7 +64,7 @@ func (h *devicePluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLN
 }
 
 func (h *devicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.Info("WARNING: Device Plugin is disabled. Remove all Device Plugin resources")
+	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "Device Plugin")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
@@ -140,7 +140,7 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 		WithTolerations(h.desiredSpec.Tolerations).
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithVolumes([]corev1.Volume{
-			hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
+			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume("devicesock", "/var/lib/kubelet/device-plugin", corev1.HostPathDirectory),
 			hostPathVolume("plugins-registry", "/var/lib/kubelet/plugins_registry", corev1.HostPathDirectory),
 			hostPathVolume("log", "/var/log", corev1.HostPathDirectory),
@@ -168,7 +168,7 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 		WithContainers([]*corev1.Container{
 			k8sutil.NewContainerBuilder().
 				WithName(h.name).
-				WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
 				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 				WithVolumeMounts([]corev1.VolumeMount{
 					{Name: "devicesock", MountPath: "/var/lib/kubelet/device-plugins"},

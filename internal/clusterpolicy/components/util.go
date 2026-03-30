@@ -4,18 +4,12 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
-)
-
-const (
-	validationsVolumeName = "run-rbln-validations"
-	validationsMountPath  = "/run/rbln/validations"
 )
 
 // ComponentSpec defines the common interface for component specs.
@@ -42,12 +36,6 @@ type configResourceList struct {
 
 func ptr[T any](v T) *T {
 	return &v
-}
-
-func ComposeImageReference(registry, image string) string {
-	registry = strings.TrimSuffix(strings.TrimSpace(registry), "/")
-	image = strings.TrimPrefix(strings.TrimSpace(image), "/")
-	return fmt.Sprintf("%s/%s", registry, image)
 }
 
 // syncSpec synchronizes a component spec with DaemonsetsSpec.

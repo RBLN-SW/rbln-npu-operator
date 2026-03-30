@@ -74,7 +74,7 @@ func (h *validatorPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClu
 }
 
 func (h *validatorPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.Info("WARNING: Validator is disabled. Remove all Validator resources")
+	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "Validator")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
@@ -194,12 +194,12 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 		imagePullPolicy = corev1.PullIfNotPresent
 	}
 
-	validatorImage := ComposeImageReference(validatorSpec.Registry, validatorSpec.Image)
+	validatorImage := k8sutil.ComposeImageReference(validatorSpec.Registry, validatorSpec.Image)
 
 	driverArgs := validatorComponentArgs(validatorSpec.Args, validatorComponentDriver)
 	toolkitArgs := validatorComponentArgs(validatorSpec.Args, validatorComponentToolkit)
 	baseEnv := mergeEnvVars(
-		[]corev1.EnvVar{{Name: "TMPDIR", Value: validationsMountPath}},
+		[]corev1.EnvVar{{Name: "TMPDIR", Value: consts.ValidationsMountPath}},
 		validatorSpec.Env,
 	)
 	driverEnv := mergeEnvVars(baseEnv, validatorSpec.Driver.Env)
@@ -228,8 +228,8 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
 			},
 			{
-				Name:             validationsVolumeName,
-				MountPath:        validationsMountPath,
+				Name:             consts.ValidationsVolumeName,
+				MountPath:        consts.ValidationsMountPath,
 				MountPropagation: ptr(corev1.MountPropagationBidirectional),
 			},
 		}).
@@ -247,8 +247,8 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 		}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{
-				Name:             validationsVolumeName,
-				MountPath:        validationsMountPath,
+				Name:             consts.ValidationsVolumeName,
+				MountPath:        consts.ValidationsMountPath,
 				MountPropagation: ptr(corev1.MountPropagationBidirectional),
 			},
 			{Name: validatorCDIRootVolumeName, MountPath: validatorCDIRootPath},
@@ -268,14 +268,14 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 		WithLifeCycle(&corev1.Lifecycle{
 			PreStop: &corev1.LifecycleHandler{
 				Exec: &corev1.ExecAction{
-					Command: []string{"sh", "-c", "rm -f " + validationsMountPath + "/*-ready"},
+					Command: []string{"sh", "-c", "rm -f " + consts.ValidationsMountPath + "/*-ready"},
 				},
 			},
 		}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{
-				Name:             validationsVolumeName,
-				MountPath:        validationsMountPath,
+				Name:             consts.ValidationsVolumeName,
+				MountPath:        consts.ValidationsMountPath,
 				MountPropagation: ptr(corev1.MountPropagationBidirectional),
 			},
 		})
@@ -300,7 +300,7 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 		WithImagePullSecrets(validatorSpec.ImagePullSecrets).
 		WithPriorityClassName(priorityClassName).
 		WithVolumes([]corev1.Volume{
-			hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
+			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume(validatorHostDriverVolumeName, validatorHostDriverPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume(validatorHostRootVolumeName, validatorHostRootPath, corev1.HostPathDirectory),
 			hostPathVolume(validatorCDIRootVolumeName, validatorCDIRootPath, corev1.HostPathDirectoryOrCreate),

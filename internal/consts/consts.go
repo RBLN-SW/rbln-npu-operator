@@ -8,6 +8,13 @@ const (
 	LogLevelDebug
 )
 
+// NFD label keys
+const (
+	NFDOSReleaseIDLabelKey = "feature.node.kubernetes.io/system-os_release.ID"
+	NFDOSVersionIDLabelKey = "feature.node.kubernetes.io/system-os_release.VERSION_ID"
+	NFDKernelLabelKey      = "feature.node.kubernetes.io/kernel-version.full"
+)
+
 // NPU labels
 const (
 	RBLNWorkloadConfigLabelKey      = "rebellions.ai/npu.workload.config"
@@ -96,6 +103,12 @@ const (
 // VFIO constants
 const (
 	RBLNVFIOManagerName = "vfio-manager"
+)
+
+// Shared volume constants
+const (
+	ValidationsVolumeName = "run-rbln-validations"
+	ValidationsMountPath  = "/run/rbln/validations"
 )
 
 // DeviceMapping maps product card names to their device IDs

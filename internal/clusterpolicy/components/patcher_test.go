@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 const (
@@ -130,7 +131,7 @@ func assertNodeSelector(t *testing.T, ds *appsv1.DaemonSet, key string) {
 
 func assertContainerImage(t *testing.T, c corev1.Container, image, version string) {
 	t.Helper()
-	want := ComposeImageReference("docker.io", image) + ":" + version
+	want := k8sutil.ComposeImageReference("docker.io", image) + ":" + version
 	if c.Image != want {
 		t.Fatalf("container %q: image = %q, want %q", c.Name, c.Image, want)
 	}

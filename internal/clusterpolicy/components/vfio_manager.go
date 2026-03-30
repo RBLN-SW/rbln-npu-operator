@@ -54,7 +54,7 @@ func (h *vfioManagerPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNC
 }
 
 func (h *vfioManagerPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.Info("WARNING: VFIO Manager is disabled. Remove all VFIO Manager resources")
+	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "VFIO Manager")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
@@ -393,7 +393,7 @@ func (h *vfioManagerPatcher) buildPodSpec() *corev1.PodSpec {
 		WithContainers([]*corev1.Container{
 			k8sutil.NewContainerBuilder().
 				WithName(h.name).
-				WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
 				WithCommands([]string{"/bin/bash", "-c"}).
 				WithArgs([]string{"/bin/vfio-manage.sh bind --all && sleep inf"}).
 				WithResources(h.desiredSpec.Resources, "100m", "200Mi").

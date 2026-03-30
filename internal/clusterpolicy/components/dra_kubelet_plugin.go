@@ -79,7 +79,7 @@ func (h *draKubeletPluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.
 }
 
 func (h *draKubeletPluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.Info("WARNING: DRA kubelet plugin is disabled. Remove all DRA kubelet plugin resources")
+	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "DRA kubelet plugin")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	h.log.Info("Reconciled DRA DeviceClass", "name", deviceClass.Name, "apiVersion", "resource.k8s.io/v1", "result", res)
+	h.log.Info("Reconciled DRA DeviceClass", "name", deviceClass.Name, "result", res)
 	return nil
 }
 
@@ -264,14 +264,14 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 
 	return k8sutil.NewContainerBuilder().
 		WithName(h.name).
-		WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+		WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
 		WithCommands([]string{"npu-kubelet-plugin"}).
 		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 		WithSecurityContext(&corev1.SecurityContext{Privileged: ptr(true)}).
 		WithEnvs(env).
 		WithLivenessProbe(livenessProbe).
 		WithVolumeMounts([]corev1.VolumeMount{
-			{Name: validationsVolumeName, MountPath: validationsMountPath},
+			{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
 			{Name: "plugins-registry", MountPath: h.desiredSpec.KubeletRegistrarDirectoryPath},
 			{Name: "plugins", MountPath: h.desiredSpec.KubeletPluginsDirectoryPath},
 			{Name: "cdi", MountPath: draCDIRootPath},
@@ -294,7 +294,7 @@ func (h *draKubeletPluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithPriorityClassName(h.desiredSpec.PriorityClassName).
 		WithVolumes([]corev1.Volume{
-			hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
+			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			{
 				Name: "plugins-registry",
 				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{

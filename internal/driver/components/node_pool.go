@@ -11,12 +11,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-)
 
-const (
-	nfdOSReleaseIDLabelKey = "feature.node.kubernetes.io/system-os_release.ID"
-	nfdOSVersionIDLabelKey = "feature.node.kubernetes.io/system-os_release.VERSION_ID"
-	nfdKernelLabelKey      = "feature.node.kubernetes.io/kernel-version.full"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 type nodePool struct {
@@ -42,19 +38,19 @@ func getNodePools(ctx context.Context, k8sClient client.Client, selector map[str
 	}
 
 	for _, node := range nodeList.Items {
-		nodePool, ok := buildNodePool(node, nodeSelector, logger)
+		pool, ok := buildNodePool(node, nodeSelector, logger)
 		if !ok {
 			continue
 		}
-		if _, exists := nodePoolMap[nodePool.name]; !exists {
-			logger.Info("Detected new node pool", "NodePool", nodePool)
-			nodePoolMap[nodePool.name] = nodePool
+		if _, exists := nodePoolMap[pool.name]; !exists {
+			logger.Info("Detected new node pool", "pool", pool.name, "os", pool.getOS(), "kernel", pool.kernel)
+			nodePoolMap[pool.name] = pool
 		}
 	}
 
 	nodePools := make([]nodePool, 0, len(nodePoolMap))
-	for _, nodePool := range nodePoolMap {
-		nodePools = append(nodePools, nodePool)
+	for _, pool := range nodePoolMap {
+		nodePools = append(nodePools, pool)
 	}
 
 	return nodePools, nil
@@ -75,26 +71,26 @@ func buildNodePool(node corev1.Node, baseSelector map[string]string, logger logr
 	}
 	maps.Copy(nodePool.nodeSelector, baseSelector)
 
-	osID, ok := getNodeLabel(nodeLabels, node.Name, nfdOSReleaseIDLabelKey, logger)
+	osID, ok := getNodeLabel(nodeLabels, node.Name, consts.NFDOSReleaseIDLabelKey, logger)
 	if !ok {
 		return nodePool, false
 	}
-	nodePool.nodeSelector[nfdOSReleaseIDLabelKey] = osID
+	nodePool.nodeSelector[consts.NFDOSReleaseIDLabelKey] = osID
 
-	osVersion, ok := getNodeLabel(nodeLabels, node.Name, nfdOSVersionIDLabelKey, logger)
+	osVersion, ok := getNodeLabel(nodeLabels, node.Name, consts.NFDOSVersionIDLabelKey, logger)
 	if !ok {
 		return nodePool, false
 	}
-	nodePool.nodeSelector[nfdOSVersionIDLabelKey] = osVersion
+	nodePool.nodeSelector[consts.NFDOSVersionIDLabelKey] = osVersion
 	nodePool.osRelease = osID
 	nodePool.osVersion = osVersion
 	nodePool.name = nodePool.getOS()
 
-	kernelVersion, ok := getNodeLabel(nodeLabels, node.Name, nfdKernelLabelKey, logger)
+	kernelVersion, ok := getNodeLabel(nodeLabels, node.Name, consts.NFDKernelLabelKey, logger)
 	if !ok {
 		return nodePool, false
 	}
-	nodePool.nodeSelector[nfdKernelLabelKey] = kernelVersion
+	nodePool.nodeSelector[consts.NFDKernelLabelKey] = kernelVersion
 	nodePool.kernel = kernelVersion
 	nodePool.name = fmt.Sprintf("%s-%s", nodePool.name, getSanitizedKernelVersion(kernelVersion))
 
@@ -114,9 +110,10 @@ func (n nodePool) getOS() string {
 	return fmt.Sprintf("%s%s", n.osRelease, n.osVersion)
 }
 
+var kernelArchRegex = regexp.MustCompile(`x86_64(?:_64k)?|aarch64(?:_64k)?`)
+
 func getSanitizedKernelVersion(kernelVersion string) string {
-	archRegex := regexp.MustCompile("x86_64(?:_64k)?|aarch64(?:_64k)?")
-	sanitized := archRegex.ReplaceAllString(kernelVersion, "")
+	sanitized := kernelArchRegex.ReplaceAllString(kernelVersion, "")
 	sanitized = strings.ReplaceAll(sanitized, "_", ".")
 	sanitized = strings.TrimSuffix(sanitized, ".")
 	return strings.ToLower(sanitized)

@@ -81,7 +81,7 @@ func (h *containerToolkitPatcher) Patch(ctx context.Context, owner *rblnv1beta1.
 }
 
 func (h *containerToolkitPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.Info("WARNING: Container Toolkit is disabled. Remove all Container Toolkit resources")
+	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "Container Toolkit")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
@@ -149,20 +149,20 @@ func (h *containerToolkitPatcher) handleConfigMap(ctx context.Context, owner *rb
 	script := strings.Join([]string{
 		"#!/bin/sh",
 		"",
-		"until [ -f " + validationsMountPath + "/driver-ready ]",
+		"until [ -f " + consts.ValidationsMountPath + "/driver-ready ]",
 		"do",
 		"  echo \"waiting for the driver validations to be ready...\"",
 		"  sleep 5",
 		"done",
 		"",
 		"set -o allexport",
-		". " + validationsMountPath + "/driver-ready",
+		". " + consts.ValidationsMountPath + "/driver-ready",
 		"",
 		"command -v rbln-ctk >/dev/null 2>&1 && rbln-ctk info || true",
 		"command -v rbln-ctk >/dev/null 2>&1 && rbln-ctk version || true",
 		"command -v rbln-ctk-daemon >/dev/null 2>&1 && rbln-ctk-daemon --version || true",
 		"echo \"driver-ready contents:\"",
-		"cat " + validationsMountPath + "/driver-ready || true",
+		"cat " + consts.ValidationsMountPath + "/driver-ready || true",
 		"",
 		"exec rbln-ctk-daemon \"$@\"",
 	}, "\n") + "\n"
@@ -211,7 +211,7 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 
 	driverInit := k8sutil.NewContainerBuilder().
 		WithName("driver-validation").
-		WithImage(ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, validatorSpec.ImagePullPolicy).
+		WithImage(k8sutil.ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, validatorSpec.ImagePullPolicy).
 		WithCommands([]string{validatorDefaultCommand}).
 		WithArgs(driverArgs).
 		WithEnvs(baseEnv).
@@ -232,8 +232,8 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
 			},
 			{
-				Name:             validationsVolumeName,
-				MountPath:        validationsMountPath,
+				Name:             consts.ValidationsVolumeName,
+				MountPath:        consts.ValidationsMountPath,
 				MountPropagation: ptr(corev1.MountPropagationBidirectional),
 			},
 		}).
@@ -267,7 +267,7 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 	}
 
 	toolkitVolumeMounts := []corev1.VolumeMount{
-		{Name: validationsVolumeName, MountPath: validationsMountPath},
+		{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
 		{Name: validatorHostDriverVolumeName, MountPath: validatorHostDriverPath},
 		{Name: validatorHostRootVolumeName, MountPath: "/host", ReadOnly: true},
 		{Name: containerToolkitCDIRootVolumeName, MountPath: containerToolkitCDIRootPath},
@@ -284,7 +284,7 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 
 	toolkitContainer := k8sutil.NewContainerBuilder().
 		WithName(h.name).
-		WithImage(ComposeImageReference(toolkitSpec.Registry, toolkitSpec.Image), toolkitSpec.Version, imagePullPolicy).
+		WithImage(k8sutil.ComposeImageReference(toolkitSpec.Registry, toolkitSpec.Image), toolkitSpec.Version, imagePullPolicy).
 		WithCommands([]string{containerToolkitEntrypointPath}).
 		WithEnvs(mergeEnvVars(runtimeEnv, toolkitSpec.Env)).
 		WithSecurityContext(&corev1.SecurityContext{
@@ -299,7 +299,7 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 	}
 
 	toolkitVolumes := []corev1.Volume{
-		hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
+		hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 		hostPathVolume(validatorHostDriverVolumeName, validatorHostDriverPath, corev1.HostPathDirectoryOrCreate),
 		hostPathVolume(validatorHostRootVolumeName, validatorHostRootPath, corev1.HostPathDirectory),
 		hostPathVolume(containerToolkitCDIRootVolumeName, containerToolkitCDIRootPath, corev1.HostPathDirectoryOrCreate),

@@ -7,6 +7,7 @@ import (
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 func TestComposeImageReference(t *testing.T) {
@@ -39,9 +40,9 @@ func TestComposeImageReference(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := ComposeImageReference(tc.registry, tc.image)
+			got := k8sutil.ComposeImageReference(tc.registry, tc.image)
 			if got != tc.want {
-				t.Fatalf("ComposeImageReference(%q, %q) = %q, want %q", tc.registry, tc.image, got, tc.want)
+				t.Fatalf("k8sutil.ComposeImageReference(%q, %q) = %q, want %q", tc.registry, tc.image, got, tc.want)
 			}
 		})
 	}

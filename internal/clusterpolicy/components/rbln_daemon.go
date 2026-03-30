@@ -70,7 +70,7 @@ func (h *rblnDaemonPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNCl
 }
 
 func (h *rblnDaemonPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.Info("WARNING: RBLN Daemon is disabled. Remove all RBLN Daemon resources")
+	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "RBLN Daemon")
 	if err := h.deleteIfExists(ctx, &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
 	}); err != nil {
@@ -116,7 +116,7 @@ func (h *rblnDaemonPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *
 
 	daemonContainer := k8sutil.NewContainerBuilder().
 		WithName(h.name).
-		WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+		WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
 		WithCommands([]string{rblnDaemonCommand}).
 		WithArgs(h.desiredSpec.Args).
 		WithEnvs(h.desiredSpec.Env).
@@ -149,7 +149,7 @@ func (h *rblnDaemonPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithPriorityClassName(h.desiredSpec.PriorityClassName).
 		WithVolumes([]corev1.Volume{
-			hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
+			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume(rblnDaemonVarRunVolumeName, rblnDaemonVarRunPath, corev1.HostPathDirectory),
 			hostPathVolume(rblnDaemonSysVolumeName, rblnDaemonSysPath, corev1.HostPathDirectory),
 			hostPathVolume(rblnDaemonDebugVolumeName, rblnDaemonDebugPath, corev1.HostPathDirectory),

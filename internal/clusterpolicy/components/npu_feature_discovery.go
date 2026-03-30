@@ -50,7 +50,7 @@ func (h *npuFeatureDiscoveryPatcher) Patch(ctx context.Context, owner *rblnv1bet
 }
 
 func (h *npuFeatureDiscoveryPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.Info("WARNING: NPU Feature Discovery is disabled. Remove all NPU Feature Discovery resources")
+	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "NPU Feature Discovery")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
@@ -70,7 +70,7 @@ func (h *npuFeatureDiscoveryPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 		WithTolerations(h.desiredSpec.Tolerations).
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithVolumes([]corev1.Volume{
-			hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
+			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume("features-dir", "/etc/kubernetes/node-feature-discovery/features.d", corev1.HostPathDirectoryOrCreate),
 		}).
 		WithInitContainers([]*corev1.Container{initContainer}).
@@ -78,7 +78,7 @@ func (h *npuFeatureDiscoveryPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 		WithContainers([]*corev1.Container{
 			k8sutil.NewContainerBuilder().
 				WithName(h.name).
-				WithImage(ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
 				WithEnvs([]corev1.EnvVar{
 					{
 						Name: "NODE_IP",

@@ -66,16 +66,18 @@ func NewDriverService(
 	return s, nil
 }
 
+// PatchComponents applies or removes each managed component according to
+// whether it is enabled.
 func (s *DriverService) PatchComponents(ctx context.Context) error {
 	for _, p := range s.patcher {
 		if p.IsEnabled() {
 			if err := p.Patch(ctx, s.singleton); err != nil {
-				return fmt.Errorf("failed to patch component: %v", err)
+				return fmt.Errorf("patch %s: %w", p.ComponentName(), err)
 			}
-		} else {
-			if err := p.CleanUp(ctx, s.singleton); err != nil {
-				return fmt.Errorf("failed to clean up component: %v", err)
-			}
+			continue
+		}
+		if err := p.CleanUp(ctx, s.singleton); err != nil {
+			return fmt.Errorf("cleanup %s: %w", p.ComponentName(), err)
 		}
 	}
 	return nil
