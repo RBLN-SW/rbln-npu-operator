@@ -7,6 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -83,7 +84,7 @@ func (h *metricsExporterPatcher) handleService(ctx context.Context, cp *rblnv1be
 			"prometheus.io/port":   "9090",
 		}
 		svc.Spec.Selector = labelsMap
-		svc.Spec.Ports = []corev1.ServicePort{{Name: "http", Port: 9090}}
+		svc.Spec.Ports = []corev1.ServicePort{{Name: "http", Port: 9090, Protocol: corev1.ProtocolTCP, TargetPort: intstr.FromInt32(9090)}}
 		return ctrl.SetControllerReference(cp, svc, h.scheme)
 	})
 	if err != nil {
@@ -127,7 +128,7 @@ func (h *metricsExporterPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPoli
 					{
 						Name: "NODE_NAME",
 						ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
-							FieldPath: "spec.nodeName",
+							APIVersion: "v1", FieldPath: "spec.nodeName",
 						}},
 					},
 					{Name: "RBLN_METRICS_EXPORTER_RBLN_DAEMON_URL", Value: "http://$(NODE_IP):50051"},

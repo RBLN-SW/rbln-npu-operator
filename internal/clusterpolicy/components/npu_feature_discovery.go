@@ -71,12 +71,7 @@ func (h *npuFeatureDiscoveryPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
-			{
-				Name: "features-dir",
-				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
-					Path: "/etc/kubernetes/node-feature-discovery/features.d",
-				}},
-			},
+			hostPathVolume("features-dir", "/etc/kubernetes/node-feature-discovery/features.d", corev1.HostPathDirectoryOrCreate),
 		}).
 		WithInitContainers([]*corev1.Container{initContainer}).
 		WithTerminationGracePeriodSeconds(0).

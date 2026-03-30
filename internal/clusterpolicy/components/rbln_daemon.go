@@ -7,6 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -93,7 +94,7 @@ func (h *rblnDaemonPatcher) handleService(ctx context.Context, owner *rblnv1beta
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, svc, func() error {
 		svc.Labels = labelsMap
 		svc.Spec.Selector = labelsMap
-		svc.Spec.Ports = []corev1.ServicePort{{Name: rblnDaemonPortName, Port: rblnDaemonDefaultHostPort}}
+		svc.Spec.Ports = []corev1.ServicePort{{Name: rblnDaemonPortName, Port: rblnDaemonDefaultHostPort, Protocol: corev1.ProtocolTCP, TargetPort: intstr.FromInt32(rblnDaemonDefaultHostPort)}}
 		svc.Spec.InternalTrafficPolicy = ptr(corev1.ServiceInternalTrafficPolicyLocal)
 		return ctrl.SetControllerReference(owner, svc, h.scheme)
 	})

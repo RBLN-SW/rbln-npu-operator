@@ -233,13 +233,13 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 		{
 			Name: "NODE_NAME",
 			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
-				FieldPath: "spec.nodeName",
+				APIVersion: "v1", FieldPath: "spec.nodeName",
 			}},
 		},
 		{
 			Name: "NAMESPACE",
 			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
-				FieldPath: "metadata.namespace",
+				APIVersion: "v1", FieldPath: "metadata.namespace",
 			}},
 		},
 	}

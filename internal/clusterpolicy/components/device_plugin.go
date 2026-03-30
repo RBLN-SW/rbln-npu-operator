@@ -141,24 +141,9 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume(validationsVolumeName, validationsMountPath, corev1.HostPathDirectoryOrCreate),
-			{
-				Name: "devicesock",
-				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
-					Path: "/var/lib/kubelet/device-plugin",
-				}},
-			},
-			{
-				Name: "plugins-registry",
-				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
-					Path: "/var/lib/kubelet/plugins_registry",
-				}},
-			},
-			{
-				Name: "log",
-				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
-					Path: "/var/log",
-				}},
-			},
+			hostPathVolume("devicesock", "/var/lib/kubelet/device-plugin", corev1.HostPathDirectory),
+			hostPathVolume("plugins-registry", "/var/lib/kubelet/plugins_registry", corev1.HostPathDirectory),
+			hostPathVolume("log", "/var/log", corev1.HostPathDirectory),
 			{
 				Name: "device-info",
 				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
@@ -171,6 +156,7 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 				VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{Name: h.name + "-config"},
 					Items:                []corev1.KeyToPath{{Key: "config.json", Path: "config.json"}},
+					DefaultMode:          ptr(int32(0o644)),
 				}},
 			},
 			hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
