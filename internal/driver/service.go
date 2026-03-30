@@ -12,6 +12,7 @@ import (
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/driver/components"
+	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 type DriverService struct {
@@ -45,19 +46,16 @@ func NewDriverService(
 		openshiftVersion: openshiftVersion,
 	}
 
-	if clusterPolicy != nil && clusterPolicy.Spec.Namespace != "" {
-		s.namespace = clusterPolicy.Spec.Namespace
-	} else {
-		s.namespace = os.Getenv("OPERATOR_NAMESPACE")
+	cpNS := ""
+	if clusterPolicy != nil {
+		cpNS = clusterPolicy.Spec.Namespace
 	}
-	if s.namespace == "" {
-		s.namespace = driver.Namespace
-	}
-	if s.namespace == "" {
-		err := fmt.Errorf("namespace is not configured. Set OPERATOR_NAMESPACE env variable or namespace spec")
+	namespace, err := k8sutil.ResolveNamespace(cpNS, os.Getenv("OPERATOR_NAMESPACE"), driver.Namespace)
+	if err != nil {
 		s.log.Error(err, "namespace configuration error")
 		return nil, err
 	}
+	s.namespace = namespace
 
 	dmp, err := components.NewDriverManagerPatcher(client, log, s.namespace, driver, scheme, s.openshiftVersion)
 	if err != nil {

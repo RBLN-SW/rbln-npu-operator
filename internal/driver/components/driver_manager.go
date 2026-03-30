@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
@@ -117,7 +116,6 @@ type DriverPatcher interface {
 	IsEnabled() bool
 	Patch(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error
 	CleanUp(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error
-	ConditionReport(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) ([]metav1.Condition, error)
 	ComponentName() string
 	ComponentNamespace() string
 }
@@ -259,63 +257,6 @@ func (h *driverManagerPatcher) CleanUp(ctx context.Context, owner *rebellionsaiv
 	}
 
 	return nil
-}
-
-func (h *driverManagerPatcher) ConditionReport(ctx context.Context, _ *rebellionsaiv1alpha1.RBLNDriver) ([]metav1.Condition, error) {
-	dsList := &appsv1.DaemonSetList{}
-	if err := h.client.List(ctx, dsList, client.InNamespace(h.namespace), client.MatchingLabels(map[string]string{
-		driverManagerAppLabelKey:      h.name,
-		driverManagerInstanceLabelKey: h.instanceName,
-	})); err != nil {
-		return []metav1.Condition{{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             DaemonSetNotFound,
-			Message:            fmt.Sprintf("DaemonSet list could not be retrieved: %v", err),
-			LastTransitionTime: metav1.Now(),
-		}}, nil
-	}
-	if len(dsList.Items) == 0 {
-		return []metav1.Condition{{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             DaemonSetNotFound,
-			Message:            fmt.Sprintf("DaemonSet for %s/%s could not be found", h.namespace, h.instanceName),
-			LastTransitionTime: metav1.Now(),
-		}}, nil
-	}
-
-	notReady := make([]string, 0)
-	for _, ds := range dsList.Items {
-		ready := ds.Status.DesiredNumberScheduled > 0 &&
-			ds.Status.NumberReady == ds.Status.DesiredNumberScheduled &&
-			ds.Status.NumberUnavailable == 0
-		if ready {
-			continue
-		}
-		notReady = append(notReady, fmt.Sprintf("%s/%s", ds.Namespace, ds.Name))
-	}
-	if len(notReady) > 0 {
-		return []metav1.Condition{
-			{
-				Type:               DaemonSetReady,
-				Status:             metav1.ConditionFalse,
-				Reason:             DaemonSetPodsNotReady,
-				Message:            fmt.Sprintf("DaemonSets not ready: %s", strings.Join(notReady, ", ")),
-				LastTransitionTime: metav1.Now(),
-			},
-		}, nil
-	}
-
-	return []metav1.Condition{
-		{
-			Type:               DaemonSetReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             DaemonSetAllPodsReady,
-			Message:            fmt.Sprintf("All pods in DaemonSets for %s are running", h.instanceName),
-			LastTransitionTime: metav1.Now(),
-		},
-	}, nil
 }
 
 func (h *driverManagerPatcher) ComponentName() string {

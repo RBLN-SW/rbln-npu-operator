@@ -32,13 +32,21 @@ const (
 	RBLNConditionTypeComponentsReady = "ComponentsReady"
 )
 
+// Condition types (driver)
+const (
+	RBLNConditionTypeError = "Error"
+)
+
 // Condition reasons
 const (
-	RBLNConditionReasonNFDNotFound        = "NodeFeatureDiscoveryNotFound"
-	RBLNConditionReasonNoRBLNNodes        = "NoRBLNNodesDiscovered"
-	RBLNConditionReasonPolicyIgnored      = "PolicyIgnored"
-	RBLNConditionReasonAllComponentsReady = "AllComponentsReady"
-	RBLNConditionReasonSomeNotReady       = "SomeComponentsNotReady"
+	RBLNConditionReasonNFDNotFound          = "NodeFeatureDiscoveryNotFound"
+	RBLNConditionReasonNoRBLNNodes          = "NoRBLNNodesDiscovered"
+	RBLNConditionReasonPolicyIgnored        = "PolicyIgnored"
+	RBLNConditionReasonAllComponentsReady   = "AllComponentsReady"
+	RBLNConditionReasonSomeNotReady         = "SomeComponentsNotReady"
+	RBLNConditionReasonError                = "Error"
+	RBLNConditionReasonReconcileFailed      = "ReconcileFailed"
+	RBLNConditionReasonMissingClusterPolicy = "MissingClusterPolicy"
 )
 
 // Device plugin constants

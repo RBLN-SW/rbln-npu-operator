@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 	"time"
 
@@ -18,7 +17,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -31,8 +29,9 @@ import (
 )
 
 const (
-	minDelayCR = 100 * time.Millisecond
-	maxDelayCR = 3 * time.Second
+	minDelayCR       = 100 * time.Millisecond
+	maxDelayCR       = 3 * time.Second
+	nfdCheckInterval = 30 * time.Second
 )
 
 type RBLNClusterPolicyReconciler struct {
@@ -72,7 +71,7 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 
-	namespace, err := resolveNamespace(instance)
+	namespace, err := k8sutil.ResolveNamespace(instance.Spec.Namespace, os.Getenv("OPERATOR_NAMESPACE"))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -86,11 +85,11 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	nfdInstalled := clusterpolicy.HasNFDLabeledNodes(nodeList)
 
 	if !nfdInstalled {
-		r.Log.V(consts.LogLevelWarning).Info("NodeFeatureDiscovery labels not found", "requeue_after", 30*time.Second)
+		r.Log.V(consts.LogLevelWarning).Info("NodeFeatureDiscovery labels not found", "requeue_after", nfdCheckInterval)
 		if err := r.setNotReadyStatus(ctx, instance, consts.RBLNConditionReasonNFDNotFound, "NodeFeatureDiscovery labels not found"); err != nil {
 			r.Log.V(consts.LogLevelDebug).Error(err, "failed to set ClusterPolicy status")
 		}
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: nfdCheckInterval}, nil
 	}
 
 	service := clusterpolicy.NewClusterPolicyService(
@@ -177,16 +176,6 @@ func (r *RBLNClusterPolicyReconciler) handleSingletonPolicy(
 	}
 
 	return false, nil
-}
-
-func resolveNamespace(instance *rblnv1beta1.RBLNClusterPolicy) (string, error) {
-	if instance.Spec.Namespace != "" {
-		return instance.Spec.Namespace, nil
-	}
-	if namespace := os.Getenv("OPERATOR_NAMESPACE"); namespace != "" {
-		return namespace, nil
-	}
-	return "", fmt.Errorf("namespace is not configured. Set OPERATOR_NAMESPACE env variable or spec.namespace")
 }
 
 func (r *RBLNClusterPolicyReconciler) setNotReadyStatus(
@@ -286,7 +275,7 @@ func (r *RBLNClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&corev1.Node{},
 			handler.EnqueueRequestsFromMapFunc(r.singletonRequest),
-			builder.WithPredicates(r.rblnNodePredicate()),
+			builder.WithPredicates(k8sutil.NodeLabelPrefixChangedPredicate("rebellions.ai/")),
 		).
 		Complete(r)
 }
@@ -303,20 +292,4 @@ func (r *RBLNClusterPolicyReconciler) singletonRequest(_ context.Context, o clie
 		}
 	}
 	return nil
-}
-
-func (r *RBLNClusterPolicyReconciler) rblnNodePredicate() predicate.Funcs {
-	hasRBLNLabels := func(labels map[string]string) bool {
-		return len(k8sutil.FilterMapWithPrefix(labels, "rebellions.ai/")) > 0
-	}
-	return predicate.Funcs{
-		CreateFunc:  func(e event.CreateEvent) bool { return hasRBLNLabels(e.Object.GetLabels()) },
-		DeleteFunc:  func(e event.DeleteEvent) bool { return hasRBLNLabels(e.Object.GetLabels()) },
-		GenericFunc: func(e event.GenericEvent) bool { return false },
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldRblnLabels := k8sutil.FilterMapWithPrefix(e.ObjectOld.GetLabels(), "rebellions.ai/")
-			newRblnLabels := k8sutil.FilterMapWithPrefix(e.ObjectNew.GetLabels(), "rebellions.ai/")
-			return !reflect.DeepEqual(oldRblnLabels, newRblnLabels)
-		},
-	}
 }
