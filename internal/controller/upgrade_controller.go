@@ -112,23 +112,17 @@ func (r *UpgradeReconciler) removeNodeUpgradeStateLabels(ctx context.Context) er
 	r.Log.Info("Resetting node upgrade labels from all nodes")
 
 	nodeList := &corev1.NodeList{}
-	err := r.List(ctx, nodeList)
-	if err != nil {
+	if err := r.List(ctx, nodeList, client.HasLabels{upgrade.UpgradeStateLabelKey}); err != nil {
 		r.Log.Error(err, "Failed to get node list to reset upgrade labels")
 		return err
 	}
 
 	for i := range nodeList.Items {
 		node := &nodeList.Items[i]
-		_, present := node.Labels[upgrade.UpgradeStateLabelKey]
-		if present {
-			patchBytes := fmt.Appendf(nil, `{"metadata":{"labels":{%q:null}}}`, upgrade.UpgradeStateLabelKey)
-			patch := client.RawPatch(types.MergePatchType, patchBytes)
-			err = r.Patch(ctx, node, patch)
-			if err != nil {
-				r.Log.Error(err, "Failed to reset upgrade state label from node", "node", node)
-				return err
-			}
+		patchBytes := fmt.Appendf(nil, `{"metadata":{"labels":{%q:null}}}`, upgrade.UpgradeStateLabelKey)
+		if err := r.Patch(ctx, node, client.RawPatch(types.MergePatchType, patchBytes)); err != nil {
+			r.Log.Error(err, "Failed to reset upgrade state label from node", "node", node.Name)
+			return err
 		}
 	}
 	return nil
@@ -221,23 +215,20 @@ func (r *UpgradeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 
 func getClusterPoliciesToReconcile(ctx context.Context, k8sClient client.Client) []reconcile.Request {
 	logger := log.FromContext(ctx)
-	opts := []client.ListOption{}
 	list := &rblnv1beta1.RBLNClusterPolicyList{}
-
-	err := k8sClient.List(ctx, list, opts...)
-	if err != nil {
+	if err := k8sClient.List(ctx, list); err != nil {
 		logger.Error(err, "Unable to list ClusterPolicies")
-		return []reconcile.Request{}
+		return nil
 	}
 
-	cpToRec := []reconcile.Request{}
-
+	requests := make([]reconcile.Request, 0, len(list.Items))
 	for _, cp := range list.Items {
-		cpToRec = append(cpToRec, reconcile.Request{NamespacedName: types.NamespacedName{
-			Name:      cp.GetName(),
-			Namespace: cp.GetNamespace(),
-		}})
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      cp.GetName(),
+				Namespace: cp.GetNamespace(),
+			},
+		})
 	}
-
-	return cpToRec
+	return requests
 }

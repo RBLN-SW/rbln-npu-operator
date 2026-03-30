@@ -15,6 +15,11 @@ import (
 	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 )
 
+// DrainManagerInterface abstracts node drain operations for testability.
+type DrainManagerInterface interface {
+	ScheduleNodesDrain(ctx context.Context, drainConfig *DrainConfiguration) error
+}
+
 type DrainConfiguration struct {
 	Spec  *v1beta1.DrainSpec
 	Nodes []*corev1.Node

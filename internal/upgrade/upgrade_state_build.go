@@ -13,21 +13,21 @@ import (
 func (m *ClusterUpgradeStateManagerImpl) BuildState(ctx context.Context, namespace string,
 	driverLabels map[string]string,
 ) (*ClusterUpgradeState, error) {
-	m.Log.Info("Building state")
+	m.log.Info("Building state")
 
 	upgradeState := NewClusterUpgradeState()
 
 	daemonSets, err := m.GetDriverDaemonSets(ctx, namespace, driverLabels)
 	if err != nil {
-		m.Log.Error(err, "Failed to get driver DaemonSet list")
+		m.log.Error(err, "Failed to get driver DaemonSet list")
 		return nil, err
 	}
 
-	m.Log.Info("Got driver DaemonSets", "length", len(daemonSets))
+	m.log.Info("Got driver DaemonSets", "length", len(daemonSets))
 
 	podList := &corev1.PodList{}
 
-	err = m.K8sClient.List(ctx, podList,
+	err = m.k8sClient.List(ctx, podList,
 		client.InNamespace(namespace),
 		client.MatchingLabels(driverLabels),
 	)
@@ -62,7 +62,7 @@ func (m *ClusterUpgradeStateManagerImpl) GetDriverDaemonSets(ctx context.Context
 ) (map[types.UID]*appsv1.DaemonSet, error) {
 	daemonSetList := &appsv1.DaemonSetList{}
 
-	err := m.K8sClient.List(ctx, daemonSetList,
+	err := m.k8sClient.List(ctx, daemonSetList,
 		client.InNamespace(namespace),
 		client.MatchingLabels(labels))
 	if err != nil {
@@ -88,21 +88,21 @@ func (m *ClusterUpgradeStateManagerImpl) partitionDriverPods(
 	for i := range pods {
 		pod := &pods[i]
 		if IsOrphanedPod(pod) {
-			m.Log.Info("Driver Pod has no owner DaemonSet", "pod", pod.Name)
+			m.log.Info("Driver Pod has no owner DaemonSet", "pod", pod.Name)
 			orphanedPods = append(orphanedPods, *pod)
 			continue
 		}
 
 		ownerUID := pod.OwnerReferences[0].UID
 		if _, found := daemonSets[ownerUID]; !found {
-			m.Log.Info("Driver Pod is not owned by a managed Driver DaemonSet",
+			m.log.Info("Driver Pod is not owned by a managed Driver DaemonSet",
 				"pod", pod.Name, "ownerUID", ownerUID)
 			continue
 		}
 
 		podsByDaemonSet[ownerUID] = append(podsByDaemonSet[ownerUID], *pod)
 	}
-	m.Log.Info("Total orphaned Pods found:", "count", len(orphanedPods))
+	m.log.Info("Total orphaned Pods found:", "count", len(orphanedPods))
 	return podsByDaemonSet, orphanedPods
 }
 
@@ -112,7 +112,7 @@ func (m *ClusterUpgradeStateManagerImpl) validateDaemonSetScheduling(
 ) error {
 	for uid, ds := range daemonSets {
 		if int(ds.Status.DesiredNumberScheduled) != len(podsByDaemonSet[uid]) {
-			m.Log.Info("Driver DaemonSet has Unscheduled pods",
+			m.log.Info("Driver DaemonSet has Unscheduled pods",
 				"name", ds.Name,
 				"desiredNumberScheduled", ds.Status.DesiredNumberScheduled,
 				"runningPods", len(podsByDaemonSet[uid]))
@@ -130,12 +130,12 @@ func (m *ClusterUpgradeStateManagerImpl) validateDaemonSetScheduling(
 func (m *ClusterUpgradeStateManagerImpl) buildNodeUpgradeState(
 	ctx context.Context, pod *corev1.Pod, ds *appsv1.DaemonSet,
 ) (*NodeUpgradeState, error) {
-	node, err := m.NodeUpgradeStateProvider.GetNode(ctx, pod.Spec.NodeName)
+	node, err := m.nodeUpgradeStateProvider.GetNode(ctx, pod.Spec.NodeName)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get node %s: %v", pod.Spec.NodeName, err)
 	}
 
-	m.Log.Info("Node hosting a driver pod",
+	m.log.Info("Node hosting a driver pod",
 		"node", node.Name, "state", node.Labels[UpgradeStateLabelKey])
 
 	return &NodeUpgradeState{Node: node, DriverPod: pod, DriverDaemonSet: ds}, nil
@@ -175,13 +175,13 @@ func (m *ClusterUpgradeStateManagerImpl) addPodToUpgradeState(
 	ownerDaemonSet *appsv1.DaemonSet,
 ) error {
 	if pod.Spec.NodeName == "" && pod.Status.Phase == corev1.PodPending {
-		m.Log.Info("Driver Pod has no NodeName, skipping", "pod", pod.Name)
+		m.log.Info("Driver Pod has no NodeName, skipping", "pod", pod.Name)
 		return nil
 	}
 
 	nodeState, err := m.buildNodeUpgradeState(ctx, pod, ownerDaemonSet)
 	if err != nil {
-		m.Log.Error(err, "Failed to build node upgrade state for pod", "pod", pod)
+		m.log.Error(err, "Failed to build node upgrade state for pod", "pod", pod)
 		return err
 	}
 
@@ -190,7 +190,7 @@ func (m *ClusterUpgradeStateManagerImpl) addPodToUpgradeState(
 		nodeStateLabel = UpgradeStateUnknown
 	}
 	if !IsManagedUpgradeState(nodeStateLabel) {
-		m.Log.Info("Unknown node upgrade state label; falling back to unknown",
+		m.log.Info("Unknown node upgrade state label; falling back to unknown",
 			"node", nodeState.Node.Name,
 			"state", nodeStateLabel)
 		nodeStateLabel = UpgradeStateUnknown

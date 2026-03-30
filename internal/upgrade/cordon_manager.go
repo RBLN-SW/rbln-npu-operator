@@ -12,6 +12,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// CordonManagerInterface abstracts node cordon/uncordon operations for testability.
+type CordonManagerInterface interface {
+	Cordon(ctx context.Context, node *corev1.Node) error
+	Uncordon(ctx context.Context, node *corev1.Node) error
+}
+
 type CordonManager struct {
 	k8sInterface kubernetes.Interface
 	Log          logr.Logger

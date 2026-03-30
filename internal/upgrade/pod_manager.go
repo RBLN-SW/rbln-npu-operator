@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +23,15 @@ import (
 const (
 	PodControllerRevisionHashLabelKey = "controller-revision-hash"
 )
+
+// PodManagerInterface abstracts pod lifecycle operations for testability.
+type PodManagerInterface interface {
+	GetPodControllerRevisionHash(pod *corev1.Pod) (string, error)
+	GetDaemonsetControllerRevisionHash(ctx context.Context, ds *appsv1.DaemonSet) (string, error)
+	ScheduleCheckOnPodCompletion(ctx context.Context, config *PodManagerConfig) error
+	SchedulePodEviction(ctx context.Context, config *PodManagerConfig) error
+	SchedulePodsRestart(ctx context.Context, pods []*corev1.Pod) error
+}
 
 type PodManager struct {
 	k8sInterface             kubernetes.Interface
@@ -132,24 +140,15 @@ func (m *PodManager) HandleTimeoutOnPodCompletions(ctx context.Context, node *co
 	timeoutSeconds int64,
 ) error {
 	annotationKey := UpgradeWaitForPodCompletionStartTimeAnnotationKey
-	currentTime := time.Now().Unix()
-	if _, present := node.Annotations[annotationKey]; !present {
-		err := m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(ctx, node, annotationKey,
-			strconv.FormatInt(currentTime, 10))
-		if err != nil {
-			m.Log.Error(err, "Failed to add annotation to track job completions",
-				"node", node.Name, "annotation", annotationKey)
-			return err
-		}
-		return nil
-	}
-	startTime, err := strconv.ParseInt(node.Annotations[annotationKey], 10, 64)
+
+	timedOut, err := checkAnnotationTimeout(ctx, m.nodeUpgradeStateProvider, node, annotationKey, timeoutSeconds)
 	if err != nil {
-		m.Log.Error(err, "Failed to convert start time to track job completions",
-			"node", node.Name)
+		m.Log.Error(err, "Failed to check pod completion timeout",
+			"node", node.Name, "annotation", annotationKey)
 		return err
 	}
-	if currentTime > startTime+timeoutSeconds {
+
+	if timedOut {
 		_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStatePodDeletionRequired)
 		m.Log.Info("Timeout exceeded for job completions, updated the node state",
 			"node", node.Name, "state", UpgradeStatePodDeletionRequired)
