@@ -3,7 +3,6 @@ package clusterpolicy
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -17,8 +16,8 @@ const (
 )
 
 var rblnDeviceLabels = map[string]string{
-	"feature.node.kubernetes.io/pci-1200_1eff.present": labelValueTrue,
-	"feature.node.kubernetes.io/pci-1eff.present":      labelValueTrue,
+	consts.NFDDevicePCIAltLabelKey: labelValueTrue,
+	consts.NFDDevicePCILabelKey:    labelValueTrue,
 }
 
 var rblnComponentLabels = map[string]map[string]string{
@@ -38,38 +37,69 @@ var rblnComponentLabels = map[string]map[string]string{
 	},
 }
 
-type nodeLabelResult struct {
-	deployableRBLNNode bool
-}
-
-func ListNodes(ctx context.Context, k8sClient client.Client) (*corev1.NodeList, error) {
-	nodeList := &corev1.NodeList{}
-	if err := k8sClient.List(ctx, nodeList); err != nil {
-		return nil, fmt.Errorf("list nodes: %w", err)
-	}
-
-	return nodeList, nil
-}
-
-func HasNFDLabeledNodes(nodeList *corev1.NodeList) bool {
-	for i := range nodeList.Items {
-		if hasNFDLabels(nodeList.Items[i].Labels) {
-			return true
+// ListAndClassifyNodes returns NPU-candidate nodes and whether NFD is
+// installed.  It issues targeted label-selector queries so that only
+// relevant nodes are fetched from the cache, avoiding a full-cluster scan
+// in the common case.
+func ListAndClassifyNodes(ctx context.Context, k8sClient client.Client) (candidates []corev1.Node, nfdInstalled bool, err error) {
+	// 1. Nodes with NFD device labels — new NPU node discovery.
+	//    If any exist, NFD is necessarily installed (it sets these labels).
+	for _, key := range []string{consts.NFDDevicePCILabelKey, consts.NFDDevicePCIAltLabelKey} {
+		list := &corev1.NodeList{}
+		if err := k8sClient.List(ctx, list, client.MatchingLabels{key: labelValueTrue}); err != nil {
+			return nil, false, fmt.Errorf("list device nodes (%s): %w", key, err)
 		}
+		candidates = append(candidates, list.Items...)
 	}
 
-	return false
+	if len(candidates) > 0 {
+		nfdInstalled = true
+	}
+
+	// 2. Already-managed RBLN nodes — handles device-removal cleanup.
+	rblnList := &corev1.NodeList{}
+	if err := k8sClient.List(ctx, rblnList, client.MatchingLabels{consts.RBLNPresentLabelKey: labelValueTrue}); err != nil {
+		return nil, false, fmt.Errorf("list RBLN present nodes: %w", err)
+	}
+	candidates = deduplicateNodes(append(candidates, rblnList.Items...))
+
+	return candidates, nfdInstalled, nil
 }
 
-func (s *ClusterPolicyService) ReconcileNodeLabels(ctx context.Context, nodeList *corev1.NodeList) (int, error) {
+func deduplicateNodes(nodes []corev1.Node) []corev1.Node {
+	seen := make(map[string]struct{}, len(nodes))
+	result := make([]corev1.Node, 0, len(nodes))
+	for i := range nodes {
+		if _, ok := seen[nodes[i].Name]; ok {
+			continue
+		}
+		seen[nodes[i].Name] = struct{}{}
+		result = append(result, nodes[i])
+	}
+	return result
+}
+
+// ReconcileNodes reconciles labels and driver-upgrade annotations for the
+// given candidate nodes in a single pass, issuing at most one Update call
+// per node. It returns the number of deployable RBLN nodes.
+func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []corev1.Node) (int, error) {
+	shouldEnableUpgrade := shouldEnableDriverAutoUpgrade(s.policy)
 	rblnNodeCount := 0
 
-	for i := range nodeList.Items {
-		result, err := s.reconcileNodeLabels(ctx, &nodeList.Items[i])
-		if err != nil {
-			return 0, err
+	for i := range candidates {
+		node := &candidates[i]
+
+		labelsChanged := s.reconcileNodeLabelsInPlace(node)
+		annotationsChanged := reconcileAutoUpgradeAnnotationInPlace(node, shouldEnableUpgrade)
+
+		if labelsChanged || annotationsChanged {
+			if err := s.client.Update(ctx, node); err != nil {
+				return 0, fmt.Errorf("update node %s: %w", node.Name, err)
+			}
 		}
-		if result.deployableRBLNNode {
+
+		labels := node.GetLabels()
+		if !hasRBLNDeploySkipLabel(labels) && hasRBLNPresentLabel(labels) {
 			rblnNodeCount++
 		}
 	}
@@ -77,18 +107,18 @@ func (s *ClusterPolicyService) ReconcileNodeLabels(ctx context.Context, nodeList
 	return rblnNodeCount, nil
 }
 
-func (s *ClusterPolicyService) reconcileNodeLabels(ctx context.Context, node *corev1.Node) (nodeLabelResult, error) {
+// reconcileNodeLabelsInPlace adjusts RBLN labels on the node in-place
+// and returns whether any label was changed.
+func (s *ClusterPolicyService) reconcileNodeLabelsInPlace(node *corev1.Node) bool {
 	labels := node.GetLabels()
 	if labels == nil {
 		labels = map[string]string{}
 	}
 
-	result := nodeLabelResult{}
-
-	shouldUpdateNode := s.reconcilePresentLabel(node.Name, labels)
+	changed := s.reconcilePresentLabel(node.Name, labels)
 	if hasRBLNDeploySkipLabel(labels) {
 		if removeAllRBLNComponentLabels(labels) {
-			shouldUpdateNode = true
+			changed = true
 		}
 		if hasRBLNPresentLabel(labels) {
 			s.log.Info(
@@ -98,21 +128,16 @@ func (s *ClusterPolicyService) reconcileNodeLabels(ctx context.Context, node *co
 			)
 		}
 	} else if hasRBLNPresentLabel(labels) {
-		workloadLabelsUpdated := s.reconcileWorkloadLabels(node.Name, labels)
-		shouldUpdateNode = shouldUpdateNode || workloadLabelsUpdated
-		result.deployableRBLNNode = true
+		if s.reconcileWorkloadLabels(node.Name, labels) {
+			changed = true
+		}
 	}
 
-	if !shouldUpdateNode {
-		return result, nil
+	if changed {
+		node.SetLabels(labels)
 	}
 
-	node.SetLabels(labels)
-	if err := s.client.Update(ctx, node); err != nil {
-		return nodeLabelResult{}, fmt.Errorf("update node %s labels: %w", node.Name, err)
-	}
-
-	return result, nil
+	return changed
 }
 
 func (s *ClusterPolicyService) reconcilePresentLabel(nodeName string, labels map[string]string) bool {
@@ -219,13 +244,4 @@ func updateRBLNComponentLabels(labels map[string]string, config string) bool {
 	}
 
 	return modified
-}
-
-func hasNFDLabels(labels map[string]string) bool {
-	for key := range labels {
-		if strings.HasPrefix(key, consts.NFDLabelPrefix) {
-			return true
-		}
-	}
-	return false
 }

@@ -56,7 +56,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: nodeName,
 				Labels: map[string]string{
-					"feature.node.kubernetes.io/pci-1eff.present": "true",
+					consts.NFDDevicePCILabelKey: "true",
 				},
 			},
 		}

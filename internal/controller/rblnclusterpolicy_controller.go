@@ -76,13 +76,11 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	nodeList, err := clusterpolicy.ListNodes(ctx, r.Client)
+	candidates, nfdInstalled, err := clusterpolicy.ListAndClassifyNodes(ctx, r.Client)
 	if err != nil {
 		r.Log.Error(err, "")
 		return ctrl.Result{}, err
 	}
-
-	nfdInstalled := clusterpolicy.HasNFDLabeledNodes(nodeList)
 
 	if !nfdInstalled {
 		r.Log.V(consts.LogLevelWarning).Info("NodeFeatureDiscovery labels not found", "requeue_after", nfdCheckInterval)
@@ -102,7 +100,7 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		r.ClusterInfo.ContainerRuntime,
 	)
 
-	rblnNodes, err := service.ReconcileNodeLabels(ctx, nodeList)
+	rblnNodes, err := service.ReconcileNodes(ctx, candidates)
 	if err != nil {
 		r.Log.Error(err, "")
 		return ctrl.Result{}, err
@@ -114,12 +112,6 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			r.Log.V(consts.LogLevelDebug).Error(err, "failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{}, nil
-	}
-
-	err = clusterpolicy.ReconcileDriverAutoUpgradeAnnotations(ctx, r.Client, instance, nodeList)
-	if err != nil {
-		r.Log.Error(err, "")
-		return ctrl.Result{}, err
 	}
 
 	if err := service.PatchComponents(ctx); err != nil {
@@ -275,7 +267,13 @@ func (r *RBLNClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&corev1.Node{},
 			handler.EnqueueRequestsFromMapFunc(r.singletonRequest),
-			builder.WithPredicates(k8sutil.NodeLabelPrefixChangedPredicate("rebellions.ai/")),
+			builder.WithPredicates(predicate.Or(
+				k8sutil.NodeLabelPrefixChangedPredicate("rebellions.ai/"),
+				k8sutil.NodeLabelKeyPredicate(
+					consts.NFDDevicePCILabelKey,
+					consts.NFDDevicePCIAltLabelKey,
+				),
+			)),
 		).
 		Complete(r)
 }

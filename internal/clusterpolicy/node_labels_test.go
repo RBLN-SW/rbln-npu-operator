@@ -16,14 +16,6 @@ import (
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
-func newNodeList(nodes ...*corev1.Node) *corev1.NodeList {
-	items := make([]corev1.Node, len(nodes))
-	for i, n := range nodes {
-		items[i] = *n
-	}
-	return &corev1.NodeList{Items: items}
-}
-
 func newNodeLabelsFakeClient(t *testing.T, objs ...client.Object) client.Client {
 	t.Helper()
 
@@ -63,58 +55,83 @@ func newObjectMeta(name string, labelsMap map[string]string) metav1.ObjectMeta {
 	}
 }
 
-func TestHasNFDLabeledNodes(t *testing.T) {
+func TestListAndClassifyNodes(t *testing.T) {
 	tests := map[string]struct {
-		nodes *corev1.NodeList
-		want  bool
+		nodes          []*corev1.Node
+		wantNFD        bool
+		wantCandidates int
 	}{
-		"returns true when at least one node has an NFD label": {
-			nodes: &corev1.NodeList{Items: []corev1.Node{{
-				ObjectMeta: newObjectMeta("node-a", map[string]string{
-					"feature.node.kubernetes.io/pci-1eff.present": labelValueTrue,
-				}),
-			}}},
-			want: true,
+		"detects NFD and returns NPU candidates": {
+			nodes: []*corev1.Node{
+				{ObjectMeta: newObjectMeta("npu-node", map[string]string{
+					consts.NFDDevicePCILabelKey:                       labelValueTrue,
+					"feature.node.kubernetes.io/system-os_release.ID": "ubuntu",
+				})},
+				{ObjectMeta: newObjectMeta("plain-node", map[string]string{
+					"feature.node.kubernetes.io/system-os_release.ID": "ubuntu",
+				})},
+			},
+			wantNFD:        true,
+			wantCandidates: 1,
 		},
-		"returns false when no nodes have NFD labels": {
-			nodes: &corev1.NodeList{Items: []corev1.Node{{
-				ObjectMeta: newObjectMeta("node-a", map[string]string{
+		"returns false for NFD when no NFD labels exist": {
+			nodes: []*corev1.Node{
+				{ObjectMeta: newObjectMeta("plain-node", map[string]string{
 					"kubernetes.io/arch": "amd64",
-				}),
-			}}},
-			want: false,
+				})},
+			},
+			wantNFD:        false,
+			wantCandidates: 0,
 		},
-		"returns false when the node list is empty": {
-			nodes: &corev1.NodeList{},
-			want:  false,
+		"includes already-managed RBLN nodes without device labels": {
+			nodes: []*corev1.Node{
+				{ObjectMeta: newObjectMeta("managed-node", map[string]string{
+					consts.RBLNPresentLabelKey:                        labelValueTrue,
+					"feature.node.kubernetes.io/system-os_release.ID": "ubuntu",
+				})},
+			},
+			wantNFD:        false,
+			wantCandidates: 1,
 		},
-		"returns true when only one of multiple nodes has an NFD label": {
-			nodes: &corev1.NodeList{Items: []corev1.Node{
-				{
-					ObjectMeta: newObjectMeta("node-no-nfd", map[string]string{
-						"kubernetes.io/arch": "amd64",
-					}),
-				},
-				{
-					ObjectMeta: newObjectMeta("node-with-nfd", map[string]string{
-						"feature.node.kubernetes.io/pci-1eff.present": labelValueTrue,
-					}),
-				},
-			}},
-			want: true,
+		"returns false for NFD and zero candidates on empty cluster": {
+			nodes:          nil,
+			wantNFD:        false,
+			wantCandidates: 0,
+		},
+		"includes nodes with alternate device label": {
+			nodes: []*corev1.Node{
+				{ObjectMeta: newObjectMeta("alt-npu-node", map[string]string{
+					consts.NFDDevicePCIAltLabelKey: labelValueTrue,
+				})},
+			},
+			wantNFD:        true,
+			wantCandidates: 1,
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := HasNFDLabeledNodes(tc.nodes); got != tc.want {
-				t.Fatalf("HasNFDLabeledNodes() = %t, want %t", got, tc.want)
+			objs := make([]client.Object, len(tc.nodes))
+			for i, n := range tc.nodes {
+				objs[i] = n
+			}
+			k8sClient := newNodeLabelsFakeClient(t, objs...)
+
+			candidates, nfdInstalled, err := ListAndClassifyNodes(context.Background(), k8sClient)
+			if err != nil {
+				t.Fatalf("ListAndClassifyNodes() unexpected error: %v", err)
+			}
+			if nfdInstalled != tc.wantNFD {
+				t.Fatalf("nfdInstalled = %t, want %t", nfdInstalled, tc.wantNFD)
+			}
+			if len(candidates) != tc.wantCandidates {
+				t.Fatalf("len(candidates) = %d, want %d", len(candidates), tc.wantCandidates)
 			}
 		})
 	}
 }
 
-func TestReconcileNodeLabels(t *testing.T) {
+func TestReconcileNodes(t *testing.T) {
 	type want struct {
 		count        int
 		labels       map[string]string
@@ -130,7 +147,7 @@ func TestReconcileNodeLabels(t *testing.T) {
 			workloadType: consts.RBLNWorkloadConfigContainer,
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-a", map[string]string{
-					"feature.node.kubernetes.io/pci-1eff.present": labelValueTrue,
+					consts.NFDDevicePCILabelKey: labelValueTrue,
 				}),
 			},
 			want: want{
@@ -147,9 +164,9 @@ func TestReconcileNodeLabels(t *testing.T) {
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-skip", mergeLabelMaps(
 					map[string]string{
-						"feature.node.kubernetes.io/pci-1eff.present": labelValueTrue,
-						consts.RBLNPresentLabelKey:                    labelValueTrue,
-						consts.RBLNDeploySkipLabelKey:                 labelValueTrue,
+						consts.NFDDevicePCILabelKey:   labelValueTrue,
+						consts.RBLNPresentLabelKey:    labelValueTrue,
+						consts.RBLNDeploySkipLabelKey: labelValueTrue,
 					},
 					rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
 				)),
@@ -185,8 +202,8 @@ func TestReconcileNodeLabels(t *testing.T) {
 			workloadType: consts.RBLNWorkloadConfigVMPassthrough,
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-vm", map[string]string{
-					"feature.node.kubernetes.io/pci-1eff.present": labelValueTrue,
-					consts.RBLNWorkloadConfigLabelKey:             consts.RBLNWorkloadConfigUnknown,
+					consts.NFDDevicePCILabelKey:       labelValueTrue,
+					consts.RBLNWorkloadConfigLabelKey: consts.RBLNWorkloadConfigUnknown,
 				}),
 			},
 			want: want{
@@ -202,8 +219,8 @@ func TestReconcileNodeLabels(t *testing.T) {
 			workloadType: consts.RBLNWorkloadConfigVMPassthrough,
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-vm-valid", map[string]string{
-					"feature.node.kubernetes.io/pci-1eff.present": labelValueTrue,
-					consts.RBLNWorkloadConfigLabelKey:             consts.RBLNWorkloadConfigVMPassthrough,
+					consts.NFDDevicePCILabelKey:       labelValueTrue,
+					consts.RBLNWorkloadConfigLabelKey: consts.RBLNWorkloadConfigVMPassthrough,
 				}),
 			},
 			want: want{
@@ -220,8 +237,8 @@ func TestReconcileNodeLabels(t *testing.T) {
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-idempotent", mergeLabelMaps(
 					map[string]string{
-						"feature.node.kubernetes.io/pci-1eff.present": labelValueTrue,
-						consts.RBLNPresentLabelKey:                    labelValueTrue,
+						consts.NFDDevicePCILabelKey: labelValueTrue,
+						consts.RBLNPresentLabelKey:  labelValueTrue,
 					},
 					rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
 				)),
@@ -242,12 +259,12 @@ func TestReconcileNodeLabels(t *testing.T) {
 			k8sClient := newNodeLabelsFakeClient(t, tc.node)
 			service := newTestClusterPolicyService(k8sClient, tc.workloadType)
 
-			count, err := service.ReconcileNodeLabels(context.Background(), newNodeList(tc.node))
+			count, err := service.ReconcileNodes(context.Background(), []corev1.Node{*tc.node})
 			if err != nil {
-				t.Fatalf("ReconcileNodeLabels() unexpected error: %v", err)
+				t.Fatalf("ReconcileNodes() unexpected error: %v", err)
 			}
 			if count != tc.want.count {
-				t.Fatalf("ReconcileNodeLabels() count = %d, want %d", count, tc.want.count)
+				t.Fatalf("ReconcileNodes() count = %d, want %d", count, tc.want.count)
 			}
 
 			var updated corev1.Node

@@ -1,39 +1,14 @@
 package clusterpolicy
 
 import (
-	"context"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
-
-func newAnnotationFakeClient(t *testing.T, objs ...client.Object) client.Client {
-	t.Helper()
-
-	scheme := runtime.NewScheme()
-	if err := corev1.AddToScheme(scheme); err != nil {
-		t.Fatalf("add corev1 to scheme: %v", err)
-	}
-	if err := rblnv1beta1.AddToScheme(scheme); err != nil {
-		t.Fatalf("add rblnv1beta1 to scheme: %v", err)
-	}
-
-	runtimeObjs := make([]client.Object, len(objs))
-	copy(runtimeObjs, objs)
-
-	return fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(runtimeObjs...).
-		Build()
-}
 
 func TestShouldEnableDriverAutoUpgrade(t *testing.T) {
 	tests := map[string]struct {
@@ -88,24 +63,16 @@ func TestShouldEnableDriverAutoUpgrade(t *testing.T) {
 	}
 }
 
-func TestReconcileDriverAutoUpgradeAnnotations(t *testing.T) {
+func TestReconcileAutoUpgradeAnnotationInPlace(t *testing.T) {
 	tests := map[string]struct {
-		reason           string
-		policy           *rblnv1beta1.RBLNClusterPolicy
+		shouldEnable     bool
 		node             *corev1.Node
+		wantChanged      bool
 		wantAnnotation   string
 		wantAnnotationOk bool
 	}{
-		"adds the auto-upgrade annotation when auto-upgrade is enabled": {
-			reason: "a present RBLN node with auto-upgrade enabled should receive the annotation",
-			policy: &rblnv1beta1.RBLNClusterPolicy{
-				Spec: rblnv1beta1.RBLNClusterPolicySpec{
-					Driver: rblnv1beta1.DriverSpec{
-						UpgradePolicy: &rblnv1beta1.DriverUpgradePolicySpec{AutoUpgrade: true},
-					},
-					SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
-				},
-			},
+		"adds the auto-upgrade annotation when enabled and node is RBLN present": {
+			shouldEnable: true,
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-enabled",
@@ -114,12 +81,12 @@ func TestReconcileDriverAutoUpgradeAnnotations(t *testing.T) {
 					},
 				},
 			},
+			wantChanged:      true,
 			wantAnnotation:   labelValueTrue,
 			wantAnnotationOk: true,
 		},
-		"removes the auto-upgrade annotation when auto-upgrade is disabled": {
-			reason: "a node with the annotation should have it removed when auto-upgrade is turned off",
-			policy: &rblnv1beta1.RBLNClusterPolicy{},
+		"removes the auto-upgrade annotation when disabled": {
+			shouldEnable: false,
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-disabled",
@@ -131,18 +98,11 @@ func TestReconcileDriverAutoUpgradeAnnotations(t *testing.T) {
 					},
 				},
 			},
+			wantChanged:      true,
 			wantAnnotationOk: false,
 		},
 		"removes the auto-upgrade annotation for skipped nodes": {
-			reason: "nodes with the deploy-skip label should have the annotation removed even when auto-upgrade is enabled",
-			policy: &rblnv1beta1.RBLNClusterPolicy{
-				Spec: rblnv1beta1.RBLNClusterPolicySpec{
-					Driver: rblnv1beta1.DriverSpec{
-						UpgradePolicy: &rblnv1beta1.DriverUpgradePolicySpec{AutoUpgrade: true},
-					},
-					SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
-				},
-			},
+			shouldEnable: true,
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-skip",
@@ -155,18 +115,11 @@ func TestReconcileDriverAutoUpgradeAnnotations(t *testing.T) {
 					},
 				},
 			},
+			wantChanged:      true,
 			wantAnnotationOk: false,
 		},
 		"does not touch nodes that are not marked as RBLN present": {
-			reason: "nodes without the RBLN present label are excluded by the label selector and must not be modified",
-			policy: &rblnv1beta1.RBLNClusterPolicy{
-				Spec: rblnv1beta1.RBLNClusterPolicySpec{
-					Driver: rblnv1beta1.DriverSpec{
-						UpgradePolicy: &rblnv1beta1.DriverUpgradePolicySpec{AutoUpgrade: true},
-					},
-					SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
-				},
-			},
+			shouldEnable: true,
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-non-rbln",
@@ -178,6 +131,24 @@ func TestReconcileDriverAutoUpgradeAnnotations(t *testing.T) {
 					},
 				},
 			},
+			wantChanged:      false,
+			wantAnnotation:   labelValueTrue,
+			wantAnnotationOk: true,
+		},
+		"returns false when annotation is already reconciled": {
+			shouldEnable: true,
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node-already-set",
+					Labels: map[string]string{
+						consts.RBLNPresentLabelKey: labelValueTrue,
+					},
+					Annotations: map[string]string{
+						driverAutoUpgradeAnnotationKey: labelValueTrue,
+					},
+				},
+			},
+			wantChanged:      false,
 			wantAnnotation:   labelValueTrue,
 			wantAnnotationOk: true,
 		},
@@ -185,24 +156,17 @@ func TestReconcileDriverAutoUpgradeAnnotations(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			k8sClient := newAnnotationFakeClient(t, tc.node)
-			nodeList := &corev1.NodeList{Items: []corev1.Node{*tc.node}}
-
-			if err := ReconcileDriverAutoUpgradeAnnotations(context.Background(), k8sClient, tc.policy, nodeList); err != nil {
-				t.Fatalf("%s: ReconcileDriverAutoUpgradeAnnotations() unexpected error: %v", tc.reason, err)
+			changed := reconcileAutoUpgradeAnnotationInPlace(tc.node, tc.shouldEnable)
+			if changed != tc.wantChanged {
+				t.Fatalf("reconcileAutoUpgradeAnnotationInPlace() changed = %t, want %t", changed, tc.wantChanged)
 			}
 
-			var updated corev1.Node
-			if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: tc.node.Name}, &updated); err != nil {
-				t.Fatalf("%s: get node: %v", tc.reason, err)
-			}
-
-			got, exists := updated.Annotations[driverAutoUpgradeAnnotationKey]
+			got, exists := tc.node.Annotations[driverAutoUpgradeAnnotationKey]
 			if exists != tc.wantAnnotationOk {
-				t.Fatalf("%s: annotation exists = %t, want %t", tc.reason, exists, tc.wantAnnotationOk)
+				t.Fatalf("annotation exists = %t, want %t", exists, tc.wantAnnotationOk)
 			}
 			if tc.wantAnnotationOk && got != tc.wantAnnotation {
-				t.Fatalf("%s: annotation value = %q, want %q", tc.reason, got, tc.wantAnnotation)
+				t.Fatalf("annotation value = %q, want %q", got, tc.wantAnnotation)
 			}
 		})
 	}

@@ -27,6 +27,35 @@ func NodeLabelChangedPredicate(keys ...string) predicate.Funcs {
 	}
 }
 
+// NodeLabelKeyPredicate returns a predicate that triggers on create/delete
+// only when the object carries at least one of the specified label keys, and
+// on update only when one of those keys changes value.
+func NodeLabelKeyPredicate(keys ...string) predicate.Funcs {
+	hasAnyKey := func(labels map[string]string) bool {
+		for _, key := range keys {
+			if _, ok := labels[key]; ok {
+				return true
+			}
+		}
+		return false
+	}
+	return predicate.Funcs{
+		CreateFunc:  func(e event.CreateEvent) bool { return hasAnyKey(e.Object.GetLabels()) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return hasAnyKey(e.Object.GetLabels()) },
+		GenericFunc: func(e event.GenericEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldLabels := e.ObjectOld.GetLabels()
+			newLabels := e.ObjectNew.GetLabels()
+			for _, key := range keys {
+				if oldLabels[key] != newLabels[key] {
+					return true
+				}
+			}
+			return false
+		},
+	}
+}
+
 // NodeLabelPrefixChangedPredicate returns a predicate that triggers on
 // create/delete when the object carries labels with the given prefix, and on
 // update only when labels with that prefix change.

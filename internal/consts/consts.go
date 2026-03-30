@@ -10,9 +10,11 @@ const (
 
 // NFD label keys
 const (
-	NFDOSReleaseIDLabelKey = "feature.node.kubernetes.io/system-os_release.ID"
-	NFDOSVersionIDLabelKey = "feature.node.kubernetes.io/system-os_release.VERSION_ID"
-	NFDKernelLabelKey      = "feature.node.kubernetes.io/kernel-version.full"
+	NFDOSReleaseIDLabelKey  = "feature.node.kubernetes.io/system-os_release.ID"
+	NFDOSVersionIDLabelKey  = "feature.node.kubernetes.io/system-os_release.VERSION_ID"
+	NFDKernelLabelKey       = "feature.node.kubernetes.io/kernel-version.full"
+	NFDDevicePCILabelKey    = "feature.node.kubernetes.io/pci-1eff.present"
+	NFDDevicePCIAltLabelKey = "feature.node.kubernetes.io/pci-1200_1eff.present"
 )
 
 // NPU labels
