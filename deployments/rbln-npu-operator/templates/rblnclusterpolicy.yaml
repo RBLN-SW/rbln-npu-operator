@@ -5,6 +5,7 @@ metadata:
     {{- include "rbln-npu-operator.labels" . | nindent 4 }}
   name: rbln-cluster-policy
 spec:
+  workloadType: {{ .Values.workloadType }}
   {{- $upgradePolicy := .Values.driver.upgradePolicy }}
   driver:
     useRBLNDriverCRD: {{ .Values.driver.enabled }}
