@@ -28,7 +28,7 @@ func NewVFIOManagerPatcher(client client.Client, log logr.Logger, namespace stri
 			client:           client,
 			log:              log,
 			scheme:           scheme,
-			name:             cpSpec.BaseName + "-" + consts.RBLNVFIOManagerName,
+			name:             consts.RBLNBaseName + "-" + consts.RBLNVFIOManagerName,
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),

@@ -23,12 +23,6 @@ import (
 // RBLNClusterPolicySpec defines the desired state of RBLNClusterPolicy
 // +kubebuilder:object:generate=true
 type RBLNClusterPolicySpec struct {
-	// BaseName of rbln components
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:=rbln
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Base Name",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	BaseName string `json:"name,omitempty"`
-
 	// Namespace of the controller
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=rbln-system

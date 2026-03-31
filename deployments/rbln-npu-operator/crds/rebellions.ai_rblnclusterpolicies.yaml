@@ -5648,10 +5648,6 @@ spec:
                 required:
                 - enabled
                 type: object
-              name:
-                default: rbln
-                description: BaseName of rbln components
-                type: string
               namespace:
                 default: rbln-system
                 description: Namespace of the controller

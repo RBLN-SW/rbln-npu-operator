@@ -14,16 +14,13 @@ import (
 var RunID = uuid.NewUUID()
 
 type TestEnv struct {
-	BaseName     string
 	clientConfig *rest.Config
 	ClientSet    clientset.Interface
 	ExtClientSet apiextensionsclient.Interface
 }
 
-func NewTestEnv(baseName string) *TestEnv {
-	te := &TestEnv{
-		BaseName: baseName,
-	}
+func NewTestEnv() *TestEnv {
+	te := &TestEnv{}
 
 	ginkgo.BeforeEach(te.BeforeEach)
 

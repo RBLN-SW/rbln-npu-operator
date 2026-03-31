@@ -2,9 +2,6 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-# The base name used for rbln components.
-name: rbln
-
 # Namespace for namespaced components managed by RBLNClusterPolicy.
 # When empty, spec.namespace is omitted and the CRD default `rbln-system` is used.
 namespace: ""

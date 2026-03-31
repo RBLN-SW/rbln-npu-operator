@@ -20,7 +20,7 @@ func TestContainerToolkitPatch(t *testing.T) {
 
 	owner := newTestOwner()
 
-	name := testBaseName + "-" + consts.RBLNContainerToolkitName
+	name := consts.RBLNBaseName + "-" + consts.RBLNContainerToolkitName
 	p := NewContainerToolkitPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "", consts.Containerd)
 
 	if err := p.Patch(ctx, owner); err != nil {
@@ -81,7 +81,7 @@ func TestContainerToolkitCleanUp(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	name := testBaseName + "-" + consts.RBLNContainerToolkitName
+	name := consts.RBLNBaseName + "-" + consts.RBLNContainerToolkitName
 	p := NewContainerToolkitPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "", consts.Containerd)
 
 	if err := p.Patch(ctx, owner); err != nil {

@@ -44,7 +44,7 @@ func NewDRAKubeletPluginPatcher(client client.Client, log logr.Logger, namespace
 			client:           client,
 			log:              log,
 			scheme:           scheme,
-			name:             cpSpec.BaseName + "-" + consts.RBLNDRAKubeletPluginName,
+			name:             consts.RBLNBaseName + "-" + consts.RBLNDRAKubeletPluginName,
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),

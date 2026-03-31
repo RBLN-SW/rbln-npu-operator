@@ -5,7 +5,6 @@ metadata:
     {{- include "rbln-npu-operator.labels" . | nindent 4 }}
   name: rbln-cluster-policy
 spec:
-  name: {{ .Values.name }}
   {{- if .Values.namespace }}
   namespace: {{ .Values.namespace | quote }}
   {{- end }}

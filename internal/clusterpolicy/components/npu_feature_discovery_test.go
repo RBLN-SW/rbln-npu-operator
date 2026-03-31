@@ -26,7 +26,7 @@ func TestNPUFeatureDiscoveryPatch(t *testing.T) {
 		Version:  "latest",
 	}
 
-	name := testBaseName + "-" + consts.RBLNFeatureDiscoveryName
+	name := consts.RBLNBaseName + "-" + consts.RBLNFeatureDiscoveryName
 	p := NewNPUFeatureDiscoveryPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
@@ -67,7 +67,7 @@ func TestNPUFeatureDiscoveryCleanUp(t *testing.T) {
 		Version:  "latest",
 	}
 
-	name := testBaseName + "-" + consts.RBLNFeatureDiscoveryName
+	name := consts.RBLNBaseName + "-" + consts.RBLNFeatureDiscoveryName
 	p := NewNPUFeatureDiscoveryPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {

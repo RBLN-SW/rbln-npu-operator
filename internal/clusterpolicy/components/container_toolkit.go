@@ -50,7 +50,7 @@ func NewContainerToolkitPatcher(client client.Client, log logr.Logger, namespace
 			client:           client,
 			log:              log,
 			scheme:           scheme,
-			name:             cpSpec.BaseName + "-" + consts.RBLNContainerToolkitName,
+			name:             consts.RBLNBaseName + "-" + consts.RBLNContainerToolkitName,
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),

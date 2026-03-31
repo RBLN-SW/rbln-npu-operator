@@ -108,7 +108,7 @@ func TestDevicePluginPatch(t *testing.T) {
 		},
 	}
 
-	name := testBaseName + "-" + consts.RBLNDevicePluginName
+	name := consts.RBLNBaseName + "-" + consts.RBLNDevicePluginName
 	p := NewDevicePluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
@@ -165,7 +165,7 @@ func TestDevicePluginPatch_Disabled(t *testing.T) {
 		t.Fatalf("disabled Patch() should not error: %v", err)
 	}
 
-	name := testBaseName + "-" + consts.RBLNDevicePluginName
+	name := consts.RBLNBaseName + "-" + consts.RBLNDevicePluginName
 	sa := &corev1.ServiceAccount{}
 	if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, sa); err == nil {
 		t.Fatal("ServiceAccount should not be created when component is disabled")
@@ -192,7 +192,7 @@ func TestDevicePluginCleanUp(t *testing.T) {
 		},
 	}
 
-	name := testBaseName + "-" + consts.RBLNDevicePluginName
+	name := consts.RBLNBaseName + "-" + consts.RBLNDevicePluginName
 	p := NewDevicePluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
@@ -228,7 +228,7 @@ func TestDevicePluginPatch_OpenShift(t *testing.T) {
 		},
 	}
 
-	name := testBaseName + "-" + consts.RBLNDevicePluginName
+	name := consts.RBLNBaseName + "-" + consts.RBLNDevicePluginName
 	p := NewDevicePluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "4.15")
 
 	if err := p.Patch(ctx, owner); err != nil {

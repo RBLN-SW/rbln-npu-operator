@@ -27,7 +27,7 @@ func NewNPUFeatureDiscoveryPatcher(client client.Client, log logr.Logger, namesp
 			client:           client,
 			log:              log,
 			scheme:           scheme,
-			name:             cpSpec.BaseName + "-" + consts.RBLNFeatureDiscoveryName,
+			name:             consts.RBLNBaseName + "-" + consts.RBLNFeatureDiscoveryName,
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),

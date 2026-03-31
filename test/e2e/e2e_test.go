@@ -50,7 +50,7 @@ const (
 )
 
 var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
-	te := testenv.NewTestEnv("rbln-npu-operator")
+	te := testenv.NewTestEnv()
 
 	Describe("NPU Operator RBLNClusterPolicy", func() {
 		Context("Container-type NPU Operator deployment", Ordered, func() {

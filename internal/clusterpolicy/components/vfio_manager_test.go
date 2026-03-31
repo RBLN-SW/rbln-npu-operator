@@ -26,7 +26,7 @@ func TestVFIOManagerPatch(t *testing.T) {
 		Version:  "latest",
 	}
 
-	name := testBaseName + "-" + consts.RBLNVFIOManagerName
+	name := consts.RBLNBaseName + "-" + consts.RBLNVFIOManagerName
 	p := NewVFIOManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
@@ -73,7 +73,7 @@ func TestVFIOManagerCleanUp(t *testing.T) {
 		Version:  "latest",
 	}
 
-	name := testBaseName + "-" + consts.RBLNVFIOManagerName
+	name := consts.RBLNBaseName + "-" + consts.RBLNVFIOManagerName
 	p := NewVFIOManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {

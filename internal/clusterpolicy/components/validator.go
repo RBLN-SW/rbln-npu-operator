@@ -43,7 +43,7 @@ func NewValidatorPatcher(client client.Client, log logr.Logger, namespace string
 			client:           client,
 			log:              log,
 			scheme:           scheme,
-			name:             cpSpec.BaseName + "-" + consts.RBLNValidatorName,
+			name:             consts.RBLNBaseName + "-" + consts.RBLNValidatorName,
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          true,

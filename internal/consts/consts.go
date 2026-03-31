@@ -58,6 +58,9 @@ const (
 	RBLNConditionReasonMissingClusterPolicy = "MissingClusterPolicy"
 )
 
+// Base name prefix for all RBLN components
+const RBLNBaseName = "rbln"
+
 // Device plugin constants
 const (
 	RBLNDevicePluginName     = "device-plugin"

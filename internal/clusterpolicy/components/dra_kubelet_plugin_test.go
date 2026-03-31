@@ -34,7 +34,7 @@ func TestDRAKubeletPluginPatch(t *testing.T) {
 		HealthcheckPort:               51515,
 	}
 
-	name := testBaseName + "-" + consts.RBLNDRAKubeletPluginName
+	name := consts.RBLNBaseName + "-" + consts.RBLNDRAKubeletPluginName
 	p := NewDRAKubeletPluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
@@ -128,7 +128,7 @@ func TestDRAKubeletPluginCleanUp(t *testing.T) {
 		HealthcheckPort:               51515,
 	}
 
-	name := testBaseName + "-" + consts.RBLNDRAKubeletPluginName
+	name := consts.RBLNBaseName + "-" + consts.RBLNDRAKubeletPluginName
 	p := NewDRAKubeletPluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
