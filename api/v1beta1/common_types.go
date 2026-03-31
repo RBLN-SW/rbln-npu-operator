@@ -22,8 +22,8 @@ type RBLNDevicePluginResourceSpec struct {
 	ProductCardNames []string `json:"productCardNames"`
 }
 
-// DaemonsetsSpec indicates common configuration for all Daemonsets managed by RBLN NPU Operator
-type DaemonsetsSpec struct {
+// PodDefaultsSpec defines common configuration applied to all DaemonSet pods managed by the operator.
+type PodDefaultsSpec struct {
 	// Labels specifies the labels for the DaemonSet pods
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Labels",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
@@ -33,11 +33,6 @@ type DaemonsetsSpec struct {
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Annotations",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Annotations map[string]string `json:"annotations,omitempty"`
-
-	// Affinity specifies the affinity for the DaemonSet pods
-	// +kubebuilder:validation:Optional
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Affinity",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Affinity"
-	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 
 	// Tolerations specifies the tolerations for the DaemonSet pods
 	// +kubebuilder:validation:Optional

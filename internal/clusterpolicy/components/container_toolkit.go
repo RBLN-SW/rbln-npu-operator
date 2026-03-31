@@ -2,7 +2,6 @@ package components
 
 import (
 	"context"
-	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -40,6 +39,7 @@ const (
 type containerToolkitPatcher struct {
 	basePatcher
 	desiredSpec      *rblnv1beta1.RBLNContainerToolkitSpec
+	podDefaults      *rblnv1beta1.PodDefaultsSpec
 	containerRuntime string
 }
 
@@ -56,6 +56,7 @@ func NewContainerToolkitPatcher(client client.Client, log logr.Logger, namespace
 			enabled:          synced.IsEnabled(),
 		},
 		desiredSpec:      &synced,
+		podDefaults:      cpSpec.PodDefaults,
 		containerRuntime: containerRuntime,
 	}
 }
@@ -206,7 +207,7 @@ func (h *containerToolkitPatcher) buildRuntimeMountsAndVolumes() ([]corev1.Volum
 
 func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
 	validatorSpec := owner.Spec.Validator
-	driverArgs := containerToolkitValidatorArgs(validatorSpec.Args)
+	driverArgs := []string{validatorComponentDriver}
 	baseEnv := mergeEnvVars(validatorSpec.Env, validatorSpec.Driver.Env)
 
 	driverInit := k8sutil.NewContainerBuilder().
@@ -294,9 +295,6 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithResources(toolkitSpec.Resources, "250m", "40Mi").
 		WithVolumeMounts(toolkitVolumeMounts).
 		Build()
-	if len(toolkitSpec.Args) > 0 {
-		toolkitContainer.Args = slices.Clone(toolkitSpec.Args)
-	}
 
 	toolkitVolumes := []corev1.Volume{
 		hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
@@ -324,7 +322,7 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
-		WithPriorityClassName(h.desiredSpec.PriorityClassName).
+		WithPriorityClassName(podDefaultsPriorityClassName(h.podDefaults)).
 		WithHostPID(true).
 		WithVolumes(toolkitVolumes).
 		WithInitContainers([]*corev1.Container{driverInit}).
@@ -352,12 +350,4 @@ func (h *containerToolkitPatcher) handleDaemonSet(ctx context.Context, owner *rb
 	}
 	h.log.Info("Reconciled Container Toolkit DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
 	return nil
-}
-
-func containerToolkitValidatorArgs(baseArgs []string) []string {
-	args := []string{validatorComponentDriver}
-	if len(baseArgs) > 0 {
-		args = append(args, baseArgs...)
-	}
-	return args
 }

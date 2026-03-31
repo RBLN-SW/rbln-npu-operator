@@ -38,7 +38,8 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
-// syncSpec synchronizes a component spec with DaemonsetsSpec.
+// syncSpec synchronizes a component spec with PodDefaultsSpec.
+// Global values are inherited only when the component does not define its own.
 func syncSpec[T ComponentSpec](cpSpec *rblnv1beta1.RBLNClusterPolicySpec, componentSpec T) T {
 	if !componentSpec.IsEnabled() {
 		var zero T
@@ -46,8 +47,8 @@ func syncSpec[T ComponentSpec](cpSpec *rblnv1beta1.RBLNClusterPolicySpec, compon
 	}
 
 	syncedSpec := componentSpec
-	if cpSpec.Daemonsets != nil {
-		ds := cpSpec.Daemonsets
+	if cpSpec.PodDefaults != nil {
+		ds := cpSpec.PodDefaults
 
 		specValue := reflect.ValueOf(&syncedSpec).Elem()
 		if labelsField := specValue.FieldByName("Labels"); labelsField.IsValid() && labelsField.CanSet() {
@@ -56,20 +57,22 @@ func syncSpec[T ComponentSpec](cpSpec *rblnv1beta1.RBLNClusterPolicySpec, compon
 		if annotationsField := specValue.FieldByName("Annotations"); annotationsField.IsValid() && annotationsField.CanSet() {
 			annotationsField.Set(reflect.ValueOf(k8sutil.MergeMaps(ds.Annotations, annotationsField.Interface().(map[string]string))))
 		}
-		if affinityField := specValue.FieldByName("Affinity"); affinityField.IsValid() && affinityField.CanSet() && affinityField.IsNil() && ds.Affinity != nil {
-			affinityField.Set(reflect.ValueOf(ds.Affinity.DeepCopy()))
-		}
 		if tolerationsField := specValue.FieldByName("Tolerations"); tolerationsField.IsValid() && tolerationsField.CanSet() && tolerationsField.Len() == 0 && len(ds.Tolerations) > 0 {
 			tolerations := make([]corev1.Toleration, len(ds.Tolerations))
 			copy(tolerations, ds.Tolerations)
 			tolerationsField.Set(reflect.ValueOf(tolerations))
 		}
-		if priorityField := specValue.FieldByName("PriorityClassName"); priorityField.IsValid() && priorityField.CanSet() && priorityField.String() == "" && ds.PriorityClassName != "" {
-			priorityField.SetString(ds.PriorityClassName)
-		}
 	}
 
 	return syncedSpec
+}
+
+// podDefaultsPriorityClassName returns PriorityClassName from PodDefaults, or empty if nil.
+func podDefaultsPriorityClassName(pd *rblnv1beta1.PodDefaultsSpec) string {
+	if pd != nil {
+		return pd.PriorityClassName
+	}
+	return ""
 }
 
 // hostPathVolume is a concise constructor for HostPath-backed volumes.

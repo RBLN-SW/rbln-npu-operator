@@ -19,6 +19,7 @@ import (
 type vfioManagerPatcher struct {
 	basePatcher
 	desiredSpec *rblnv1beta1.RBLNVFIOManagerSpec
+	podDefaults *rblnv1beta1.PodDefaultsSpec
 }
 
 func NewVFIOManagerPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
@@ -34,6 +35,7 @@ func NewVFIOManagerPatcher(client client.Client, log logr.Logger, namespace stri
 			enabled:          synced.IsEnabled(),
 		},
 		desiredSpec: &synced,
+		podDefaults: cpSpec.PodDefaults,
 	}
 }
 
@@ -377,7 +379,7 @@ func (h *vfioManagerPatcher) buildPodSpec() *corev1.PodSpec {
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
-		WithPriorityClassName(h.desiredSpec.PriorityClassName).
+		WithPriorityClassName(podDefaultsPriorityClassName(h.podDefaults)).
 		WithTerminationGracePeriodSeconds(30).
 		WithVolumes([]corev1.Volume{
 			{

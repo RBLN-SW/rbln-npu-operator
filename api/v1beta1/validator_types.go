@@ -9,25 +9,20 @@ import (
 
 // ValidatorSpec describes configuration options for validation daemonset
 type ValidatorSpec struct {
-	// Plugin validator spec
-	Plugin PluginValidatorSpec `json:"plugin,omitempty"`
-
 	// Toolkit validator spec
 	Toolkit ToolkitValidatorSpec `json:"toolkit,omitempty"`
 
 	// Driver validator spec
 	Driver DriverValidatorSpec `json:"driver,omitempty"`
 
-	// VFIOPCI validator spec
-	VFIOPCI VFIOPCIValidatorSpec `json:"vfioPCI,omitempty"`
+	// Validator image name
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Pattern=[a-zA-Z0-9\-]+
+	Image string `json:"image,omitempty"`
 
 	// Validator image registry
 	// +kubebuilder:validation:Optional
 	Registry string `json:"registry,omitempty"`
-
-	// Validator image name
-	// +kubebuilder:validation:Pattern=[a-zA-Z0-9\-]+
-	Image string `json:"image,omitempty"`
 
 	// Validator image tag
 	// +kubebuilder:validation:Optional
@@ -47,21 +42,8 @@ type ValidatorSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Resource Requirements",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:resourceRequirements"
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 
-	// Optional: List of arguments
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Arguments",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text"
-	Args []string `json:"args,omitempty"`
-
 	// Optional: List of environment variables
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Environment Variables",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text"
-	Env []corev1.EnvVar `json:"env,omitempty"`
-}
-
-// PluginValidatorSpec describes configuration for RBLN Device Plugin validation
-type PluginValidatorSpec struct {
-	// Optional: List of environment variables
-	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors=true
-	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.displayName="Environment Variables"
-	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.x-descriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text"
 	Env []corev1.EnvVar `json:"env,omitempty"`
 }
 
@@ -76,15 +58,6 @@ type ToolkitValidatorSpec struct {
 
 // DriverValidatorSpec describes configuration for RBLN Driver validation
 type DriverValidatorSpec struct {
-	// Optional: List of environment variables
-	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors=true
-	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.displayName="Environment Variables"
-	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.x-descriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text"
-	Env []corev1.EnvVar `json:"env,omitempty"`
-}
-
-// VFIOPCIValidatorSpec describes configuration for VFIO-PCI validation
-type VFIOPCIValidatorSpec struct {
 	// Optional: List of environment variables
 	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors=true
 	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.displayName="Environment Variables"

@@ -24,16 +24,11 @@ type RBLNNPUFeatureDiscoverySpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=latest
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Version",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
-
-	// PriorityClassName specifies the priority class for the DaemonSet pods
-	// +kubebuilder:validation:Optional
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="PriorityClassName",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	PriorityClassName string `json:"priorityClassName,omitempty"`
 }
 
 func (s RBLNNPUFeatureDiscoverySpec) IsEnabled() bool { return s.Enabled }

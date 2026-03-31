@@ -24,22 +24,11 @@ type RBLNDevicePluginSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=latest
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Version",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
-
-	// HostBinPath specifies the host directory that contains binaries required by the device plugin
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:=/usr/bin
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Host binary path",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	HostBinPath string `json:"hostBinPath,omitempty"`
-
-	// PriorityClassName specifies the priority class for the DaemonSet pods
-	// +kubebuilder:validation:Optional
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="PriorityClassName",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	PriorityClassName string `json:"priorityClassName,omitempty"`
 
 	// ResourceList is the list of resources to be managed by the device plugin
 	// +kubebuilder:validation:Optional
@@ -77,16 +66,6 @@ type RBLNSandboxDevicePluginSpec struct {
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
-
-	// VFIOChecker specifies the configuration for the VFIO bind status checker
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="VFIO Checker",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
-	VFIOChecker VFIOCheckerSpec `json:"vfioChecker,omitempty"`
-
-	// PriorityClassName specifies the priority class for the DaemonSet pods
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:="system-node-critical"
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="PriorityClassName",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	PriorityClassName string `json:"priorityClassName,omitempty"`
 
 	// ResourceList is the list of resources to be managed by the device plugin
 	// +kubebuilder:validation:Optional

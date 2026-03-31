@@ -34,7 +34,7 @@ const (
 type validatorPatcher struct {
 	basePatcher
 	desiredSpec *rblnv1beta1.ValidatorSpec
-	daemonsets  *rblnv1beta1.DaemonsetsSpec
+	podDefaults *rblnv1beta1.PodDefaultsSpec
 }
 
 func NewValidatorPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
@@ -49,7 +49,7 @@ func NewValidatorPatcher(client client.Client, log logr.Logger, namespace string
 			enabled:          true,
 		},
 		desiredSpec: &cpSpec.Validator,
-		daemonsets:  cpSpec.Daemonsets,
+		podDefaults: cpSpec.PodDefaults,
 	}
 }
 
@@ -196,8 +196,8 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 
 	validatorImage := k8sutil.ComposeImageReference(validatorSpec.Registry, validatorSpec.Image)
 
-	driverArgs := validatorComponentArgs(validatorSpec.Args, validatorComponentDriver)
-	toolkitArgs := validatorComponentArgs(validatorSpec.Args, validatorComponentToolkit)
+	driverArgs := []string{validatorComponentDriver}
+	toolkitArgs := []string{validatorComponentToolkit}
 	baseEnv := mergeEnvVars(
 		[]corev1.EnvVar{{Name: "TMPDIR", Value: consts.ValidationsMountPath}},
 		validatorSpec.Env,
@@ -283,19 +283,16 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 		mainContainerBuilder.WithResources(*validatorSpec.Resources, "250m", "40Mi")
 	}
 
-	affinity := (*corev1.Affinity)(nil)
 	tolerations := []corev1.Toleration(nil)
 	priorityClassName := ""
-	if h.daemonsets != nil {
-		affinity = h.daemonsets.Affinity
-		tolerations = h.daemonsets.Tolerations
-		priorityClassName = h.daemonsets.PriorityClassName
+	if h.podDefaults != nil {
+		tolerations = h.podDefaults.Tolerations
+		priorityClassName = h.podDefaults.PriorityClassName
 	}
 
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.operator-validator": "true"}).
-		WithAffinity(affinity).
 		WithTolerations(tolerations).
 		WithImagePullSecrets(validatorSpec.ImagePullSecrets).
 		WithPriorityClassName(priorityClassName).
@@ -315,9 +312,9 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 
 	labels := map[string]string{"app": h.name}
 	annotations := map[string]string(nil)
-	if h.daemonsets != nil {
-		labels = k8sutil.MergeMaps(labels, h.daemonsets.Labels)
-		annotations = h.daemonsets.Annotations
+	if h.podDefaults != nil {
+		labels = k8sutil.MergeMaps(labels, h.podDefaults.Labels)
+		annotations = h.podDefaults.Annotations
 	}
 
 	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
@@ -337,12 +334,4 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 	}
 	h.log.Info("Reconciled Validator DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
 	return nil
-}
-
-func validatorComponentArgs(baseArgs []string, component string) []string {
-	args := []string{component}
-	if len(baseArgs) > 0 {
-		args = append(args, baseArgs...)
-	}
-	return args
 }

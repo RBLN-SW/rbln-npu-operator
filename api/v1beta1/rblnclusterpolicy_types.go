@@ -30,9 +30,9 @@ type RBLNClusterPolicySpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Workload Type",xDescriptors="urn:alm:descriptor:com.tectonic.ui:select:container,urn:alm:descriptor:com.tectonic.ui:select:vm-passthrough"
 	WorkloadType string `json:"workloadType"`
 
-	// DaemonSets is common spec of rbln daemonset components
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Daemonsets",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
-	Daemonsets *DaemonsetsSpec `json:"daemonsets,omitempty"`
+	// PodDefaults defines common configuration applied to all DaemonSet pods managed by this policy.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Pod Defaults",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
+	PodDefaults *PodDefaultsSpec `json:"podDefaults,omitempty"`
 
 	// VFIOManager component spec
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="VFIO Manager",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"

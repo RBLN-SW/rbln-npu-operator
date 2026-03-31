@@ -6,10 +6,10 @@ metadata:
     {{- include "rbln-npu-operator.labels" . | nindent 4 }}
   name: rbln-driver
 spec:
-  registry: {{ .Values.driver.image.registry }}
-  image: {{ .Values.driver.image.repository }}
+  registry: {{ .Values.driver.image.registry | quote }}
+  image: {{ .Values.driver.image.repository | quote }}
   version: {{ .Values.driver.image.tag | quote }}
-  imagePullPolicy: {{ .Values.driver.image.pullPolicy }}
+  imagePullPolicy: {{ .Values.driver.image.pullPolicy | quote }}
   {{- with .Values.driver.imagePullSecrets }}
   imagePullSecrets:
     {{- toYaml . | nindent 4 }}
@@ -18,16 +18,8 @@ spec:
   nodeSelector:
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- with .Values.driver.nodeAffinity }}
-  nodeAffinity:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
   {{- with .Values.driver.tolerations }}
   tolerations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- with .Values.driver.labels }}
-  labels:
     {{- toYaml . | nindent 4 }}
   {{- end }}
   {{- with .Values.driver.annotations }}
@@ -47,24 +39,14 @@ spec:
   {{- end }}
   {{- with .Values.driver.manager }}
   manager:
-    {{- if .registry }}
-    registry: {{ .registry }}
-    {{- end }}
     {{- if .image }}
-    image: {{ .image }}
-    {{- end }}
-    {{- if .version }}
-    version: {{ .version | quote }}
-    {{- end }}
-    {{- if .imagePullPolicy }}
-    imagePullPolicy: {{ .imagePullPolicy }}
+    registry: {{ .image.registry | quote }}
+    image: {{ .image.repository | quote }}
+    version: {{ .image.tag | quote }}
+    imagePullPolicy: {{ .image.pullPolicy | quote }}
     {{- end }}
     {{- with .imagePullSecrets }}
     imagePullSecrets:
-      {{- toYaml . | nindent 6 }}
-    {{- end }}
-    {{- with .env }}
-    env:
       {{- toYaml . | nindent 6 }}
     {{- end }}
   {{- end }}

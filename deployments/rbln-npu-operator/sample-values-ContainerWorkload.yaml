@@ -9,17 +9,11 @@ workloadType: container
 nfd:
   enabled: false
 
-# Common defaults that apply to all managed component DaemonSets.
-daemonsets:
+# Common defaults applied to all managed DaemonSet pods.
+podDefaults:
   labels: {}
   annotations: {}
-  affinity: {}
   tolerations: []
-  # Example: allow scheduling on control plane nodes
-  # tolerations:
-  # - key: node-role.kubernetes.io/control-plane
-  #   operator: Exists
-  #   effect: NoSchedule
   priorityClassName: ""
 
 # Operator configuration
@@ -118,25 +112,11 @@ driver:
   #   rebellions.ai/npu.present: "true"
   nodeSelector: {}
   # Example:
-  # nodeAffinity:
-  #   requiredDuringSchedulingIgnoredDuringExecution:
-  #     nodeSelectorTerms:
-  #     - matchExpressions:
-  #       - key: kubernetes.io/arch
-  #         operator: In
-  #         values:
-  #         - amd64
-  nodeAffinity: {}
-  # Example:
   # tolerations:
   # - key: node-role.kubernetes.io/control-plane
   #   operator: Exists
   #   effect: NoSchedule
   tolerations: []
-  # Example:
-  # labels:
-  #   rebellions.io/color: blue
-  labels: {}
   # Example:
   # annotations:
   #   my-annotation: "true"
@@ -159,15 +139,13 @@ driver:
   #   value: info
   env: []
   manager:
-    registry: docker.io
-    image: rebellions/rbln-k8s-driver-manager
-    version: v0.1.2
-    imagePullPolicy: IfNotPresent
+    image:
+      registry: docker.io
+      repository: rebellions/rbln-k8s-driver-manager
+      tag: v0.1.2
+      pullPolicy: IfNotPresent
   #  imagePullSecrets:
   #  - my-registry-secret
-  #  env:
-  #  - name: RBLN_MANAGER_LOG_LEVEL
-  #    value: info
 
 
 # NPU Device Plugin configuration
@@ -178,8 +156,6 @@ devicePlugin:
     repository: rebellions/k8s-device-plugin
     tag: latest
     pullPolicy: IfNotPresent
-  hostBinPath: /usr/bin
-
   resourceList:
   - productCardNames:
     - RBLN-CA12
@@ -225,7 +201,7 @@ rblnDaemon:
   hostPort: 50051
   imagePullSecrets: []
   resources: {}
-  args: []
+
   env: []
 
 # NPU Feature Discovery configuration
@@ -247,7 +223,7 @@ containerToolkit:
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
-  args: []
+
   env: []
 
 # Sandbox Device Plugin for VM workloads
@@ -259,12 +235,6 @@ sandboxDevicePlugin:
     tag: latest
     pullPolicy: IfNotPresent
 
-  # VFIO Checker configuration
-  vfioChecker:
-    image:
-      registry: docker.io
-      repository: rebellions/rbln-vfio-manager
-      tag: latest
   # Resource discovery for sandbox workloads
   resourceList:
   - productCardNames:
@@ -298,13 +268,9 @@ validator:
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
-  args: []
+
   env: []
-  plugin:
-    env: []
   toolkit:
     env: []
   driver:
-    env: []
-  vfioPCI:
     env: []

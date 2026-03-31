@@ -5,7 +5,7 @@ metadata:
     {{- include "rbln-npu-operator.labels" . | nindent 4 }}
   name: rbln-cluster-policy
 spec:
-  workloadType: {{ .Values.workloadType }}
+  workloadType: {{ .Values.workloadType | quote }}
   {{- $upgradePolicy := .Values.driver.upgradePolicy }}
   driver:
     useRBLNDriverCRD: {{ .Values.driver.enabled }}
@@ -42,35 +42,30 @@ spec:
           image: {{ $rebootImage.image | default "rebellions/rbln-node-reboot" | quote }}
           version: {{ $rebootImage.version | default "v1.0.0" | quote }}
     {{- end }}
-  {{- if .Values.daemonsets }}
-  daemonsets:
-    {{- with .Values.daemonsets.labels }}
+  {{- if .Values.podDefaults }}
+  podDefaults:
+    {{- with .Values.podDefaults.labels }}
     labels:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- with .Values.daemonsets.annotations }}
+    {{- with .Values.podDefaults.annotations }}
     annotations:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- with .Values.daemonsets.affinity }}
-    affinity:
-      {{- toYaml . | nindent 6 }}
-    {{- end }}
-    {{- with .Values.daemonsets.tolerations }}
+    {{- with .Values.podDefaults.tolerations }}
     tolerations:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- if .Values.daemonsets.priorityClassName }}
-    priorityClassName: {{ .Values.daemonsets.priorityClassName | quote }}
+    {{- if .Values.podDefaults.priorityClassName }}
+    priorityClassName: {{ .Values.podDefaults.priorityClassName | quote }}
     {{- end }}
   {{- end }}
   devicePlugin:
     enabled: {{ .Values.devicePlugin.enabled }}
-    registry: {{ .Values.devicePlugin.image.registry }}
-    image: {{ .Values.devicePlugin.image.repository }}
+    registry: {{ .Values.devicePlugin.image.registry | quote }}
+    image: {{ .Values.devicePlugin.image.repository | quote }}
     version: {{ .Values.devicePlugin.image.tag | quote }}
-    imagePullPolicy: {{ .Values.devicePlugin.image.pullPolicy }}
-    hostBinPath: {{ .Values.devicePlugin.hostBinPath | quote }}
+    imagePullPolicy: {{ .Values.devicePlugin.image.pullPolicy | quote }}
     {{- if .Values.devicePlugin.resourceList }}
     resourceList:
       {{- toYaml .Values.devicePlugin.resourceList | nindent 4 }}
@@ -78,10 +73,10 @@ spec:
 
   draKubeletPlugin:
     enabled: {{ .Values.draKubeletPlugin.enabled }}
-    registry: {{ .Values.draKubeletPlugin.image.registry }}
-    image: {{ .Values.draKubeletPlugin.image.repository }}
+    registry: {{ .Values.draKubeletPlugin.image.registry | quote }}
+    image: {{ .Values.draKubeletPlugin.image.repository | quote }}
     version: {{ .Values.draKubeletPlugin.image.tag | quote }}
-    imagePullPolicy: {{ .Values.draKubeletPlugin.image.pullPolicy }}
+    imagePullPolicy: {{ .Values.draKubeletPlugin.image.pullPolicy | quote }}
     driverName: {{ .Values.draKubeletPlugin.driverName | quote }}
     kubeletRegistrarDirectoryPath: {{ .Values.draKubeletPlugin.kubeletRegistrarDirectoryPath | quote }}
     kubeletPluginsDirectoryPath: {{ .Values.draKubeletPlugin.kubeletPluginsDirectoryPath | quote }}
@@ -89,16 +84,16 @@ spec:
 
   metricsExporter:
     enabled: {{ .Values.metricsExporter.enabled }}
-    registry: {{ .Values.metricsExporter.image.registry }}
-    image: {{ .Values.metricsExporter.image.repository }}
-    imagePullPolicy: {{ .Values.metricsExporter.image.pullPolicy }}
+    registry: {{ .Values.metricsExporter.image.registry | quote }}
+    image: {{ .Values.metricsExporter.image.repository | quote }}
+    imagePullPolicy: {{ .Values.metricsExporter.image.pullPolicy | quote }}
     version: {{ .Values.metricsExporter.image.tag | quote }}
 
   rblnDaemon:
     enabled: {{ .Values.rblnDaemon.enabled }}
-    registry: {{ .Values.rblnDaemon.image.registry }}
-    image: {{ .Values.rblnDaemon.image.repository }}
-    imagePullPolicy: {{ .Values.rblnDaemon.image.pullPolicy }}
+    registry: {{ .Values.rblnDaemon.image.registry | quote }}
+    image: {{ .Values.rblnDaemon.image.repository | quote }}
+    imagePullPolicy: {{ .Values.rblnDaemon.image.pullPolicy | quote }}
     version: {{ .Values.rblnDaemon.image.tag | quote }}
     hostPort: {{ .Values.rblnDaemon.hostPort }}
     {{- if .Values.rblnDaemon.imagePullSecrets }}
@@ -109,10 +104,6 @@ spec:
     resources:
       {{- toYaml .Values.rblnDaemon.resources | nindent 6 }}
     {{- end }}
-    {{- if .Values.rblnDaemon.args }}
-    args:
-      {{- toYaml .Values.rblnDaemon.args | nindent 6 }}
-    {{- end }}
     {{- if .Values.rblnDaemon.env }}
     env:
       {{- toYaml .Values.rblnDaemon.env | nindent 6 }}
@@ -120,16 +111,16 @@ spec:
 
   npuFeatureDiscovery:
     enabled: {{ .Values.npuFeatureDiscovery.enabled }}
-    registry: {{ .Values.npuFeatureDiscovery.image.registry }}
-    image: {{ .Values.npuFeatureDiscovery.image.repository }}
-    imagePullPolicy: {{ .Values.npuFeatureDiscovery.image.pullPolicy }}
+    registry: {{ .Values.npuFeatureDiscovery.image.registry | quote }}
+    image: {{ .Values.npuFeatureDiscovery.image.repository | quote }}
+    imagePullPolicy: {{ .Values.npuFeatureDiscovery.image.pullPolicy | quote }}
     version: {{ .Values.npuFeatureDiscovery.image.tag | quote }}
 
   containerToolkit:
     enabled: {{ .Values.containerToolkit.enabled }}
-    registry: {{ .Values.containerToolkit.image.registry }}
-    image: {{ .Values.containerToolkit.image.repository }}
-    imagePullPolicy: {{ .Values.containerToolkit.image.pullPolicy }}
+    registry: {{ .Values.containerToolkit.image.registry | quote }}
+    image: {{ .Values.containerToolkit.image.repository | quote }}
+    imagePullPolicy: {{ .Values.containerToolkit.image.pullPolicy | quote }}
     version: {{ .Values.containerToolkit.image.tag | quote }}
     {{- if .Values.containerToolkit.imagePullSecrets }}
     imagePullSecrets:
@@ -139,10 +130,6 @@ spec:
     resources:
       {{- toYaml .Values.containerToolkit.resources | nindent 6 }}
     {{- end }}
-    {{- if .Values.containerToolkit.args }}
-    args:
-      {{- toYaml .Values.containerToolkit.args | nindent 6 }}
-    {{- end }}
     {{- if .Values.containerToolkit.env }}
     env:
       {{- toYaml .Values.containerToolkit.env | nindent 6 }}
@@ -150,30 +137,26 @@ spec:
 
   sandboxDevicePlugin:
     enabled: {{ .Values.sandboxDevicePlugin.enabled }}
-    registry: {{ .Values.sandboxDevicePlugin.image.registry }}
-    image: {{ .Values.sandboxDevicePlugin.image.repository }}
-    imagePullPolicy: {{ .Values.sandboxDevicePlugin.image.pullPolicy }}
+    registry: {{ .Values.sandboxDevicePlugin.image.registry | quote }}
+    image: {{ .Values.sandboxDevicePlugin.image.repository | quote }}
+    imagePullPolicy: {{ .Values.sandboxDevicePlugin.image.pullPolicy | quote }}
     version: {{ .Values.sandboxDevicePlugin.image.tag | quote }}
     {{- if .Values.sandboxDevicePlugin.resourceList }}
     resourceList:
       {{- toYaml .Values.sandboxDevicePlugin.resourceList | nindent 4 }}
     {{- end }}
-    vfioChecker:
-      registry: {{ .Values.sandboxDevicePlugin.vfioChecker.image.registry }}
-      image: {{ .Values.sandboxDevicePlugin.vfioChecker.image.repository }}
-      version: {{ .Values.sandboxDevicePlugin.vfioChecker.image.tag | quote }}
 
   vfioManager:
     enabled: {{ .Values.vfioManager.enabled }}
-    registry: {{ .Values.vfioManager.image.registry }}
-    image: {{ .Values.vfioManager.image.repository }}
-    imagePullPolicy: {{ .Values.vfioManager.image.pullPolicy }}
+    registry: {{ .Values.vfioManager.image.registry | quote }}
+    image: {{ .Values.vfioManager.image.repository | quote }}
+    imagePullPolicy: {{ .Values.vfioManager.image.pullPolicy | quote }}
     version: {{ .Values.vfioManager.image.tag | quote }}
 
   validator:
-    registry: {{ .Values.validator.image.registry }}
-    image: {{ .Values.validator.image.repository }}
-    imagePullPolicy: {{ .Values.validator.image.pullPolicy }}
+    registry: {{ .Values.validator.image.registry | quote }}
+    image: {{ .Values.validator.image.repository | quote }}
+    imagePullPolicy: {{ .Values.validator.image.pullPolicy | quote }}
     version: {{ .Values.validator.image.tag | quote }}
     {{- if .Values.validator.imagePullSecrets }}
     imagePullSecrets:
@@ -183,19 +166,10 @@ spec:
     resources:
       {{- toYaml .Values.validator.resources | nindent 6 }}
     {{- end }}
-    {{- if .Values.validator.args }}
-    args:
-      {{- toYaml .Values.validator.args | nindent 6 }}
-    {{- end }}
     {{- if .Values.validator.env }}
     env:
       {{- toYaml .Values.validator.env | nindent 6 }}
     {{- end }}
-    plugin:
-      {{- if .Values.validator.plugin.env }}
-      env:
-        {{- toYaml .Values.validator.plugin.env | nindent 8 }}
-      {{- end }}
     toolkit:
       {{- if .Values.validator.toolkit.env }}
       env:
@@ -205,9 +179,4 @@ spec:
       {{- if .Values.validator.driver.env }}
       env:
         {{- toYaml .Values.validator.driver.env | nindent 8 }}
-      {{- end }}
-    vfioPCI:
-      {{- if .Values.validator.vfioPCI.env }}
-      env:
-        {{- toYaml .Values.validator.vfioPCI.env | nindent 8 }}
       {{- end }}
