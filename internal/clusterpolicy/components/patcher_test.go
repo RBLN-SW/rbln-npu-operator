@@ -60,7 +60,6 @@ func newTestOwner() *rblnv1beta1.RBLNClusterPolicy {
 			UID:  "test-uid-12345",
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
-			Namespace: testNamespace,
 			Validator: rblnv1beta1.ValidatorSpec{
 				Registry: "docker.io",
 				Image:    "rebellions/rbln-validator",

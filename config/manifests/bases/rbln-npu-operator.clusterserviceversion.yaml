@@ -418,11 +418,6 @@ spec:
         path: metricsExporter.version
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Namespace of the controller
-        displayName: Namespace
-        path: namespace
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: NPUFeatureDiscovery component spec
         displayName: NPU Feature Discovery
         path: npuFeatureDiscovery

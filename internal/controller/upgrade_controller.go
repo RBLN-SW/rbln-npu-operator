@@ -29,7 +29,6 @@ import (
 	rblnv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
-	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 const (
@@ -77,9 +76,9 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, r.removeNodeUpgradeStateLabels(ctx)
 	}
 
-	namespace, err := k8sutil.ResolveNamespace(clusterPolicy.Spec.Namespace, os.Getenv("OPERATOR_NAMESPACE"))
-	if err != nil {
-		r.Log.Error(err, "Failed to resolve namespace for upgrade state build")
+	namespace := os.Getenv("OPERATOR_NAMESPACE")
+	if namespace == "" {
+		r.Log.Error(fmt.Errorf("OPERATOR_NAMESPACE not set"), "Failed to resolve namespace for upgrade state build")
 		return ctrl.Result{}, nil
 	}
 

@@ -5648,10 +5648,6 @@ spec:
                 required:
                 - enabled
                 type: object
-              namespace:
-                default: rbln-system
-                description: Namespace of the controller
-                type: string
               npuFeatureDiscovery:
                 description: NPUFeatureDiscovery component spec
                 properties:
