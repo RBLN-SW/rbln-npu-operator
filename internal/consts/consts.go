@@ -8,6 +8,15 @@ const (
 	LogLevelDebug
 )
 
+// NFD label keys
+const (
+	NFDOSReleaseIDLabelKey  = "feature.node.kubernetes.io/system-os_release.ID"
+	NFDOSVersionIDLabelKey  = "feature.node.kubernetes.io/system-os_release.VERSION_ID"
+	NFDKernelLabelKey       = "feature.node.kubernetes.io/kernel-version.full"
+	NFDDevicePCILabelKey    = "feature.node.kubernetes.io/pci-1eff.present"
+	NFDDevicePCIAltLabelKey = "feature.node.kubernetes.io/pci-1200_1eff.present"
+)
+
 // NPU labels
 const (
 	RBLNWorkloadConfigLabelKey      = "rebellions.ai/npu.workload.config"
@@ -15,6 +24,7 @@ const (
 	RBLNWorkloadConfigVMPassthrough = "vm-passthrough"
 	RBLNWorkloadConfigUnknown       = "unknown"
 	RBLNPresentLabelKey             = "rebellions.ai/npu.present"
+	RBLNDeploySkipLabelKey          = "rebellions.ai/npu.deploy.skip"
 	NFDLabelPrefix                  = "feature.node.kubernetes.io/"
 )
 
@@ -29,6 +39,23 @@ const (
 const (
 	RBLNConditionTypeReady           = "Ready"
 	RBLNConditionTypeComponentsReady = "ComponentsReady"
+)
+
+// Condition types (driver)
+const (
+	RBLNConditionTypeError = "Error"
+)
+
+// Condition reasons
+const (
+	RBLNConditionReasonNFDNotFound          = "NodeFeatureDiscoveryNotFound"
+	RBLNConditionReasonNoRBLNNodes          = "NoRBLNNodesDiscovered"
+	RBLNConditionReasonPolicyIgnored        = "PolicyIgnored"
+	RBLNConditionReasonAllComponentsReady   = "AllComponentsReady"
+	RBLNConditionReasonSomeNotReady         = "SomeComponentsNotReady"
+	RBLNConditionReasonError                = "Error"
+	RBLNConditionReasonReconcileFailed      = "ReconcileFailed"
+	RBLNConditionReasonMissingClusterPolicy = "MissingClusterPolicy"
 )
 
 // Device plugin constants
@@ -78,6 +105,12 @@ const (
 // VFIO constants
 const (
 	RBLNVFIOManagerName = "vfio-manager"
+)
+
+// Shared volume constants
+const (
+	ValidationsVolumeName = "run-rbln-validations"
+	ValidationsMountPath  = "/run/rbln/validations"
 )
 
 // DeviceMapping maps product card names to their device IDs

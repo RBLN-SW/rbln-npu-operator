@@ -6,7 +6,7 @@
 name: rbln
 
 # Namespace for namespaced components managed by RBLNClusterPolicy.
-# When empty, the operator namespace (OPERATOR_NAMESPACE) is used.
+# When empty, spec.namespace is omitted and the CRD default `rbln-system` is used.
 namespace: ""
 
 # Node Feature Discovery dependency
@@ -30,10 +30,10 @@ daemonsets:
 operator:
   # Operator image configuration
   image:
-    registry: docker.io
+    registry: harbor.k8s.rebellions.in
     repository: rebellions/rbln-npu-operator
-    tag: latest
-    pullPolicy: IfNotPresent
+    tag: v0.3.2
+    pullPolicy: Always
   # Resource configuration
   replicas: 1
   resources:
@@ -83,7 +83,7 @@ operator:
 
 # Driver configuration
 driver:
-  enabled: false
+  enabled: true
   # Driver upgrade policy rendered under spec.driver.upgradePolicy.
   # If autoUpgrade is false, the remaining options are ignored.
   upgradePolicy:
@@ -113,6 +113,8 @@ driver:
     repository: rebellions/rbln-driver
     tag: "3.0.0"
     pullPolicy: IfNotPresent
+  imagePullSecrets:
+  - drivercred
   # Example:
   # imagePullSecrets: []
   # Example:
@@ -218,14 +220,14 @@ metricsExporter:
 
 # RBLN Daemon configuration
 rblnDaemon:
-  enabled: false
+  enabled: true
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-daemon
     tag: 3.0.0
     pullPolicy: IfNotPresent
-  # imagePullSecrets:
-  # - daemoncred
+  imagePullSecrets:
+  - drivercred
   hostPort: 50051
   resources: {}
   args: []
@@ -295,10 +297,10 @@ vfioManager:
 # Validator configuration
 validator:
   image:
-    registry: docker.io
+    registry: harbor.k8s.rebellions.in
     repository: rebellions/rbln-npu-operator-validator
-    tag: latest
-    pullPolicy: IfNotPresent
+    tag: v0.3.2
+    pullPolicy: Always
   imagePullSecrets: []
   resources: {}
   args: []

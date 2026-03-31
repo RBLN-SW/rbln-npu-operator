@@ -44,16 +44,16 @@ type ClusterUpgradeStateManager interface {
 }
 
 type ClusterUpgradeStateManagerImpl struct {
-	Log                      logr.Logger
-	K8sClient                client.Client
-	K8sInterface             kubernetes.Interface
-	NodeUpgradeStateProvider *NodeUpgradeStateProvider
-	PodManager               *PodManager
-	SafeDriverLoadManager    *SafeDriverLoadManager
-	CordonManager            *CordonManager
-	DrainManager             *DrainManager
-	RebootManager            RebootManager
-	ValidationManager        *ValidationManager
+	log                      logr.Logger
+	k8sClient                client.Client
+	k8sInterface             kubernetes.Interface
+	nodeUpgradeStateProvider *NodeUpgradeStateProvider
+	podManager               PodManagerInterface
+	safeDriverLoadManager    SafeDriverLoadManagerInterface
+	cordonManager            CordonManagerInterface
+	drainManager             DrainManagerInterface
+	rebootManager            RebootManager
+	validationManager        ValidationManagerInterface
 
 	// optional states
 	podDeletionStateEnabled bool
@@ -78,36 +78,36 @@ func NewClusterUpgradeStateManager(
 
 	nodeUpgradeStateProvider := NewNodeUpgradeStateProvider(k8sClient, log)
 	manager := &ClusterUpgradeStateManagerImpl{
-		Log:                      log,
-		K8sClient:                k8sClient,
-		K8sInterface:             k8sInterface,
-		DrainManager:             NewDrainManager(k8sInterface, nodeUpgradeStateProvider, log, eventRecorder),
-		RebootManager:            NewPodRebootManager(k8sClient, log),
-		PodManager:               NewPodManager(k8sInterface, nodeUpgradeStateProvider, log, nil),
-		CordonManager:            NewCordonManager(k8sInterface, log),
-		NodeUpgradeStateProvider: nodeUpgradeStateProvider,
-		ValidationManager:        NewValidationManager(k8sInterface, log, nodeUpgradeStateProvider, ""),
-		SafeDriverLoadManager:    NewSafeDriverLoadManager(nodeUpgradeStateProvider, log),
+		log:                      log,
+		k8sClient:                k8sClient,
+		k8sInterface:             k8sInterface,
+		drainManager:             NewDrainManager(k8sInterface, nodeUpgradeStateProvider, log, eventRecorder),
+		rebootManager:            NewPodRebootManager(k8sClient, log),
+		podManager:               NewPodManager(k8sInterface, nodeUpgradeStateProvider, log, nil),
+		cordonManager:            NewCordonManager(k8sInterface, log),
+		nodeUpgradeStateProvider: nodeUpgradeStateProvider,
+		validationManager:        NewValidationManager(k8sInterface, log, nodeUpgradeStateProvider, ""),
+		safeDriverLoadManager:    NewSafeDriverLoadManager(nodeUpgradeStateProvider, log),
 	}
 	return manager, nil
 }
 
 func (m *ClusterUpgradeStateManagerImpl) WithPodDeletionEnabled(filter PodDeletionFilter) ClusterUpgradeStateManager {
 	if filter == nil {
-		m.Log.Info("Cannot enable PodDeletion state as PodDeletionFilter is nil")
+		m.log.Info("Cannot enable PodDeletion state as PodDeletionFilter is nil")
 		return m
 	}
-	m.PodManager = NewPodManager(m.K8sInterface, m.NodeUpgradeStateProvider, m.Log, filter)
+	m.podManager = NewPodManager(m.k8sInterface, m.nodeUpgradeStateProvider, m.log, filter)
 	m.podDeletionStateEnabled = true
 	return m
 }
 
 func (m *ClusterUpgradeStateManagerImpl) WithValidationEnabled(podSelector string) ClusterUpgradeStateManager {
 	if podSelector == "" {
-		m.Log.Info("Cannot enable Validation state as podSelector is empty")
+		m.log.Info("Cannot enable Validation state as podSelector is empty")
 		return m
 	}
-	m.ValidationManager = NewValidationManager(m.K8sInterface, m.Log, m.NodeUpgradeStateProvider,
+	m.validationManager = NewValidationManager(m.k8sInterface, m.log, m.nodeUpgradeStateProvider,
 		podSelector)
 	m.validationStateEnabled = true
 	return m

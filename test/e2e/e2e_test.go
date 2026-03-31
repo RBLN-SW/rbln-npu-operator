@@ -101,35 +101,7 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 			})
 
 			It("should bring up the all of the operand pods successfully", func(ctx context.Context) {
-				waitForPodsReady := func(target string, labelMap map[string]string) {
-					By(fmt.Sprintf("waiting for %s pods to become ready", target))
-					Eventually(func() bool {
-						pods, err := k8sCoreClient.GetPodsByLabel(ctx, testNamespace.Name, labelMap)
-						if err != nil {
-							e2elog.Infof("WARN: error retrieving pods for %s: %v", target, err)
-							return false
-						}
-
-						var readyCount int
-						for _, pod := range pods {
-							e2elog.Infof("Checking status of pod %s for target %s", pod.Name, target)
-							isReady, err := k8sCoreClient.IsPodReady(ctx, pod.Name, pod.Namespace)
-							if err != nil {
-								e2elog.Infof("WARN: error when retrieving pod status of %s/%s: %v", testNamespace.Name, target, err)
-								return false
-							}
-							if isReady {
-								readyCount++
-							}
-						}
-						return len(pods) > 0 && readyCount == len(pods)
-					}).WithPolling(defaultOperandPollInterval).
-						Within(defaultOperandWaitTimeout).
-						WithContext(ctx).
-						Should(BeTrue())
-				}
-
-				waitForPodsReady("rbln-driver", map[string]string{
+				waitForPodsReady(ctx, k8sCoreClient, testNamespace.Name, "rbln-driver", map[string]string{
 					"app.kubernetes.io/component": "rbln-driver",
 				})
 
@@ -140,11 +112,12 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 				}
 				e2elog.Infof("Ensure that the npu operator operands come up")
 				for _, operand := range operands {
-					waitForPodsReady(operand, map[string]string{
+					waitForPodsReady(ctx, k8sCoreClient, testNamespace.Name, operand, map[string]string{
 						"app": operand,
 					})
 				}
 			})
+
 			It("should advertise rebellions.ai/ATOM on ready nodes", func(ctx context.Context) {
 				Eventually(func(g Gomega) bool {
 					nodes, err := k8sCoreClient.ListNodes(ctx, map[string]string{
@@ -179,117 +152,42 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 					Within(defaultOperandWaitTimeout).
 					Should(BeTrue(), "no ready labeled node exposed rebellions.ai/ATOM")
 			})
-			It("should run model-zoo compile/inference on ubuntu 24.04", func(ctx context.Context) {
-				podName := "model-zoo-ubuntu-24-04"
 
-				secret := &corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "pypi-cred",
-						Namespace: testNamespace.Name,
-					},
-					StringData: map[string]string{
-						"username": e2eCfg.pypiUsername,
-						"password": e2eCfg.pypiPassword,
-					},
-				}
-				_, err := te.ClientSet.CoreV1().Secrets(testNamespace.Name).Create(ctx, secret, metav1.CreateOptions{})
-				Expect(err).NotTo(HaveOccurred())
+			It("should run model-zoo compile/inference on ubuntu 24.04", func(ctx context.Context) {
+				ensurePyPISecret(ctx, te.ClientSet.CoreV1(), testNamespace.Name, e2eCfg.pypiUsername, e2eCfg.pypiPassword)
 				DeferCleanup(func() {
-					_ = te.ClientSet.CoreV1().Secrets(testNamespace.Name).
-						Delete(context.Background(), "pypi-cred", metav1.DeleteOptions{})
+					cleanupPyPISecret(te.ClientSet.CoreV1(), testNamespace.Name)
 				})
 
-				script := `set -euo pipefail
-export TZ=Asia/Seoul
-ln -snf /usr/share/zoneinfo/$TZ /etc/localtime
-echo $TZ > /etc/timezone
-apt update
-apt-get install -y git python3 python3-pip python3-venv ca-certificates
-mkdir -p /workspace
-python3 -m venv /workspace/.venv
-. /workspace/.venv/bin/activate
-python -m pip install -U pip setuptools wheel
-
-cat <<EOF > ~/.netrc
-machine pypi.rebellions.in
-login ${PYPI_USER}
-password ${PYPI_PASS}
-EOF
-
-chmod 600 ~/.netrc
-
-git clone https://github.com/rebellions-sw/rbln-model-zoo.git
-cd rbln-model-zoo/pytorch/vision/detection/yolov10/
-git submodule update --init ultralytics/
-python -m pip install -r requirements.txt
-python -m pip install -i https://pypi.rebellions.in/simple rebel-compiler==0.10.1
-python compile.py
-python inference.py`
+				podName := "model-zoo-ubuntu-24-04"
+				container := newModelZooContainer()
+				container.Resources = corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						NPUResourceName: resource.MustParse("1"),
+					},
+				}
 
 				pod := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      podName,
 						Namespace: testNamespace.Name,
-						Labels: map[string]string{
-							"app": "model-zoo-smoke",
-						},
+						Labels:    map[string]string{"app": "model-zoo-smoke"},
 					},
 					Spec: corev1.PodSpec{
 						RestartPolicy: corev1.RestartPolicyNever,
-						Containers: []corev1.Container{
-							{
-								Name:    "runner",
-								Image:   "ubuntu:24.04",
-								Command: []string{"/bin/bash", "-lc", script},
-								Env: []corev1.EnvVar{
-									{
-										Name: "PYPI_USER",
-										ValueFrom: &corev1.EnvVarSource{
-											SecretKeyRef: &corev1.SecretKeySelector{
-												LocalObjectReference: corev1.LocalObjectReference{Name: "pypi-cred"},
-												Key:                  "username",
-											},
-										},
-									},
-									{
-										Name: "PYPI_PASS",
-										ValueFrom: &corev1.EnvVarSource{
-											SecretKeyRef: &corev1.SecretKeySelector{
-												LocalObjectReference: corev1.LocalObjectReference{Name: "pypi-cred"},
-												Key:                  "password",
-											},
-										},
-									},
-								},
-								Resources: corev1.ResourceRequirements{
-									Limits: corev1.ResourceList{
-										NPUResourceName: resource.MustParse("1"),
-									},
-								},
-							},
-						},
+						Containers:    []corev1.Container{container},
 					},
 				}
 
-				_, err = te.ClientSet.CoreV1().Pods(testNamespace.Name).Create(ctx, pod, metav1.CreateOptions{})
+				_, err := te.ClientSet.CoreV1().Pods(testNamespace.Name).Create(ctx, pod, metav1.CreateOptions{})
 				Expect(err).NotTo(HaveOccurred())
 				DeferCleanup(func() {
 					_ = te.ClientSet.CoreV1().Pods(testNamespace.Name).Delete(context.Background(), podName, metav1.DeleteOptions{})
 				})
 
-				var lastPod *corev1.Pod
-				Eventually(func(g Gomega) corev1.PodPhase {
-					p, err := te.ClientSet.CoreV1().Pods(testNamespace.Name).Get(ctx, podName, metav1.GetOptions{})
-					g.Expect(err).NotTo(HaveOccurred())
-					lastPod = p
-					return p.Status.Phase
-				}).WithTimeout(10 * time.Minute).
-					WithPolling(10 * time.Second).
-					WithContext(ctx).
-					Should(BeElementOf(corev1.PodSucceeded, corev1.PodFailed))
-
-				Expect(lastPod.Status.Phase).To(Equal(corev1.PodSucceeded), "pod failed: %s", lastPod.Status.Message)
+				waitForPodCompletion(ctx, te.ClientSet.CoreV1(), testNamespace.Name, podName)
 			})
+
 			It("should switch from device-plugin to DRA kubelet plugin", func(ctx context.Context) {
 				err := helmClient.Upgrade(ctx, helmReleaseName, ChartOptions{
 					CleanupOnFail: true,
@@ -310,28 +208,9 @@ python inference.py`
 					Within(defaultOperandWaitTimeout).
 					Should(BeTrue(), "device-plugin pods were not removed")
 
-				Eventually(func(g Gomega) bool {
-					pods, err := k8sCoreClient.GetPodsByLabel(ctx, testNamespace.Name, map[string]string{
-						"app": "rbln-dra-kubelet-plugin",
-					})
-					g.Expect(err).NotTo(HaveOccurred())
-					if len(pods) == 0 {
-						return false
-					}
-
-					readyCount := 0
-					for _, pod := range pods {
-						isReady, err := k8sCoreClient.IsPodReady(ctx, pod.Name, pod.Namespace)
-						g.Expect(err).NotTo(HaveOccurred())
-						if isReady {
-							readyCount++
-						}
-					}
-					return readyCount == len(pods)
-				}).WithContext(ctx).
-					WithPolling(defaultOperandPollInterval).
-					Within(defaultOperandWaitTimeout).
-					Should(BeTrue(), "DRA kubelet plugin pods are not ready")
+				waitForPodsReady(ctx, k8sCoreClient, testNamespace.Name, "rbln-dra-kubelet-plugin", map[string]string{
+					"app": "rbln-dra-kubelet-plugin",
+				})
 			})
 
 			It("should reconcile DRA DeviceClass", func(ctx context.Context) {
@@ -363,21 +242,9 @@ python inference.py`
 			})
 
 			It("should run model-zoo compile/inference on ubuntu 24.04 with DRA", func(ctx context.Context) {
-				secret := &corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "pypi-cred",
-						Namespace: testNamespace.Name,
-					},
-					StringData: map[string]string{
-						"username": e2eCfg.pypiUsername,
-						"password": e2eCfg.pypiPassword,
-					},
-				}
-				_, err := te.ClientSet.CoreV1().Secrets(testNamespace.Name).Create(ctx, secret, metav1.CreateOptions{})
-				Expect(err).NotTo(HaveOccurred())
+				ensurePyPISecret(ctx, te.ClientSet.CoreV1(), testNamespace.Name, e2eCfg.pypiUsername, e2eCfg.pypiPassword)
 				DeferCleanup(func() {
-					_ = te.ClientSet.CoreV1().Secrets(testNamespace.Name).
-						Delete(context.Background(), "pypi-cred", metav1.DeleteOptions{})
+					cleanupPyPISecret(te.ClientSet.CoreV1(), testNamespace.Name)
 				})
 
 				claimTemplateName := "model-zoo-dra-claim-template"
@@ -402,7 +269,7 @@ python inference.py`
 						},
 					},
 				}
-				_, err = te.ClientSet.ResourceV1().
+				_, err := te.ClientSet.ResourceV1().
 					ResourceClaimTemplates(testNamespace.Name).
 					Create(ctx, claimTemplate, metav1.CreateOptions{})
 				Expect(err).NotTo(HaveOccurred())
@@ -412,40 +279,18 @@ python inference.py`
 				})
 
 				podName := "model-zoo-ubuntu-24-04-dra"
-				script := `set -euo pipefail
-export TZ=Asia/Seoul
-ln -snf /usr/share/zoneinfo/$TZ /etc/localtime
-echo $TZ > /etc/timezone
-apt update
-apt-get install -y git python3 python3-pip python3-venv ca-certificates
-mkdir -p /workspace
-python3 -m venv /workspace/.venv
-. /workspace/.venv/bin/activate
-python -m pip install -U pip setuptools wheel
-
-cat <<EOF > ~/.netrc
-machine pypi.rebellions.in
-login ${PYPI_USER}
-password ${PYPI_PASS}
-EOF
-
-chmod 600 ~/.netrc
-
-git clone https://github.com/rebellions-sw/rbln-model-zoo.git
-cd rbln-model-zoo/pytorch/vision/detection/yolov10/
-git submodule update --init ultralytics/
-python -m pip install -r requirements.txt
-python -m pip install -i https://pypi.rebellions.in/simple rebel-compiler==0.10.1
-python compile.py
-python inference.py`
+				container := newModelZooContainer()
+				container.Resources = corev1.ResourceRequirements{
+					Claims: []corev1.ResourceClaim{
+						{Name: "npu", Request: "npu"},
+					},
+				}
 
 				pod := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      podName,
 						Namespace: testNamespace.Name,
-						Labels: map[string]string{
-							"app": "model-zoo-smoke-dra",
-						},
+						Labels:    map[string]string{"app": "model-zoo-smoke-dra"},
 					},
 					Spec: corev1.PodSpec{
 						RestartPolicy: corev1.RestartPolicyNever,
@@ -455,41 +300,7 @@ python inference.py`
 								ResourceClaimTemplateName: stringPtr(claimTemplateName),
 							},
 						},
-						Containers: []corev1.Container{
-							{
-								Name:    "runner",
-								Image:   "ubuntu:24.04",
-								Command: []string{"/bin/bash", "-lc", script},
-								Env: []corev1.EnvVar{
-									{
-										Name: "PYPI_USER",
-										ValueFrom: &corev1.EnvVarSource{
-											SecretKeyRef: &corev1.SecretKeySelector{
-												LocalObjectReference: corev1.LocalObjectReference{Name: "pypi-cred"},
-												Key:                  "username",
-											},
-										},
-									},
-									{
-										Name: "PYPI_PASS",
-										ValueFrom: &corev1.EnvVarSource{
-											SecretKeyRef: &corev1.SecretKeySelector{
-												LocalObjectReference: corev1.LocalObjectReference{Name: "pypi-cred"},
-												Key:                  "password",
-											},
-										},
-									},
-								},
-								Resources: corev1.ResourceRequirements{
-									Claims: []corev1.ResourceClaim{
-										{
-											Name:    "npu",
-											Request: "npu",
-										},
-									},
-								},
-							},
-						},
+						Containers: []corev1.Container{container},
 					},
 				}
 
@@ -528,22 +339,49 @@ python inference.py`
 					Within(defaultOperandWaitTimeout).
 					Should(BeTrue(), "resource claim %s was not allocated", generatedClaimName)
 
-				var lastPod *corev1.Pod
-				Eventually(func(g Gomega) corev1.PodPhase {
-					p, err := te.ClientSet.CoreV1().Pods(testNamespace.Name).Get(ctx, podName, metav1.GetOptions{})
-					g.Expect(err).NotTo(HaveOccurred())
-					lastPod = p
-					return p.Status.Phase
-				}).WithTimeout(10 * time.Minute).
-					WithPolling(10 * time.Second).
-					WithContext(ctx).
-					Should(BeElementOf(corev1.PodSucceeded, corev1.PodFailed))
-
-				Expect(lastPod.Status.Phase).To(Equal(corev1.PodSucceeded), "pod failed: %s", lastPod.Status.Message)
+				waitForPodCompletion(ctx, te.ClientSet.CoreV1(), testNamespace.Name, podName)
 			})
 		})
 	})
 })
+
+// ---------------------------------------------------------------------------
+// Pod readiness helper
+// ---------------------------------------------------------------------------
+
+func waitForPodsReady(
+	ctx context.Context, client *e2ek8s.CoreClient, namespace, target string, labelMap map[string]string,
+) {
+	By(fmt.Sprintf("waiting for %s pods to become ready", target))
+	Eventually(func() bool {
+		pods, err := client.GetPodsByLabel(ctx, namespace, labelMap)
+		if err != nil {
+			e2elog.Infof("WARN: error retrieving pods for %s: %v", target, err)
+			return false
+		}
+
+		var readyCount int
+		for _, pod := range pods {
+			e2elog.Infof("Checking status of pod %s for target %s", pod.Name, target)
+			isReady, err := client.IsPodReady(ctx, pod.Name, pod.Namespace)
+			if err != nil {
+				e2elog.Infof("WARN: error when retrieving pod status of %s/%s: %v", namespace, target, err)
+				return false
+			}
+			if isReady {
+				readyCount++
+			}
+		}
+		return len(pods) > 0 && readyCount == len(pods)
+	}).WithPolling(defaultOperandPollInterval).
+		Within(defaultOperandWaitTimeout).
+		WithContext(ctx).
+		Should(BeTrue())
+}
+
+// ---------------------------------------------------------------------------
+// Docker registry helpers
+// ---------------------------------------------------------------------------
 
 type dockerAuthConfig struct {
 	Username string `json:"username,omitempty"`
@@ -624,7 +462,7 @@ func setupOperatorDeployment(
 
 	testNamespace, err := k8sCoreClient.CreateNamespace(ctx, e2eCfg.namespace, nsLabels)
 	if err != nil {
-		Fail(fmt.Sprintf("failed to create gpu operator namespace %s: %v", e2eCfg.namespace, err))
+		Fail(fmt.Sprintf("failed to create operator namespace %s: %v", e2eCfg.namespace, err))
 	}
 
 	if e2eCfg.registryUser == "" || e2eCfg.registryPassword == "" {
@@ -646,7 +484,7 @@ func setupOperatorDeployment(
 		e2eCfg.helmChart,
 	)
 	if err != nil {
-		Fail(fmt.Sprintf("failed to instantiate gpu operator client: %v", err))
+		Fail(fmt.Sprintf("failed to instantiate helm client: %v", err))
 	}
 
 	helmReleaseName, err := helmClient.Install(ctx, ChartOptions{

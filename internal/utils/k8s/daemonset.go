@@ -7,7 +7,7 @@ import (
 )
 
 type DaemonSetBuilder struct {
-	*OwnableBuilder[appsv1.DaemonSet, *appsv1.DaemonSet]
+	*Builder[appsv1.DaemonSet]
 }
 
 func NewDaemonSetBuilder(name, namespace string) *DaemonSetBuilder {
@@ -29,9 +29,7 @@ func NewDaemonSetBuilder(name, namespace string) *DaemonSetBuilder {
 		},
 	}
 	return &DaemonSetBuilder{
-		OwnableBuilder: &OwnableBuilder[appsv1.DaemonSet, *appsv1.DaemonSet]{
-			Builder: NewBuilder[appsv1.DaemonSet](ds),
-		},
+		Builder: NewBuilder[appsv1.DaemonSet](ds),
 	}
 }
 
@@ -68,8 +66,29 @@ func (b *DaemonSetBuilder) WithPodAnnotations(annotations map[string]string) *Da
 	return b
 }
 
-func (b *DaemonSetBuilder) WithPodSpec(podSpec *corev1.PodSpec) *DaemonSetBuilder {
-	b.obj.Spec.Template.Spec = *podSpec.DeepCopy()
+// WithPodSpec merges the desired PodSpec fields into the existing spec.
+// Only operator-managed fields are overwritten; API-server-defaulted fields
+// (restartPolicy, dnsPolicy, schedulerName, etc.) are preserved to avoid
+// spurious updates on every reconciliation.
+func (b *DaemonSetBuilder) WithPodSpec(desired *corev1.PodSpec) *DaemonSetBuilder {
+	spec := &b.obj.Spec.Template.Spec
+
+	spec.InitContainers = desired.InitContainers
+	spec.Containers = desired.Containers
+	spec.Volumes = desired.Volumes
+	spec.ServiceAccountName = desired.ServiceAccountName
+	spec.NodeSelector = desired.NodeSelector
+	spec.Tolerations = desired.Tolerations
+	spec.Affinity = desired.Affinity
+	spec.ImagePullSecrets = desired.ImagePullSecrets
+	spec.PriorityClassName = desired.PriorityClassName
+	spec.HostNetwork = desired.HostNetwork
+	spec.HostPID = desired.HostPID
+
+	if desired.TerminationGracePeriodSeconds != nil {
+		spec.TerminationGracePeriodSeconds = desired.TerminationGracePeriodSeconds
+	}
+
 	return b
 }
 

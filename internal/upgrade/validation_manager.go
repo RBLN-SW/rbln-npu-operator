@@ -3,8 +3,6 @@ package upgrade
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -12,9 +10,10 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-const (
-	validationTimeoutSeconds = 600
-)
+// ValidationManagerInterface abstracts driver upgrade validation for testability.
+type ValidationManagerInterface interface {
+	Validate(ctx context.Context, node *corev1.Node) (bool, error)
+}
 
 type ValidationManager struct {
 	k8sInterface             kubernetes.Interface
@@ -67,7 +66,7 @@ func (m *ValidationManager) Validate(ctx context.Context, node *corev1.Node) (bo
 	done := true
 	for _, pod := range podList.Items {
 		if !m.isPodReady(pod) {
-			err = m.handleTimeout(ctx, node, int64(validationTimeoutSeconds))
+			err = m.handleTimeout(ctx, node, DefaultValidationTimeoutSeconds)
 			if err != nil {
 				return false, fmt.Errorf("unable to handle timeout for validation state: %v", err)
 			}
@@ -107,24 +106,15 @@ func (m *ValidationManager) isPodReady(pod corev1.Pod) bool {
 
 func (m *ValidationManager) handleTimeout(ctx context.Context, node *corev1.Node, timeoutSeconds int64) error {
 	annotationKey := UpgradeValidationStartTimeAnnotationKey
-	currentTime := time.Now().Unix()
-	if _, present := node.Annotations[annotationKey]; !present {
-		err := m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(ctx, node, annotationKey,
-			strconv.FormatInt(currentTime, 10))
-		if err != nil {
-			m.Log.Error(err, "Failed to add annotation to track validation completion",
-				"node", node.Name, "annotation", annotationKey)
-			return err
-		}
-		return nil
-	}
-	startTime, err := strconv.ParseInt(node.Annotations[annotationKey], 10, 64)
+
+	timedOut, err := checkAnnotationTimeout(ctx, m.nodeUpgradeStateProvider, node, annotationKey, timeoutSeconds)
 	if err != nil {
-		m.Log.Error(err, "Failed to convert start time to track validation completion",
-			"node", node.Name)
+		m.Log.Error(err, "Failed to check validation timeout",
+			"node", node.Name, "annotation", annotationKey)
 		return err
 	}
-	if currentTime > startTime+timeoutSeconds {
+
+	if timedOut {
 		_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed)
 		m.Log.Info("Timeout exceeded for validation, updated the node state", "node", node.Name,
 			"state", UpgradeStateFailed)

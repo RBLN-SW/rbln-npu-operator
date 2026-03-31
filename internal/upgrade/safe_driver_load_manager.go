@@ -9,6 +9,12 @@ import (
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
+// SafeDriverLoadManagerInterface abstracts safe driver load operations for testability.
+type SafeDriverLoadManagerInterface interface {
+	IsWaitingForSafeDriverLoad(ctx context.Context, node *corev1.Node) bool
+	UnblockLoading(ctx context.Context, node *corev1.Node) error
+}
+
 type SafeDriverLoadManager struct {
 	log                      logr.Logger
 	nodeUpgradeStateProvider *NodeUpgradeStateProvider

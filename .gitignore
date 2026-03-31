@@ -38,3 +38,5 @@ preflight.log
 .env
 
 .vscode/*
+
+CLAUDE.md

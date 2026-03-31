@@ -91,3 +91,26 @@ func (b *ContainerBuilder) WithEnvs(envs []corev1.EnvVar) *ContainerBuilder {
 	b.obj.Env = envs
 	return b
 }
+
+func (b *ContainerBuilder) WithPorts(ports []corev1.ContainerPort) *ContainerBuilder {
+	b.obj.Ports = ports
+	return b
+}
+
+func (b *ContainerBuilder) WithLivenessProbe(probe *corev1.Probe) *ContainerBuilder {
+	b.obj.LivenessProbe = probe
+	return b
+}
+
+// Build returns the container with Kubernetes API server defaults populated.
+// This prevents spurious diffs when used with CreateOrPatch, since the API
+// server automatically sets these fields on persisted containers.
+func (b *ContainerBuilder) Build() *corev1.Container {
+	if b.obj.TerminationMessagePath == "" {
+		b.obj.TerminationMessagePath = "/dev/termination-log"
+	}
+	if b.obj.TerminationMessagePolicy == "" {
+		b.obj.TerminationMessagePolicy = corev1.TerminationMessageReadFile
+	}
+	return b.obj
+}

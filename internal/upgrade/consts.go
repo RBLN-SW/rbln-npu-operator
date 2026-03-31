@@ -82,6 +82,16 @@ var managedUpgradeStates = []string{
 	UpgradeStateUncordonRequired,
 }
 
+// Default timeout and threshold values used by the upgrade state machine.
+const (
+	// DefaultRebootPostTimeoutSeconds is the default timeout for post-reboot pod stabilization.
+	DefaultRebootPostTimeoutSeconds int64 = 600
+	// DefaultValidationTimeoutSeconds is the default timeout for driver validation readiness.
+	DefaultValidationTimeoutSeconds int64 = 600
+	// MaxPodRestartCount is the threshold above which a pod is considered crash-looping.
+	MaxPodRestartCount int32 = 10
+)
+
 // Internal constants used across the upgrade package.
 const (
 	// nodeNameFieldSelectorFmt is used in metav1.ListOptions to filter resources by node name.

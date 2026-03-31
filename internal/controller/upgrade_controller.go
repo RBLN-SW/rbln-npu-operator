@@ -29,6 +29,7 @@ import (
 	rblnv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
+	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 const (
@@ -76,12 +77,8 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, r.removeNodeUpgradeStateLabels(ctx)
 	}
 
-	namespace := clusterPolicy.Spec.Namespace
-	if namespace == "" {
-		namespace = os.Getenv("OPERATOR_NAMESPACE")
-	}
-	if namespace == "" {
-		err = fmt.Errorf("namespace is not configured. Set OPERATOR_NAMESPACE env variable or namespace spec")
+	namespace, err := k8sutil.ResolveNamespace(clusterPolicy.Spec.Namespace, os.Getenv("OPERATOR_NAMESPACE"))
+	if err != nil {
 		r.Log.Error(err, "Failed to resolve namespace for upgrade state build")
 		return ctrl.Result{}, nil
 	}
@@ -115,23 +112,17 @@ func (r *UpgradeReconciler) removeNodeUpgradeStateLabels(ctx context.Context) er
 	r.Log.Info("Resetting node upgrade labels from all nodes")
 
 	nodeList := &corev1.NodeList{}
-	err := r.List(ctx, nodeList)
-	if err != nil {
+	if err := r.List(ctx, nodeList, client.HasLabels{upgrade.UpgradeStateLabelKey}); err != nil {
 		r.Log.Error(err, "Failed to get node list to reset upgrade labels")
 		return err
 	}
 
 	for i := range nodeList.Items {
 		node := &nodeList.Items[i]
-		_, present := node.Labels[upgrade.UpgradeStateLabelKey]
-		if present {
-			patchBytes := fmt.Appendf(nil, `{"metadata":{"labels":{%q:null}}}`, upgrade.UpgradeStateLabelKey)
-			patch := client.RawPatch(types.MergePatchType, patchBytes)
-			err = r.Patch(ctx, node, patch)
-			if err != nil {
-				r.Log.Error(err, "Failed to reset upgrade state label from node", "node", node)
-				return err
-			}
+		patchBytes := fmt.Appendf(nil, `{"metadata":{"labels":{%q:null}}}`, upgrade.UpgradeStateLabelKey)
+		if err := r.Patch(ctx, node, client.RawPatch(types.MergePatchType, patchBytes)); err != nil {
+			r.Log.Error(err, "Failed to reset upgrade state label from node", "node", node.Name)
+			return err
 		}
 	}
 	return nil
@@ -224,23 +215,20 @@ func (r *UpgradeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 
 func getClusterPoliciesToReconcile(ctx context.Context, k8sClient client.Client) []reconcile.Request {
 	logger := log.FromContext(ctx)
-	opts := []client.ListOption{}
 	list := &rblnv1beta1.RBLNClusterPolicyList{}
-
-	err := k8sClient.List(ctx, list, opts...)
-	if err != nil {
+	if err := k8sClient.List(ctx, list); err != nil {
 		logger.Error(err, "Unable to list ClusterPolicies")
-		return []reconcile.Request{}
+		return nil
 	}
 
-	cpToRec := []reconcile.Request{}
-
+	requests := make([]reconcile.Request, 0, len(list.Items))
 	for _, cp := range list.Items {
-		cpToRec = append(cpToRec, reconcile.Request{NamespacedName: types.NamespacedName{
-			Name:      cp.GetName(),
-			Namespace: cp.GetNamespace(),
-		}})
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      cp.GetName(),
+				Namespace: cp.GetNamespace(),
+			},
+		})
 	}
-
-	return cpToRec
+	return requests
 }

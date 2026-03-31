@@ -3,7 +3,7 @@ package main
 import "github.com/spf13/cobra"
 
 func NewRBLNValidatorApp() *cobra.Command {
-	builder := newConfigBuilder()
+	config := newRootConfig()
 
 	cmd := &cobra.Command{
 		Use:           "rbln-validator",
@@ -16,11 +16,11 @@ func NewRBLNValidatorApp() *cobra.Command {
 	}
 
 	cmd.AddCommand(
-		newDriverCommand(builder),
-		newToolkitCommand(builder),
+		newDriverCommand(config),
+		newToolkitCommand(config),
 	)
 
-	builder.bindFlags(cmd)
+	config.bindFlags(cmd)
 
 	return cmd
 }

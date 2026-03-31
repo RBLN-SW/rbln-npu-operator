@@ -24,7 +24,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	kapierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/workqueue"
@@ -32,16 +32,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/scope"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/validator"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/driver"
+	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 // RBLNDriverReconciler reconciles a RBLNDriver object
@@ -49,15 +48,12 @@ type RBLNDriverReconciler struct {
 	client.Client
 	Log                   logr.Logger
 	Scheme                *runtime.Scheme
-	ClusterInfo           *ClusterInfo
-	nodeSelectorValidator validator.NodeSelectorValidator
+	ClusterInfo           *clusterinfo.Info
+	nodeSelectorValidator driver.NodeSelectorValidator
 }
 
 const (
 	driverNodeDeployLabelKey = "rebellions.ai/npu.deploy.driver"
-	nfdOSReleaseIDLabelKey   = "feature.node.kubernetes.io/system-os_release.ID"
-	nfdOSVersionIDLabelKey   = "feature.node.kubernetes.io/system-os_release.VERSION_ID"
-	nfdKernelLabelKey        = "feature.node.kubernetes.io/kernel-version.full"
 )
 
 // +kubebuilder:rbac:groups=rebellions.ai,resources=rblndrivers,verbs=get;list;watch;create;update;patch;delete
@@ -104,14 +100,14 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	if len(clusterPolicyList.Items) == 0 {
 		r.Log.Info("RBLNClusterPolicy not found yet; skipping driver reconcile")
-		r.setDriverStatusNotReady(ctx, instance, "MissingClusterPolicy", "RBLNClusterPolicy not found in the cluster")
+		r.setDriverStatusNotReady(ctx, instance, consts.RBLNConditionReasonMissingClusterPolicy, "RBLNClusterPolicy not found in the cluster")
 		return ctrl.Result{}, nil
 	}
 	clusterPolicyInstance := clusterPolicyList.Items[0]
 
 	nodeSelectorValidator := r.nodeSelectorValidator
 	if nodeSelectorValidator == nil {
-		nodeSelectorValidator = validator.NewNodeSelectorValidator(r.Client)
+		nodeSelectorValidator = driver.NewNodeSelectorValidator(r.Client)
 		r.nodeSelectorValidator = nodeSelectorValidator
 	}
 	if err := nodeSelectorValidator.Validate(ctx, instance); err != nil {
@@ -122,16 +118,16 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	openshiftVersion := ""
 	if r.ClusterInfo != nil {
-		openshiftVersion = r.ClusterInfo.OpenshiftVersion
+		openshiftVersion = r.ClusterInfo.OpenShiftVersion
 	}
-	driverScope, err := scope.NewRBLNDriverScope(ctx, r.Client, r.Log, r.Scheme, instance, &clusterPolicyInstance, openshiftVersion)
+	driverService, err := driver.NewDriverService(ctx, r.Client, r.Log, r.Scheme, instance, &clusterPolicyInstance, openshiftVersion)
 	if err != nil {
-		r.Log.Error(err, "failed to initialize RBLNDriver scope")
+		r.Log.Error(err, "failed to initialize RBLNDriver service")
 		r.setDriverStatusError(ctx, instance, err)
 		return ctrl.Result{}, err
 	}
 
-	if err := driverScope.PatchComponents(ctx); err != nil {
+	if err := driverService.PatchComponents(ctx); err != nil {
 		r.Log.Error(err, "failed to patch driver manager resources")
 		r.setDriverStatusError(ctx, instance, err)
 		return ctrl.Result{}, err
@@ -142,15 +138,15 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 func (r *RBLNDriverReconciler) setDriverStatusError(ctx context.Context, instance *rebellionsaiv1alpha1.RBLNDriver, err error) {
 	instance.Status.State = rebellionsaiv1alpha1.DriverStateNotReady
-	meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-		Type:   conditions.ConditionReady,
+	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+		Type:   consts.RBLNConditionTypeReady,
 		Status: metav1.ConditionFalse,
-		Reason: conditions.ConditionError,
+		Reason: consts.RBLNConditionReasonError,
 	})
-	meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-		Type:    conditions.ConditionError,
+	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+		Type:    consts.RBLNConditionTypeError,
 		Status:  metav1.ConditionTrue,
-		Reason:  conditions.ReconcileFailed,
+		Reason:  consts.RBLNConditionReasonReconcileFailed,
 		Message: err.Error(),
 	})
 	if statusErr := r.Status().Update(ctx, instance); statusErr != nil {
@@ -159,44 +155,21 @@ func (r *RBLNDriverReconciler) setDriverStatusError(ctx context.Context, instanc
 }
 
 func (r *RBLNDriverReconciler) setDriverStatusNotReady(ctx context.Context, instance *rebellionsaiv1alpha1.RBLNDriver, reason string, message string) {
-	updated := false
-	if instance.Status.State != rebellionsaiv1alpha1.DriverStateNotReady {
-		instance.Status.State = rebellionsaiv1alpha1.DriverStateNotReady
-		updated = true
-	}
-
-	readyCondition := metav1.Condition{
-		Type:    conditions.ConditionReady,
+	instance.Status.State = rebellionsaiv1alpha1.DriverStateNotReady
+	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+		Type:    consts.RBLNConditionTypeReady,
 		Status:  metav1.ConditionFalse,
 		Reason:  reason,
 		Message: message,
+	})
+	if statusErr := r.Status().Update(ctx, instance); statusErr != nil {
+		r.Log.Error(statusErr, "failed to update RBLNDriver status")
 	}
-	if shouldUpdateCondition(&instance.Status.Conditions, readyCondition) {
-		updated = true
-	}
-
-	if updated {
-		if statusErr := r.Status().Update(ctx, instance); statusErr != nil {
-			r.Log.Error(statusErr, "failed to update RBLNDriver status")
-		}
-	}
-}
-
-func shouldUpdateCondition(conditionsList *[]metav1.Condition, desired metav1.Condition) bool {
-	existing := meta.FindStatusCondition(*conditionsList, desired.Type)
-	if existing != nil &&
-		existing.Status == desired.Status &&
-		existing.Reason == desired.Reason &&
-		existing.Message == desired.Message {
-		return false
-	}
-	meta.SetStatusCondition(conditionsList, desired)
-	return true
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RBLNDriverReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	r.nodeSelectorValidator = validator.NewNodeSelectorValidator(mgr.GetClient())
+	r.nodeSelectorValidator = driver.NewNodeSelectorValidator(mgr.GetClient())
 
 	mapFn := func(ctx context.Context, _ client.Object) []reconcile.Request {
 		list := &rebellionsaiv1alpha1.RBLNDriverList{}
@@ -224,40 +197,12 @@ func (r *RBLNDriverReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&corev1.Node{},
 			handler.EnqueueRequestsFromMapFunc(mapFn),
-			builder.WithPredicates(r.driverRelevantNodeLabelUpdated()),
+			builder.WithPredicates(k8sutil.NodeLabelChangedPredicate(
+				driverNodeDeployLabelKey,
+				consts.NFDOSReleaseIDLabelKey,
+				consts.NFDOSVersionIDLabelKey,
+				consts.NFDKernelLabelKey,
+			)),
 		).
 		Complete(r)
-}
-
-func (r *RBLNDriverReconciler) driverRelevantNodeLabelUpdated() predicate.Funcs {
-	interested := []string{
-		driverNodeDeployLabelKey,
-		nfdOSReleaseIDLabelKey,
-		nfdOSVersionIDLabelKey,
-		nfdKernelLabelKey,
-	}
-
-	return predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool { return true },
-		DeleteFunc: func(e event.DeleteEvent) bool { return true },
-		GenericFunc: func(e event.GenericEvent) bool {
-			return false
-		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldNode, ok1 := e.ObjectOld.(*corev1.Node)
-			newNode, ok2 := e.ObjectNew.(*corev1.Node)
-			if !ok1 || !ok2 {
-				return false
-			}
-
-			for _, key := range interested {
-				oldVal := oldNode.GetLabels()[key]
-				newVal := newNode.GetLabels()[key]
-				if oldVal != newVal {
-					return true
-				}
-			}
-			return false
-		},
-	}
 }
