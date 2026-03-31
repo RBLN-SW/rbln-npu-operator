@@ -129,35 +129,29 @@ spec:
         path: containerToolkit.version
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: DaemonSets is common spec of rbln daemonset components
-        displayName: Daemonsets
-        path: daemonsets
+      - description: PodDefaults defines common configuration applied to all DaemonSet pods managed by this policy.
+        displayName: Pod Defaults
+        path: podDefaults
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced
-      - description: Affinity specifies the affinity for the DaemonSet pods
-        displayName: Affinity
-        path: daemonsets.affinity
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Affinity
       - description: Annotations specifies the annotations for the DaemonSet pods
         displayName: Annotations
-        path: daemonsets.annotations
+        path: podDefaults.annotations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Labels specifies the labels for the DaemonSet pods
         displayName: Labels
-        path: daemonsets.labels
+        path: podDefaults.labels
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: PriorityClassName specifies the priority class for the DaemonSet
-          pods
+      - description: PriorityClassName specifies the priority class for the DaemonSet pods
         displayName: PriorityClassName
-        path: daemonsets.priorityClassName
+        path: podDefaults.priorityClassName
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Tolerations specifies the tolerations for the DaemonSet pods
         displayName: Tolerations
-        path: daemonsets.tolerations
+        path: podDefaults.tolerations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
       - description: DevicePlugin component spec
@@ -416,16 +410,6 @@ spec:
       - description: RBLN Metrics Exporter image tag
         displayName: Version
         path: metricsExporter.version
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: BaseName of rbln components
-        displayName: Base Name
-        path: name
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Namespace of the controller
-        displayName: Namespace
-        path: namespace
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: NPUFeatureDiscovery component spec

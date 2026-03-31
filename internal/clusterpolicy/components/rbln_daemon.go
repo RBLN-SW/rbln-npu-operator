@@ -35,6 +35,7 @@ const (
 type rblnDaemonPatcher struct {
 	basePatcher
 	desiredSpec *rblnv1beta1.RBLNDaemonSpec
+	podDefaults *rblnv1beta1.PodDefaultsSpec
 }
 
 func NewRBLNDaemonPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
@@ -50,6 +51,7 @@ func NewRBLNDaemonPatcher(client client.Client, log logr.Logger, namespace strin
 			enabled:          synced.IsEnabled(),
 		},
 		desiredSpec: &synced,
+		podDefaults: cpSpec.PodDefaults,
 	}
 }
 
@@ -118,7 +120,6 @@ func (h *rblnDaemonPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *
 		WithName(h.name).
 		WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
 		WithCommands([]string{rblnDaemonCommand}).
-		WithArgs(h.desiredSpec.Args).
 		WithEnvs(h.desiredSpec.Env).
 		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 		WithPorts([]corev1.ContainerPort{
@@ -147,7 +148,7 @@ func (h *rblnDaemonPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
-		WithPriorityClassName(h.desiredSpec.PriorityClassName).
+		WithPriorityClassName(podDefaultsPriorityClassName(h.podDefaults)).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume(rblnDaemonVarRunVolumeName, rblnDaemonVarRunPath, corev1.HostPathDirectory),

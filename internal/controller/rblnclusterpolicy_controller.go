@@ -71,9 +71,9 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 
-	namespace, err := k8sutil.ResolveNamespace(instance.Spec.Namespace, os.Getenv("OPERATOR_NAMESPACE"))
-	if err != nil {
-		return ctrl.Result{}, err
+	namespace := os.Getenv("OPERATOR_NAMESPACE")
+	if namespace == "" {
+		return ctrl.Result{}, fmt.Errorf("OPERATOR_NAMESPACE environment variable is not set")
 	}
 
 	candidates, nfdInstalled, err := clusterpolicy.ListAndClassifyNodes(ctx, r.Client)

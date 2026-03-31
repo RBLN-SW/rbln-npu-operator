@@ -17,13 +17,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
-const (
-	testBaseName  = "rbln"
-	testNamespace = "rbln-system"
-)
+const testNamespace = "rbln-system"
 
 func init() {
 	logf.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -58,12 +56,10 @@ func newFakeClient(t *testing.T, scheme *runtime.Scheme, objs ...client.Object) 
 func newTestOwner() *rblnv1beta1.RBLNClusterPolicy {
 	return &rblnv1beta1.RBLNClusterPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: testBaseName + "-cluster-policy",
+			Name: consts.RBLNBaseName + "-cluster-policy",
 			UID:  "test-uid-12345",
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
-			BaseName:  testBaseName,
-			Namespace: testNamespace,
 			Validator: rblnv1beta1.ValidatorSpec{
 				Registry: "docker.io",
 				Image:    "rebellions/rbln-validator",

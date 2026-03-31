@@ -80,8 +80,9 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 
 		BeforeEach(func() {
 			containerNS = createTestNamespace(ctx, "rbln-container")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", containerNS)
 			reconciler = newTestClusterPolicyReconciler("")
-			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("container-policy", containerNS))
+			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("container-policy"))
 		})
 
 		JustBeforeEach(func() {
@@ -136,8 +137,9 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 
 		BeforeEach(func() {
 			vmNS = createTestNamespace(ctx, "rbln-vm")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", vmNS)
 			reconciler = newTestClusterPolicyReconciler("")
-			nn = createClusterPolicyFixture(ctx, newVMPassthroughClusterPolicyFixture("container-policy", vmNS))
+			nn = createClusterPolicyFixture(ctx, newVMPassthroughClusterPolicyFixture("container-policy"))
 		})
 
 		JustBeforeEach(func() {
@@ -170,12 +172,13 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 
 		BeforeEach(func() {
 			skipNS = createTestNamespace(ctx, "rbln-operator-skip")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", skipNS)
 			reconciler = newTestClusterPolicyReconciler("")
 			setNodeLabel(ctx, nodeName, consts.RBLNDeploySkipLabelKey, "true")
 			DeferCleanup(func() {
 				removeNodeLabel(ctx, nodeName, consts.RBLNDeploySkipLabelKey)
 			})
-			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("skip-policy", skipNS))
+			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("skip-policy"))
 		})
 
 		It("Should remove deploy labels and skip component deployment", func() {
@@ -203,6 +206,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 
 		BeforeEach(func() {
 			nfdNS = createTestNamespace(ctx, "rbln-nfd-missing")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", nfdNS)
 			reconciler = newTestClusterPolicyReconciler("")
 
 			originalLabels := replaceNodeLabels(ctx, nodeName, map[string]string{
@@ -212,7 +216,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 				replaceNodeLabels(ctx, nodeName, originalLabels)
 			})
 
-			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("nfd-missing-policy", nfdNS))
+			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("nfd-missing-policy"))
 		})
 
 		It("returns a requeue result and marks the policy not ready", func() {
@@ -236,9 +240,10 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 		BeforeEach(func() {
 			activeNS = createTestNamespace(ctx, "rbln-singleton-active")
 			ignoredNS = createTestNamespace(ctx, "rbln-singleton-ignored")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", activeNS)
 			reconciler = newTestClusterPolicyReconciler("")
-			activeNN = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("active-policy", activeNS))
-			ignoredNN = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("ignored-policy", ignoredNS))
+			activeNN = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("active-policy"))
+			ignoredNN = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("ignored-policy"))
 		})
 
 		It("marks the second policy ignored and keeps resources scoped to the first policy", func() {
@@ -265,8 +270,9 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 
 		BeforeEach(func() {
 			openShiftNS = createTestNamespace(ctx, "rbln-openshift")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", openShiftNS)
 			reconciler = newTestClusterPolicyReconciler("v4.14.0")
-			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("container-policy", openShiftNS))
+			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("container-policy"))
 		})
 
 		JustBeforeEach(func() {
@@ -305,7 +311,7 @@ func newTestClusterPolicyReconciler(openShiftVersion string) *RBLNClusterPolicyR
 // Fixture builders
 // ---------------------------------------------------------------------------
 
-func newContainerClusterPolicyFixture(name, namespace string) *rblnv1beta1.RBLNClusterPolicy {
+func newContainerClusterPolicyFixture(name string) *rblnv1beta1.RBLNClusterPolicy {
 	return &rblnv1beta1.RBLNClusterPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -313,7 +319,6 @@ func newContainerClusterPolicyFixture(name, namespace string) *rblnv1beta1.RBLNC
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
 			WorkloadType: consts.RBLNWorkloadConfigContainer,
-			Namespace:    namespace,
 			VFIOManager: rblnv1beta1.RBLNVFIOManagerSpec{
 				Enabled: false,
 			},
@@ -333,7 +338,7 @@ func newContainerClusterPolicyFixture(name, namespace string) *rblnv1beta1.RBLNC
 	}
 }
 
-func newVMPassthroughClusterPolicyFixture(name, namespace string) *rblnv1beta1.RBLNClusterPolicy {
+func newVMPassthroughClusterPolicyFixture(name string) *rblnv1beta1.RBLNClusterPolicy {
 	return &rblnv1beta1.RBLNClusterPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -341,7 +346,6 @@ func newVMPassthroughClusterPolicyFixture(name, namespace string) *rblnv1beta1.R
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
 			WorkloadType: consts.RBLNWorkloadConfigVMPassthrough,
-			Namespace:    namespace,
 			VFIOManager: rblnv1beta1.RBLNVFIOManagerSpec{
 				Enabled: true,
 			},

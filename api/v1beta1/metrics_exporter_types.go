@@ -26,16 +26,11 @@ type RBLNMetricsExporterSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=latest
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Version",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
-
-	// PriorityClassName specifies the priority class for the DaemonSet pods
-	// +kubebuilder:validation:Optional
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="PriorityClassName",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	PriorityClassName string `json:"priorityClassName,omitempty"`
 }
 
 // RBLNDaemonSpec defines the desired state of RBLN Daemon
@@ -62,20 +57,11 @@ type RBLNDaemonSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=latest
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Version",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
-
-	// PriorityClassName specifies the priority class for the DaemonSet pods
-	// +kubebuilder:validation:Optional
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="PriorityClassName",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	PriorityClassName string `json:"priorityClassName,omitempty"`
-
-	// Optional: List of arguments
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Arguments",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text"
-	Args []string `json:"args,omitempty"`
 
 	// Optional: List of environment variables
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Environment Variables",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text"

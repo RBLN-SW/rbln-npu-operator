@@ -200,7 +200,7 @@ func TestSyncSpec(t *testing.T) {
 
 	t.Run("daemonsets labels merge with component labels", func(t *testing.T) {
 		cpSpec := &rblnv1beta1.RBLNClusterPolicySpec{
-			Daemonsets: &rblnv1beta1.DaemonsetsSpec{
+			PodDefaults: &rblnv1beta1.PodDefaultsSpec{
 				Labels: map[string]string{"global": "true"},
 			},
 			DevicePlugin: rblnv1beta1.RBLNDevicePluginSpec{
@@ -221,7 +221,7 @@ func TestSyncSpec(t *testing.T) {
 
 	t.Run("daemonsets tolerations inherited when component has none", func(t *testing.T) {
 		cpSpec := &rblnv1beta1.RBLNClusterPolicySpec{
-			Daemonsets: &rblnv1beta1.DaemonsetsSpec{
+			PodDefaults: &rblnv1beta1.PodDefaultsSpec{
 				Tolerations: []corev1.Toleration{{Key: "npu", Effect: corev1.TaintEffectNoSchedule}},
 			},
 			DevicePlugin: rblnv1beta1.RBLNDevicePluginSpec{Enabled: true},
@@ -234,7 +234,7 @@ func TestSyncSpec(t *testing.T) {
 
 	t.Run("component tolerations not overridden", func(t *testing.T) {
 		cpSpec := &rblnv1beta1.RBLNClusterPolicySpec{
-			Daemonsets: &rblnv1beta1.DaemonsetsSpec{
+			PodDefaults: &rblnv1beta1.PodDefaultsSpec{
 				Tolerations: []corev1.Toleration{{Key: "global"}},
 			},
 			DevicePlugin: rblnv1beta1.RBLNDevicePluginSpec{

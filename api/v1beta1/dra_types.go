@@ -24,17 +24,11 @@ type RBLNDRAKubeletPluginSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=latest
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Version",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	Version string `json:"version"`
+	Version string `json:"version,omitempty"`
 
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
-
-	// PriorityClassName specifies the priority class for the DaemonSet pods
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:="system-node-critical"
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="PriorityClassName",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	PriorityClassName string `json:"priorityClassName,omitempty"`
 
 	// DriverName is the DRA driver name used by kubelet plugin registration
 	// +kubebuilder:validation:Optional

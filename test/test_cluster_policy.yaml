@@ -4,9 +4,6 @@ metadata:
   name: cluster-policy
   namespace: rbln-system
 spec:
-  name: rbln
-  namespace: rbln-system
-  daemonsets: {}
   devicePlugin:
     enabled: true
     resources:

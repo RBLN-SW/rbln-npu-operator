@@ -38,7 +38,7 @@ func NewDevicePluginPatcher(client client.Client, log logr.Logger, namespace str
 			client:           client,
 			log:              log,
 			scheme:           scheme,
-			name:             cpSpec.BaseName + "-" + consts.RBLNDevicePluginName,
+			name:             consts.RBLNBaseName + "-" + consts.RBLNDevicePluginName,
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),

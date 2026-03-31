@@ -69,7 +69,7 @@ type RBLNDriverSpec struct {
 	// Manager represents configuration for Rebellions Driver Manager initContainer
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Driver Manager",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
-	Manager DriverManagerSpec `json:"manager,omitempty"`
+	Manager DriverManagerSpec `json:"manager"`
 
 	// NodeSelector specifies a selector for installation of the driver
 	// +kubebuilder:validation:Optional
@@ -77,20 +77,10 @@ type RBLNDriverSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Node Selector",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 
-	// +kubebuilder:validation:Optional
-	// Affinity specifies node affinity rules for driver pods
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Node Affinity",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Affinity"
-	NodeAffinity *corev1.NodeAffinity `json:"nodeAffinity,omitempty"`
-
 	// Tolerations specifies the tolerations for the driver pod
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Tolerations",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations"
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
-
-	// Labels specifies the labels for the driver pod
-	// +kubebuilder:validation:Optional
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Labels",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	Labels map[string]string `json:"labels,omitempty"`
 
 	// Annotations specifies the annotations for the driver pod
 	// +kubebuilder:validation:Optional
@@ -106,7 +96,7 @@ type RBLNDriverSpec struct {
 	// Resources specifies the resource requirements for the driver pod
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Resource Requirements",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:resourceRequirements"
-	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+	Resources corev1.ResourceRequirements `json:"resources"`
 
 	// Env specifies environment variables for the driver container
 	// +kubebuilder:validation:Optional
@@ -175,21 +165,6 @@ type DriverManagerSpec struct {
 	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.displayName="Image pull secrets"
 	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.x-descriptors="urn:alm:descriptor:io.kubernetes:Secret"
 	ImagePullSecrets []string `json:"imagePullSecrets,omitempty"`
-
-	// Optional: List of environment variables
-	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors=true
-	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.displayName="Environment Variables"
-	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.x-descriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text"
-	Env []EnvVar `json:"env,omitempty"`
-}
-
-// EnvVar represents an environment variable present in a Container.
-type EnvVar struct {
-	// Name of the environment variable.
-	Name string `json:"name"`
-
-	// Value of the environment variable.
-	Value string `json:"value,omitempty"`
 }
 
 func init() {

@@ -29,7 +29,7 @@ func NewMetricsExporterPatcher(client client.Client, log logr.Logger, namespace 
 			client:           client,
 			log:              log,
 			scheme:           scheme,
-			name:             cpSpec.BaseName + "-" + consts.RBLNMetricExporterName,
+			name:             consts.RBLNBaseName + "-" + consts.RBLNMetricExporterName,
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),

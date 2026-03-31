@@ -34,7 +34,7 @@ func TestSandboxDevicePluginPatch(t *testing.T) {
 		},
 	}
 
-	name := testBaseName + "-" + consts.RBLNSandboxDevicePluginName
+	name := consts.RBLNBaseName + "-" + consts.RBLNSandboxDevicePluginName
 	p := NewSandboxDevicePluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
@@ -94,7 +94,7 @@ func TestSandboxDevicePluginCleanUp(t *testing.T) {
 		},
 	}
 
-	name := testBaseName + "-" + consts.RBLNSandboxDevicePluginName
+	name := consts.RBLNBaseName + "-" + consts.RBLNSandboxDevicePluginName
 	p := NewSandboxDevicePluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {

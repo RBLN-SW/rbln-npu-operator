@@ -23,18 +23,6 @@ import (
 // RBLNClusterPolicySpec defines the desired state of RBLNClusterPolicy
 // +kubebuilder:object:generate=true
 type RBLNClusterPolicySpec struct {
-	// BaseName of rbln components
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:=rbln
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Base Name",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	BaseName string `json:"name,omitempty"`
-
-	// Namespace of the controller
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:=rbln-system
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Namespace",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	Namespace string `json:"namespace,omitempty"`
-
 	// WorkloadType specifies the type of default workload.
 	// +kubebuilder:validation:Enum=container;vm-passthrough
 	// +kubebuilder:validation:Optional
@@ -42,9 +30,9 @@ type RBLNClusterPolicySpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Workload Type",xDescriptors="urn:alm:descriptor:com.tectonic.ui:select:container,urn:alm:descriptor:com.tectonic.ui:select:vm-passthrough"
 	WorkloadType string `json:"workloadType"`
 
-	// DaemonSets is common spec of rbln daemonset components
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Daemonsets",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
-	Daemonsets *DaemonsetsSpec `json:"daemonsets,omitempty"`
+	// PodDefaults defines common configuration applied to all DaemonSet pods managed by this policy.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Pod Defaults",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
+	PodDefaults *PodDefaultsSpec `json:"podDefaults,omitempty"`
 
 	// VFIOManager component spec
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="VFIO Manager",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"

@@ -35,6 +35,7 @@ const (
 type draKubeletPluginPatcher struct {
 	basePatcher
 	desiredSpec *rblnv1beta1.RBLNDRAKubeletPluginSpec
+	podDefaults *rblnv1beta1.PodDefaultsSpec
 }
 
 func NewDRAKubeletPluginPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
@@ -44,12 +45,13 @@ func NewDRAKubeletPluginPatcher(client client.Client, log logr.Logger, namespace
 			client:           client,
 			log:              log,
 			scheme:           scheme,
-			name:             cpSpec.BaseName + "-" + consts.RBLNDRAKubeletPluginName,
+			name:             consts.RBLNBaseName + "-" + consts.RBLNDRAKubeletPluginName,
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),
 		},
 		desiredSpec: &synced,
+		podDefaults: cpSpec.PodDefaults,
 	}
 }
 
@@ -292,7 +294,7 @@ func (h *draKubeletPluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
-		WithPriorityClassName(h.desiredSpec.PriorityClassName).
+		WithPriorityClassName(podDefaultsPriorityClassName(h.podDefaults)).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			{

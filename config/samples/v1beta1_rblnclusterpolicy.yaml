@@ -5,16 +5,13 @@ metadata:
     app.kubernetes.io/name: rbln-npu-operator
   name: rbln-cluster-policy
 spec:
-  name: rbln
   workloadType: container
-  daemonsets: {}
   devicePlugin:
     enabled: true
     registry: docker.io
     image: rebellions/k8s-device-plugin
     version: latest
     imagePullPolicy: IfNotPresent
-    hostBinPath: /run/rbln/driver/usr/bin
     resourceList:
       - resourceName: ATOM
         resourcePrefix: rebellions.ai
@@ -66,9 +63,6 @@ spec:
     image: rebellions/k8s-device-plugin
     version: latest
     imagePullPolicy: IfNotPresent
-    vfioChecker:
-      image: rebellions/rbln-vfio-manager
-      version: latest
     resourceList:
       - resourceName: ATOM_PT
         resourcePrefix: rebellions.ai

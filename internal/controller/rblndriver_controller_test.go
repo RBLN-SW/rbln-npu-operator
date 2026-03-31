@@ -86,8 +86,9 @@ var _ = Describe("RBLNDriver Controller", Ordered, func() {
 
 		BeforeEach(func() {
 			driverNS = createTestNamespace(ctx, "rbln-driver")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", driverNS)
 			reconciler = newTestDriverReconciler("")
-			createClusterPolicyFixture(ctx, newDriverTestClusterPolicy("driver-cp", driverNS))
+			createClusterPolicyFixture(ctx, newDriverTestClusterPolicy("driver-cp"))
 			nn = createDriverFixture(ctx, newDriverFixture("test-driver"))
 			DeferCleanup(func() { cleanupDriverClusterRBAC(ctx) })
 		})
@@ -142,8 +143,9 @@ var _ = Describe("RBLNDriver Controller", Ordered, func() {
 
 		BeforeEach(func() {
 			driverNS = createTestNamespace(ctx, "rbln-driver-overlap")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", driverNS)
 			reconciler = newTestDriverReconciler("")
-			createClusterPolicyFixture(ctx, newDriverTestClusterPolicy("overlap-cp", driverNS))
+			createClusterPolicyFixture(ctx, newDriverTestClusterPolicy("overlap-cp"))
 
 			By("creating and reconciling the first driver")
 			nn1 := createDriverFixture(ctx, newDriverFixture("driver-a"))
@@ -180,8 +182,9 @@ var _ = Describe("RBLNDriver Controller", Ordered, func() {
 
 		BeforeEach(func() {
 			driverNS = createTestNamespace(ctx, "rbln-driver-ocp")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", driverNS)
 			reconciler = newTestDriverReconciler("v4.14.0")
-			createClusterPolicyFixture(ctx, newDriverTestClusterPolicy("ocp-driver-cp", driverNS))
+			createClusterPolicyFixture(ctx, newDriverTestClusterPolicy("ocp-driver-cp"))
 			nn = createDriverFixture(ctx, newDriverFixture("ocp-driver"))
 			DeferCleanup(func() { cleanupDriverClusterRBAC(ctx) })
 		})
@@ -223,14 +226,13 @@ func newTestDriverReconciler(openShiftVersion string) *RBLNDriverReconciler {
 // Fixture builders
 // ---------------------------------------------------------------------------
 
-func newDriverTestClusterPolicy(name, namespace string) *rblnv1beta1.RBLNClusterPolicy {
+func newDriverTestClusterPolicy(name string) *rblnv1beta1.RBLNClusterPolicy {
 	return &rblnv1beta1.RBLNClusterPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
 			WorkloadType:        consts.RBLNWorkloadConfigContainer,
-			Namespace:           namespace,
 			DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{Enabled: false},
 			NPUFeatureDiscovery: rblnv1beta1.RBLNNPUFeatureDiscoverySpec{Enabled: false},
 			MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{Enabled: false},

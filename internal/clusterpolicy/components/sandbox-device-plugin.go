@@ -29,7 +29,7 @@ func NewSandboxDevicePluginPatcher(client client.Client, log logr.Logger, namesp
 			client:           client,
 			log:              log,
 			scheme:           scheme,
-			name:             cpSpec.BaseName + "-" + consts.RBLNSandboxDevicePluginName,
+			name:             consts.RBLNBaseName + "-" + consts.RBLNSandboxDevicePluginName,
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),

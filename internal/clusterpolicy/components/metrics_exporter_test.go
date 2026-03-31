@@ -26,7 +26,7 @@ func TestMetricsExporterPatch(t *testing.T) {
 		Version:  "latest",
 	}
 
-	name := testBaseName + "-" + consts.RBLNMetricExporterName
+	name := consts.RBLNBaseName + "-" + consts.RBLNMetricExporterName
 	p := NewMetricsExporterPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
@@ -80,7 +80,7 @@ func TestMetricsExporterCleanUp(t *testing.T) {
 		Version:  "latest",
 	}
 
-	name := testBaseName + "-" + consts.RBLNMetricExporterName
+	name := consts.RBLNBaseName + "-" + consts.RBLNMetricExporterName
 	p := NewMetricsExporterPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {

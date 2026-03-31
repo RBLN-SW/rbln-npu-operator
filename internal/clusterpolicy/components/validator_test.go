@@ -19,7 +19,7 @@ func TestValidatorPatch(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	name := testBaseName + "-" + consts.RBLNValidatorName
+	name := consts.RBLNBaseName + "-" + consts.RBLNValidatorName
 	p := NewValidatorPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
@@ -88,7 +88,7 @@ func TestValidatorCleanUp(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	name := testBaseName + "-" + consts.RBLNValidatorName
+	name := consts.RBLNBaseName + "-" + consts.RBLNValidatorName
 	p := NewValidatorPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
