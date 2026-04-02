@@ -1,0 +1,389 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controller
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
+)
+
+// ---------------------------------------------------------------------------
+// Mock StateManager
+// ---------------------------------------------------------------------------
+
+type mockStateManager struct {
+	buildStateFunc func(ctx context.Context, namespace string, driverLabels map[string]string) (*upgrade.ClusterUpgradeState, error)
+	applyStateFunc func(ctx context.Context, namespace string, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec) error
+}
+
+func (m *mockStateManager) WithPodDeletionEnabled(_ upgrade.PodDeletionFilter) upgrade.ClusterUpgradeStateManager {
+	return m
+}
+
+func (m *mockStateManager) WithValidationEnabled(_ string) upgrade.ClusterUpgradeStateManager {
+	return m
+}
+
+func (m *mockStateManager) BuildState(ctx context.Context, namespace string, driverLabels map[string]string) (*upgrade.ClusterUpgradeState, error) {
+	if m.buildStateFunc != nil {
+		return m.buildStateFunc(ctx, namespace, driverLabels)
+	}
+	return &upgrade.ClusterUpgradeState{NodeStates: map[string][]*upgrade.NodeUpgradeState{}}, nil
+}
+
+func (m *mockStateManager) ApplyState(ctx context.Context, namespace string, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec) error {
+	if m.applyStateFunc != nil {
+		return m.applyStateFunc(ctx, namespace, currentState, upgradePolicy)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+var _ = Describe("Upgrade Controller", Ordered, func() {
+	var (
+		ctx      context.Context
+		nodeName string
+	)
+
+	BeforeAll(func() {
+		ctx = context.Background()
+		nodeName = fmt.Sprintf("upgrade-worker-%d", GinkgoParallelProcess())
+
+		By("creating shared test node")
+		node := &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   nodeName,
+				Labels: map[string]string{},
+			},
+		}
+		Expect(k8sClient.Create(ctx, node)).To(Succeed())
+	})
+
+	AfterAll(func() {
+		By("deleting test node")
+		node := &corev1.Node{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node); err == nil {
+			_ = k8sClient.Delete(ctx, node)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &corev1.Node{})
+			}, 5*time.Second, 200*time.Millisecond).ShouldNot(Succeed(),
+				"expected node %s to be deleted", nodeName)
+		}
+	})
+
+	Context("When the ClusterPolicy does not exist", func() {
+		It("returns no error and no requeue", func() {
+			reconciler := newTestUpgradeReconciler(&mockStateManager{})
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "nonexistent-policy"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+		})
+	})
+
+	Context("When SandboxDevicePlugin is enabled", func() {
+		var (
+			reconciler *UpgradeReconciler
+			nn         types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			reconciler = newTestUpgradeReconciler(&mockStateManager{})
+
+			By("adding upgrade state label to the node")
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
+
+			nn = createClusterPolicyFixture(ctx, newUpgradeSandboxClusterPolicyFixture("sandbox-policy"))
+		})
+
+		It("cleans upgrade state labels and does not requeue", func() {
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			By("verifying upgrade state label is removed from the node")
+			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+		})
+	})
+
+	Context("When upgradePolicy is nil", func() {
+		var (
+			reconciler *UpgradeReconciler
+			nn         types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			reconciler = newTestUpgradeReconciler(&mockStateManager{})
+
+			By("adding upgrade state label to the node")
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
+
+			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("nil-policy", nil))
+		})
+
+		It("cleans upgrade state labels and does not requeue", func() {
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			By("verifying upgrade state label is removed from the node")
+			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+		})
+	})
+
+	Context("When autoUpgrade is false", func() {
+		var (
+			reconciler *UpgradeReconciler
+			nn         types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			reconciler = newTestUpgradeReconciler(&mockStateManager{})
+
+			By("adding upgrade state label to the node")
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
+
+			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("disabled-policy", &rblnv1beta1.DriverUpgradePolicySpec{
+				AutoUpgrade: false,
+			}))
+		})
+
+		It("cleans upgrade state labels and does not requeue", func() {
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			By("verifying upgrade state label is removed from the node")
+			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+		})
+	})
+
+	Context("When OPERATOR_NAMESPACE is not set", func() {
+		var (
+			reconciler *UpgradeReconciler
+			nn         types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			mock := &mockStateManager{
+				buildStateFunc: func(_ context.Context, _ string, _ map[string]string) (*upgrade.ClusterUpgradeState, error) {
+					Fail("BuildState should not be called when OPERATOR_NAMESPACE is unset")
+					return nil, nil
+				},
+			}
+			reconciler = newTestUpgradeReconciler(mock)
+
+			// Do NOT set OPERATOR_NAMESPACE
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", "")
+
+			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("no-ns-policy", &rblnv1beta1.DriverUpgradePolicySpec{
+				AutoUpgrade: true,
+			}))
+		})
+
+		It("returns no error and no requeue without calling BuildState", func() {
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+		})
+	})
+
+	Context("When BuildState returns ErrDriverDaemonSetHasUnscheduledPods", func() {
+		var (
+			upgradeNS  string
+			reconciler *UpgradeReconciler
+			nn         types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			upgradeNS = createTestNamespace(ctx, "rbln-upgrade")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", upgradeNS)
+
+			mock := &mockStateManager{
+				buildStateFunc: func(_ context.Context, _ string, _ map[string]string) (*upgrade.ClusterUpgradeState, error) {
+					return nil, upgrade.ErrDriverDaemonSetHasUnscheduledPods
+				},
+			}
+			reconciler = newTestUpgradeReconciler(mock)
+
+			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("unscheduled-policy", &rblnv1beta1.DriverUpgradePolicySpec{
+				AutoUpgrade: true,
+			}))
+		})
+
+		It("requeues after transient interval (10s)", func() {
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
+		})
+	})
+
+	Context("When BuildState returns a general error", func() {
+		var (
+			upgradeNS  string
+			reconciler *UpgradeReconciler
+			nn         types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			upgradeNS = createTestNamespace(ctx, "rbln-upgrade")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", upgradeNS)
+
+			mock := &mockStateManager{
+				buildStateFunc: func(_ context.Context, _ string, _ map[string]string) (*upgrade.ClusterUpgradeState, error) {
+					return nil, fmt.Errorf("unexpected build error")
+				},
+			}
+			reconciler = newTestUpgradeReconciler(mock)
+
+			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("build-err-policy", &rblnv1beta1.DriverUpgradePolicySpec{
+				AutoUpgrade: true,
+			}))
+		})
+
+		It("returns the error", func() {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("unexpected build error"))
+		})
+	})
+
+	Context("When ApplyState returns an error", func() {
+		var (
+			upgradeNS  string
+			reconciler *UpgradeReconciler
+			nn         types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			upgradeNS = createTestNamespace(ctx, "rbln-upgrade")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", upgradeNS)
+
+			mock := &mockStateManager{
+				applyStateFunc: func(_ context.Context, _ string, _ *upgrade.ClusterUpgradeState, _ *rblnv1beta1.DriverUpgradePolicySpec) error {
+					return fmt.Errorf("apply failed")
+				},
+			}
+			reconciler = newTestUpgradeReconciler(mock)
+
+			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("apply-err-policy", &rblnv1beta1.DriverUpgradePolicySpec{
+				AutoUpgrade: true,
+			}))
+		})
+
+		It("returns the error", func() {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("apply failed"))
+		})
+	})
+
+	Context("When upgrade succeeds (happy path)", func() {
+		var (
+			upgradeNS  string
+			reconciler *UpgradeReconciler
+			nn         types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			upgradeNS = createTestNamespace(ctx, "rbln-upgrade")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", upgradeNS)
+
+			reconciler = newTestUpgradeReconciler(&mockStateManager{})
+
+			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("happy-policy", &rblnv1beta1.DriverUpgradePolicySpec{
+				AutoUpgrade: true,
+			}))
+		})
+
+		It("requeues after planned interval (10s)", func() {
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
+		})
+	})
+})
+
+// ---------------------------------------------------------------------------
+// Reconciler factory
+// ---------------------------------------------------------------------------
+
+func newTestUpgradeReconciler(sm upgrade.ClusterUpgradeStateManager) *UpgradeReconciler {
+	return &UpgradeReconciler{
+		Client:       k8sClient,
+		Log:          logf.Log,
+		Scheme:       k8sClient.Scheme(),
+		StateManager: sm,
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fixture builders
+// ---------------------------------------------------------------------------
+
+func newUpgradeClusterPolicyFixture(name string, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec) *rblnv1beta1.RBLNClusterPolicy {
+	return &rblnv1beta1.RBLNClusterPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: rblnv1beta1.RBLNClusterPolicySpec{
+			WorkloadType: consts.RBLNWorkloadConfigContainer,
+			Driver: rblnv1beta1.DriverSpec{
+				UpgradePolicy: upgradePolicy,
+			},
+			DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{Enabled: false},
+			NPUFeatureDiscovery: rblnv1beta1.RBLNNPUFeatureDiscoverySpec{Enabled: false},
+			MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{Enabled: false},
+			VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: false},
+			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
+		},
+	}
+}
+
+func newUpgradeSandboxClusterPolicyFixture(name string) *rblnv1beta1.RBLNClusterPolicy {
+	return &rblnv1beta1.RBLNClusterPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: rblnv1beta1.RBLNClusterPolicySpec{
+			WorkloadType:        consts.RBLNWorkloadConfigVMPassthrough,
+			DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{Enabled: false},
+			NPUFeatureDiscovery: rblnv1beta1.RBLNNPUFeatureDiscoverySpec{Enabled: false},
+			MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{Enabled: false},
+			VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: true},
+			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: true},
+		},
+	}
+}

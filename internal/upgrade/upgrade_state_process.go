@@ -331,7 +331,11 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessWaitForJobsRequiredNodes(
 			if !m.IsPodDeletionEnabled() {
 				nextState = UpgradeStateDrainRequired
 			}
-			_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, nextState)
+			if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, nextState); err != nil {
+				m.log.V(consts.LogLevelWarning).Error(err, "Failed to change node upgrade state, will retry next cycle",
+					"node", nodeState.Node.Name, "state", nextState)
+				continue
+			}
 			m.log.Info("Updated the node state", "node", nodeState.Node.Name, "state", nextState)
 		}
 	}

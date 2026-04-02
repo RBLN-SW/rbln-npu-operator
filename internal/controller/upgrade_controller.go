@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	plannedRequeueInterval   = time.Second * 30
+	plannedRequeueInterval   = time.Second * 10
 	transientRequeueInterval = time.Second * 10
 	DriverLabelKey           = "app.kubernetes.io/component"
 	DriverLabelValue         = "rbln-driver"
@@ -152,10 +152,13 @@ func (r *UpgradeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 	}
 
 	upgradeStateLabelPredicate := predicate.TypedFuncs[*corev1.Node]{
+		CreateFunc: func(event.TypedCreateEvent[*corev1.Node]) bool { return false },
 		UpdateFunc: func(e event.TypedUpdateEvent[*corev1.Node]) bool {
 			label := upgrade.UpgradeStateLabelKey
 			return e.ObjectOld.Labels[label] != e.ObjectNew.Labels[label]
 		},
+		DeleteFunc:  func(event.TypedDeleteEvent[*corev1.Node]) bool { return false },
+		GenericFunc: func(event.TypedGenericEvent[*corev1.Node]) bool { return false },
 	}
 
 	err = c.Watch(

@@ -3568,11 +3568,6 @@ spec:
                             type: integer
                         type: object
                     type: object
-                  useRBLNDriverCRD:
-                    description: |-
-                      UseRBLNDriverCRD controls whether driver lifecycle is managed by RBLNDriver resources.
-                      When true, the operator expects RBLNDriver CRs to exist and does not rely on ClusterPolicy-only management.
-                    type: boolean
                 type: object
               metricsExporter:
                 description: MetricsExporter component spec
