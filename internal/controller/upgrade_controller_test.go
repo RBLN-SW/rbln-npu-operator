@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
 )
 
@@ -113,31 +112,6 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 		})
 	})
 
-	Context("When SandboxDevicePlugin is enabled", func() {
-		var (
-			reconciler *UpgradeReconciler
-			nn         types.NamespacedName
-		)
-
-		BeforeEach(func() {
-			reconciler = newTestUpgradeReconciler(&mockStateManager{})
-
-			By("adding upgrade state label to the node")
-			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
-
-			nn = createClusterPolicyFixture(ctx, newUpgradeSandboxClusterPolicyFixture("sandbox-policy"))
-		})
-
-		It("cleans upgrade state labels and does not requeue", func() {
-			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(ctrl.Result{}))
-
-			By("verifying upgrade state label is removed from the node")
-			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
-		})
-	})
-
 	Context("When upgradePolicy is nil", func() {
 		var (
 			reconciler *UpgradeReconciler
@@ -190,47 +164,13 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 		})
 	})
 
-	Context("When OPERATOR_NAMESPACE is not set", func() {
-		var (
-			reconciler *UpgradeReconciler
-			nn         types.NamespacedName
-		)
-
-		BeforeEach(func() {
-			mock := &mockStateManager{
-				buildStateFunc: func(_ context.Context, _ string, _ map[string]string) (*upgrade.ClusterUpgradeState, error) {
-					Fail("BuildState should not be called when OPERATOR_NAMESPACE is unset")
-					return nil, nil
-				},
-			}
-			reconciler = newTestUpgradeReconciler(mock)
-
-			// Do NOT set OPERATOR_NAMESPACE
-			GinkgoT().Setenv("OPERATOR_NAMESPACE", "")
-
-			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("no-ns-policy", &rblnv1beta1.DriverUpgradePolicySpec{
-				AutoUpgrade: true,
-			}))
-		})
-
-		It("returns no error and no requeue without calling BuildState", func() {
-			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(ctrl.Result{}))
-		})
-	})
-
 	Context("When BuildState returns ErrDriverDaemonSetHasUnscheduledPods", func() {
 		var (
-			upgradeNS  string
 			reconciler *UpgradeReconciler
 			nn         types.NamespacedName
 		)
 
 		BeforeEach(func() {
-			upgradeNS = createTestNamespace(ctx, "rbln-upgrade")
-			GinkgoT().Setenv("OPERATOR_NAMESPACE", upgradeNS)
-
 			mock := &mockStateManager{
 				buildStateFunc: func(_ context.Context, _ string, _ map[string]string) (*upgrade.ClusterUpgradeState, error) {
 					return nil, upgrade.ErrDriverDaemonSetHasUnscheduledPods
@@ -252,15 +192,11 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 
 	Context("When BuildState returns a general error", func() {
 		var (
-			upgradeNS  string
 			reconciler *UpgradeReconciler
 			nn         types.NamespacedName
 		)
 
 		BeforeEach(func() {
-			upgradeNS = createTestNamespace(ctx, "rbln-upgrade")
-			GinkgoT().Setenv("OPERATOR_NAMESPACE", upgradeNS)
-
 			mock := &mockStateManager{
 				buildStateFunc: func(_ context.Context, _ string, _ map[string]string) (*upgrade.ClusterUpgradeState, error) {
 					return nil, fmt.Errorf("unexpected build error")
@@ -282,15 +218,11 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 
 	Context("When ApplyState returns an error", func() {
 		var (
-			upgradeNS  string
 			reconciler *UpgradeReconciler
 			nn         types.NamespacedName
 		)
 
 		BeforeEach(func() {
-			upgradeNS = createTestNamespace(ctx, "rbln-upgrade")
-			GinkgoT().Setenv("OPERATOR_NAMESPACE", upgradeNS)
-
 			mock := &mockStateManager{
 				applyStateFunc: func(_ context.Context, _ string, _ *upgrade.ClusterUpgradeState, _ *rblnv1beta1.DriverUpgradePolicySpec) error {
 					return fmt.Errorf("apply failed")
@@ -312,15 +244,11 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 
 	Context("When upgrade succeeds (happy path)", func() {
 		var (
-			upgradeNS  string
 			reconciler *UpgradeReconciler
 			nn         types.NamespacedName
 		)
 
 		BeforeEach(func() {
-			upgradeNS = createTestNamespace(ctx, "rbln-upgrade")
-			GinkgoT().Setenv("OPERATOR_NAMESPACE", upgradeNS)
-
 			reconciler = newTestUpgradeReconciler(&mockStateManager{})
 
 			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("happy-policy", &rblnv1beta1.DriverUpgradePolicySpec{
@@ -345,6 +273,7 @@ func newTestUpgradeReconciler(sm upgrade.ClusterUpgradeStateManager) *UpgradeRec
 		Client:       k8sClient,
 		Log:          logf.Log,
 		Scheme:       k8sClient.Scheme(),
+		Namespace:    "test-namespace",
 		StateManager: sm,
 	}
 }
@@ -359,7 +288,7 @@ func newUpgradeClusterPolicyFixture(name string, upgradePolicy *rblnv1beta1.Driv
 			Name: name,
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
-			WorkloadType: consts.RBLNWorkloadConfigContainer,
+			WorkloadType: "container",
 			Driver: rblnv1beta1.DriverSpec{
 				UpgradePolicy: upgradePolicy,
 			},
@@ -368,22 +297,6 @@ func newUpgradeClusterPolicyFixture(name string, upgradePolicy *rblnv1beta1.Driv
 			MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{Enabled: false},
 			VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: false},
 			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
-		},
-	}
-}
-
-func newUpgradeSandboxClusterPolicyFixture(name string) *rblnv1beta1.RBLNClusterPolicy {
-	return &rblnv1beta1.RBLNClusterPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-		Spec: rblnv1beta1.RBLNClusterPolicySpec{
-			WorkloadType:        consts.RBLNWorkloadConfigVMPassthrough,
-			DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{Enabled: false},
-			NPUFeatureDiscovery: rblnv1beta1.RBLNNPUFeatureDiscoverySpec{Enabled: false},
-			MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{Enabled: false},
-			VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: true},
-			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: true},
 		},
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -45,6 +46,11 @@ func registerClusterPolicyController(mgr ctrl.Manager, clusterInfo *clusterinfo.
 }
 
 func registerUpgradeController(ctx context.Context, mgr ctrl.Manager) error {
+	namespace := os.Getenv("OPERATOR_NAMESPACE")
+	if namespace == "" {
+		return fmt.Errorf("OPERATOR_NAMESPACE environment variable is not set")
+	}
+
 	upgradeLogger := ctrl.Log.WithName("controllers").WithName("RBLNDriverUpgrade")
 
 	stateManager, err := upgrade.NewClusterUpgradeStateManager(
@@ -65,6 +71,7 @@ func registerUpgradeController(ctx context.Context, mgr ctrl.Manager) error {
 		Client:       mgr.GetClient(),
 		Log:          upgradeLogger,
 		Scheme:       mgr.GetScheme(),
+		Namespace:    namespace,
 		StateManager: stateManager,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		return fmt.Errorf("setup Upgrade: %w", err)
