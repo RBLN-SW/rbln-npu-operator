@@ -43,7 +43,7 @@ func getNodePools(ctx context.Context, k8sClient client.Client, selector map[str
 			continue
 		}
 		if _, exists := nodePoolMap[pool.name]; !exists {
-			logger.Info("Detected new node pool", "pool", pool.name, "os", pool.getOS(), "kernel", pool.kernel)
+			logger.V(consts.LogLevelDebug).Info("Detected node pool", "pool", pool.name, "os", pool.getOS(), "kernel", pool.kernel)
 			nodePoolMap[pool.name] = pool
 		}
 	}

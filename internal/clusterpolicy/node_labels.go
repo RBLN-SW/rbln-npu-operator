@@ -160,11 +160,11 @@ func (s *ClusterPolicyService) reconcilePresentLabel(nodeName string, labels map
 func (s *ClusterPolicyService) reconcileWorkloadLabels(nodeName string, labels map[string]string) bool {
 	workloadConfig, err := getWorkloadConfig(labels, s.policy.Spec.WorkloadType)
 	if err != nil {
-		s.log.Info(
-			"Failed to get RBLN workload config for node; using default",
+		s.log.V(consts.LogLevelDebug).Info(
+			"Using default workload config for node",
 			"node", nodeName,
-			"defaultWorkloadConfig", workloadConfig,
-			"error", err.Error(),
+			"workloadConfig", workloadConfig,
+			"reason", err.Error(),
 		)
 	}
 

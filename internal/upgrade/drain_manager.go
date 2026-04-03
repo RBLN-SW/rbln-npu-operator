@@ -82,7 +82,7 @@ func (m *DrainManager) ScheduleNodesDrain(ctx context.Context, drainConfig *Drai
 				err := drain.RunCordonOrUncordon(drainHelper, node, true)
 				if err != nil {
 					m.Log.Error(err, "Failed to cordon node", "node", node.Name)
-					_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed)
+					m.changeNodeUpgradeStateAsync(ctx, node, UpgradeStateFailed)
 					return
 				}
 				m.Log.Info("Cordoned the node", "node", node.Name)
@@ -90,18 +90,31 @@ func (m *DrainManager) ScheduleNodesDrain(ctx context.Context, drainConfig *Drai
 				err = drain.RunNodeDrain(drainHelper, node.Name)
 				if err != nil {
 					m.Log.Error(err, "Failed to drain node", "node", node.Name)
-					_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed)
+					m.changeNodeUpgradeStateAsync(ctx, node, UpgradeStateFailed)
 					return
 				}
 				m.Log.Info("Drained the node", "node", node.Name)
 
-				_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStatePodRestartRequired)
+				m.changeNodeUpgradeStateAsync(ctx, node, UpgradeStatePodRestartRequired)
 			}()
 		} else {
 			m.Log.Info("Node is already being drained, skipping", "node", node.Name)
 		}
 	}
 	return nil
+}
+
+// changeNodeUpgradeStateAsync transitions the node upgrade state using a
+// short-lived context derived from the parent so that the operation completes
+// even when the parent reconcile context is close to expiring. Errors are
+// logged and left for the next reconcile cycle to retry.
+func (m *DrainManager) changeNodeUpgradeStateAsync(ctx context.Context, node *corev1.Node, state string) {
+	stateCtx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:contextcheck // intentional short-lived timeout for goroutine state transition
+	defer cancel()
+	if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(stateCtx, node, state); err != nil {
+		m.Log.Error(err, "Failed to transition node state in goroutine; will retry next reconcile",
+			"node", node.Name, "targetState", state)
+	}
 }
 
 func NewDrainManager(

@@ -2,17 +2,13 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -32,16 +28,16 @@ import (
 )
 
 const (
-	plannedRequeueInterval   = time.Second * 30
-	transientRequeueInterval = time.Second * 10
-	DriverLabelKey           = "app.kubernetes.io/component"
-	DriverLabelValue         = "rbln-driver"
+	plannedRequeueInterval = time.Second * 10
+	DriverLabelKey         = "app.kubernetes.io/component"
+	DriverLabelValue       = "rbln-driver"
 )
 
 type UpgradeReconciler struct {
 	client.Client
 	Log          logr.Logger
 	Scheme       *runtime.Scheme
+	Namespace    string
 	StateManager upgrade.ClusterUpgradeStateManager
 }
 
@@ -65,38 +61,22 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return reconcile.Result{}, err
 	}
 
-	if clusterPolicy.Spec.SandboxDevicePlugin.IsEnabled() {
-		r.Log.Info("SandboxDevicePlugin enabled; skipping advanced driver upgrade and cleaning upgrade state")
-		return ctrl.Result{}, r.removeNodeUpgradeStateLabels(ctx)
-	}
-
 	if clusterPolicy.Spec.Driver.UpgradePolicy == nil ||
 		!clusterPolicy.Spec.Driver.UpgradePolicy.AutoUpgrade {
 		r.Log.Info("Auto-upgrade disabled; cleaning upgrade state and skipping reconciliation")
 		return ctrl.Result{}, r.removeNodeUpgradeStateLabels(ctx)
 	}
 
-	namespace := os.Getenv("OPERATOR_NAMESPACE")
-	if namespace == "" {
-		r.Log.Error(fmt.Errorf("OPERATOR_NAMESPACE not set"), "Failed to resolve namespace for upgrade state build")
-		return ctrl.Result{}, nil
-	}
-
 	driverLabel := map[string]string{DriverLabelKey: DriverLabelValue}
-	r.Log.Info("Using label selector", "key", DriverLabelKey, "value", DriverLabelValue)
 
-	state, err := r.StateManager.BuildState(ctx, namespace,
+	state, err := r.StateManager.BuildState(ctx, r.Namespace,
 		driverLabel)
 	if err != nil {
-		if errors.Is(err, upgrade.ErrDriverDaemonSetHasUnscheduledPods) {
-			r.Log.Info("Driver DaemonSet scheduling is transiently inconsistent; requeueing", "error", err)
-			return ctrl.Result{RequeueAfter: transientRequeueInterval}, nil
-		}
 		r.Log.Error(err, "Failed to build cluster upgrade state")
 		return ctrl.Result{}, err
 	}
 
-	err = r.StateManager.ApplyState(ctx, namespace, state, clusterPolicy.Spec.Driver.UpgradePolicy)
+	err = r.StateManager.ApplyState(ctx, r.Namespace, state, clusterPolicy.Spec.Driver.UpgradePolicy)
 	if err != nil {
 		r.Log.Error(err, "Failed to apply cluster upgrade state")
 		return ctrl.Result{}, err
@@ -152,10 +132,13 @@ func (r *UpgradeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 	}
 
 	upgradeStateLabelPredicate := predicate.TypedFuncs[*corev1.Node]{
+		CreateFunc: func(event.TypedCreateEvent[*corev1.Node]) bool { return false },
 		UpdateFunc: func(e event.TypedUpdateEvent[*corev1.Node]) bool {
 			label := upgrade.UpgradeStateLabelKey
 			return e.ObjectOld.Labels[label] != e.ObjectNew.Labels[label]
 		},
+		DeleteFunc:  func(event.TypedDeleteEvent[*corev1.Node]) bool { return false },
+		GenericFunc: func(event.TypedGenericEvent[*corev1.Node]) bool { return false },
 	}
 
 	err = c.Watch(
@@ -170,29 +153,21 @@ func (r *UpgradeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 		return err
 	}
 
-	dsMapFn := func(ctx context.Context, a *appsv1.DaemonSet) []reconcile.Request {
-		ownerRefs := a.GetOwnerReferences()
-
-		ownedByRBLN := false
-		for _, owner := range ownerRefs {
-			if (owner.APIVersion == rblnv1beta1.GroupVersion.String() && owner.Kind == "RBLNClusterPolicy") ||
-				(owner.APIVersion == rblnv1alpha1.GroupVersion.String() && owner.Kind == "RBLNDriver") {
-				ownedByRBLN = true
-				break
-			}
-		}
-
-		if !ownedByRBLN {
-			return nil
-		}
-
+	dsMapFn := func(ctx context.Context, _ *appsv1.DaemonSet) []reconcile.Request {
 		return getClusterPoliciesToReconcile(ctx, mgr.GetClient())
 	}
 
-	appLabelSelector := predicate.NewTypedPredicateFuncs(func(ds *appsv1.DaemonSet) bool {
-		ls := metav1.LabelSelector{MatchLabels: map[string]string{DriverLabelKey: DriverLabelValue}}
-		selector, _ := metav1.LabelSelectorAsSelector(&ls)
-		return selector.Matches(labels.Set(ds.GetLabels()))
+	rblnDriverDSPredicate := predicate.NewTypedPredicateFuncs(func(ds *appsv1.DaemonSet) bool {
+		if ds.GetLabels()[DriverLabelKey] != DriverLabelValue {
+			return false
+		}
+		for _, owner := range ds.GetOwnerReferences() {
+			if (owner.APIVersion == rblnv1beta1.GroupVersion.String() && owner.Kind == "RBLNClusterPolicy") ||
+				(owner.APIVersion == rblnv1alpha1.GroupVersion.String() && owner.Kind == "RBLNDriver") {
+				return true
+			}
+		}
+		return false
 	})
 
 	err = c.Watch(
@@ -202,7 +177,7 @@ func (r *UpgradeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 			handler.TypedEnqueueRequestsFromMapFunc[*appsv1.DaemonSet](dsMapFn),
 			predicate.And[*appsv1.DaemonSet](
 				predicate.TypedGenerationChangedPredicate[*appsv1.DaemonSet]{},
-				predicate.Or[*appsv1.DaemonSet](appLabelSelector),
+				rblnDriverDSPredicate,
 			),
 		))
 	if err != nil {

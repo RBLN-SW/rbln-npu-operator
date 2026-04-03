@@ -8,7 +8,6 @@ spec:
   workloadType: {{ .Values.workloadType | quote }}
   {{- $upgradePolicy := .Values.driver.upgradePolicy }}
   driver:
-    useRBLNDriverCRD: {{ .Values.driver.enabled }}
     {{- with $upgradePolicy }}
     {{- $waitForCompletion := default (dict) .waitForCompletion }}
     {{- $npuPodDeletion := default (dict) .npuPodDeletion }}

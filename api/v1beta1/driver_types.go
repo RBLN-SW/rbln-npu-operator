@@ -2,13 +2,6 @@ package v1beta1
 
 // DriverSpec defines the properties for RBLN Driver deployment
 type DriverSpec struct {
-	// UseRBLNDriverCRD controls whether driver lifecycle is managed by RBLNDriver resources.
-	// When true, the operator expects RBLNDriver CRs to exist and does not rely on ClusterPolicy-only management.
-	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors=true
-	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.displayName="Enable RBLN Driver deployment through RBLNDriver CRD type"
-	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.x-descriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
-	UseRBLNDriverCRD *bool `json:"useRBLNDriverCRD,omitempty"`
-
 	// UpgradePolicy defines automatic upgrade behavior for the driver rollout.
 	// +optional
 	UpgradePolicy *DriverUpgradePolicySpec `json:"upgradePolicy,omitempty"`

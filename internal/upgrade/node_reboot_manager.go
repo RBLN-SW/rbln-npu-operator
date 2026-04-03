@@ -33,7 +33,7 @@ type PodRebootManager struct {
 func NewPodRebootManager(k8sClient ctrlclient.Client, log logr.Logger) *PodRebootManager {
 	image := os.Getenv("RBLN_NODE_REBOOT_IMAGE")
 	if image == "" {
-		image = "harbor.k8s.rebellions.in/rebellions/rbln-node-reboot:v1.0.0"
+		image = "docker.io/rebellions/rbln-node-reboot:latest"
 	}
 	return &PodRebootManager{
 		k8sClient:   k8sClient,

@@ -196,8 +196,8 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			expectNodeLabel(ctx, nodeName, consts.RBLNPresentLabelKey, "true", 5*time.Second)
 
 			By("removing deploy labels from the skipped node")
-			expectNodeHasNoLabel(ctx, nodeName, "rebellions.ai/npu.deploy.device-plugin", 5*time.Second)
-			expectNodeHasNoLabel(ctx, nodeName, "rebellions.ai/npu.deploy.driver", 5*time.Second)
+			expectNodeHasNoLabel(ctx, nodeName, "rebellions.ai/npu.deploy.device-plugin")
+			expectNodeHasNoLabel(ctx, nodeName, "rebellions.ai/npu.deploy.driver")
 		})
 	})
 
@@ -449,13 +449,13 @@ func expectNodeLabel(ctx context.Context, nodeName, key, want string, timeout ti
 	}, timeout, 250*time.Millisecond).Should(Equal(want), "expected node %s label %s=%s", nodeName, key, want)
 }
 
-func expectNodeHasNoLabel(ctx context.Context, nodeName, key string, timeout time.Duration) {
+func expectNodeHasNoLabel(ctx context.Context, nodeName, key string) {
 	Eventually(func() bool {
 		var node corev1.Node
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
 		_, exists := node.Labels[key]
 		return exists
-	}, timeout, 250*time.Millisecond).Should(BeFalse(), "expected node %s label %s to be removed", nodeName, key)
+	}, 5*time.Second, 250*time.Millisecond).Should(BeFalse(), "expected node %s label %s to be removed", nodeName, key)
 }
 
 // ---------------------------------------------------------------------------

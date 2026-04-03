@@ -2,9 +2,6 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-nameOverride: ""
-fullnameOverride: ""
-
 # Workload type: "container" (default) or "vm-passthrough".
 workloadType: container
 
@@ -107,8 +104,8 @@ driver:
         image: rebellions/rbln-node-reboot
         version: latest
   image:
-    registry: repo.rebellions.ai
-    repository: rebellions/rbln-driver
+    registry: harbor.k8s.rebellions.in
+    repository: playground/rbln-driver
     tag: "3.0.0"
     pullPolicy: IfNotPresent
   imagePullSecrets:
@@ -148,10 +145,10 @@ driver:
   env: []
   manager:
     image:
-      registry: docker.io
+      registry: harbor.k8s.rebellions.in
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.1.2
-      pullPolicy: IfNotPresent
+      tag: v0.1.3
+      pullPolicy: Always
   #  imagePullSecrets:
   #  - my-registry-secret
 

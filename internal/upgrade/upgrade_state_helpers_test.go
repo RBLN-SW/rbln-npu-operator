@@ -35,6 +35,7 @@ func TestIsNodeUnschedulable(t *testing.T) {
 }
 
 func TestIsOrphanedPod(t *testing.T) {
+	trueVal := true
 	tests := map[string]struct {
 		ownerRefs []metav1.OwnerReference
 		want      bool
@@ -43,8 +44,12 @@ func TestIsOrphanedPod(t *testing.T) {
 			ownerRefs: nil,
 			want:      true,
 		},
-		"returns false when owner references exist": {
+		"returns true when owner references exist but none is controller": {
 			ownerRefs: []metav1.OwnerReference{{Name: "ds"}},
+			want:      true,
+		},
+		"returns false when controller owner reference exists": {
+			ownerRefs: []metav1.OwnerReference{{Name: "ds", Controller: &trueVal}},
 			want:      false,
 		},
 	}
