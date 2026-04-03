@@ -567,9 +567,24 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessRebootRequiredNodes(
 	if namespace == "" {
 		return fmt.Errorf("namespace must be provided for reboot processing")
 	}
+
+	nodes := currentClusterState.NodeStates[UpgradeStateRebootRequired]
+	if len(nodes) == 0 {
+		return nil
+	}
+	if rebootSpec == nil {
+		m.log.Info("RebootSpec is nil but nodes are in reboot-required state; marking as failed")
+		for _, nodeState := range nodes {
+			if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(
+				ctx, nodeState.Node, UpgradeStateFailed); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	rebootImage := resolveRebootPodImage(rebootSpec)
 
-	for _, nodeState := range currentClusterState.NodeStates[UpgradeStateRebootRequired] {
+	for _, nodeState := range nodes {
 		node := nodeState.Node
 
 		var preRebootBootID string
