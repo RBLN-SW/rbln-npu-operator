@@ -41,22 +41,23 @@ spec:
           image: {{ $rebootImage.image | default "rebellions/rbln-node-reboot" | quote }}
           version: {{ $rebootImage.version | default "v1.0.0" | quote }}
     {{- end }}
-  {{- if .Values.podDefaults }}
+  {{- $pd := .Values.podDefaults }}
+  {{- if and $pd (or $pd.labels $pd.annotations $pd.tolerations $pd.priorityClassName) }}
   podDefaults:
-    {{- with .Values.podDefaults.labels }}
+    {{- with $pd.labels }}
     labels:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- with .Values.podDefaults.annotations }}
+    {{- with $pd.annotations }}
     annotations:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- with .Values.podDefaults.tolerations }}
+    {{- with $pd.tolerations }}
     tolerations:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- if .Values.podDefaults.priorityClassName }}
-    priorityClassName: {{ .Values.podDefaults.priorityClassName | quote }}
+    {{- if $pd.priorityClassName }}
+    priorityClassName: {{ $pd.priorityClassName | quote }}
     {{- end }}
   {{- end }}
   devicePlugin:
@@ -169,13 +170,13 @@ spec:
     env:
       {{- toYaml .Values.validator.env | nindent 6 }}
     {{- end }}
+    {{- with .Values.validator.toolkit.env }}
     toolkit:
-      {{- if .Values.validator.toolkit.env }}
       env:
-        {{- toYaml .Values.validator.toolkit.env | nindent 8 }}
-      {{- end }}
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.validator.driver.env }}
     driver:
-      {{- if .Values.validator.driver.env }}
       env:
-        {{- toYaml .Values.validator.driver.env | nindent 8 }}
-      {{- end }}
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
