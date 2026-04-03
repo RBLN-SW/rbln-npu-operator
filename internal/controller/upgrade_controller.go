@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -29,10 +28,9 @@ import (
 )
 
 const (
-	plannedRequeueInterval   = time.Second * 10
-	transientRequeueInterval = time.Second * 10
-	DriverLabelKey           = "app.kubernetes.io/component"
-	DriverLabelValue         = "rbln-driver"
+	plannedRequeueInterval = time.Second * 10
+	DriverLabelKey         = "app.kubernetes.io/component"
+	DriverLabelValue       = "rbln-driver"
 )
 
 type UpgradeReconciler struct {
@@ -74,10 +72,6 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	state, err := r.StateManager.BuildState(ctx, r.Namespace,
 		driverLabel)
 	if err != nil {
-		if errors.Is(err, upgrade.ErrDriverDaemonSetHasUnscheduledPods) {
-			r.Log.Info("Driver DaemonSet scheduling is transiently inconsistent; requeueing", "error", err)
-			return ctrl.Result{RequeueAfter: transientRequeueInterval}, nil
-		}
 		r.Log.Error(err, "Failed to build cluster upgrade state")
 		return ctrl.Result{}, err
 	}

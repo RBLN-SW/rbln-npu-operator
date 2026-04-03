@@ -51,6 +51,19 @@ type PodManagerConfig struct {
 
 type PodDeletionFilter func(corev1.Pod) bool
 
+// changeNodeUpgradeStateAsync transitions the node upgrade state using a
+// short-lived context derived from the parent so that the operation completes
+// even when the parent reconcile context is close to expiring. Errors are
+// logged and left for the next reconcile cycle to retry.
+func (m *PodManager) changeNodeUpgradeStateAsync(ctx context.Context, node *corev1.Node, state string) {
+	stateCtx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:contextcheck // intentional short-lived timeout for goroutine state transition
+	defer cancel()
+	if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(stateCtx, node, state); err != nil {
+		m.Log.Error(err, "Failed to transition node state in goroutine; will retry next reconcile",
+			"node", node.Name, "targetState", state)
+	}
+}
+
 func NewPodManager(
 	k8sInterface kubernetes.Interface,
 	nodeUpgradeStateProvider *NodeUpgradeStateProvider,
@@ -149,7 +162,11 @@ func (m *PodManager) HandleTimeoutOnPodCompletions(ctx context.Context, node *co
 	}
 
 	if timedOut {
-		_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStatePodDeletionRequired)
+		if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStatePodDeletionRequired); stateErr != nil {
+			m.Log.Error(stateErr, "Failed to change node state after pod completion timeout; will retry next cycle",
+				"node", node.Name, "state", UpgradeStatePodDeletionRequired)
+			return stateErr
+		}
 		m.Log.Info("Timeout exceeded for job completions, updated the node state",
 			"node", node.Name, "state", UpgradeStatePodDeletionRequired)
 		err = m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node, annotationKey)
@@ -202,7 +219,7 @@ func (m *PodManager) ScheduleCheckOnPodCompletion(ctx context.Context, config *P
 			if err != nil {
 				return
 			}
-			_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, &node, UpgradeStatePodDeletionRequired)
+			m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStatePodDeletionRequired)
 			m.Log.Info("Updated the node state", "node", node.Name,
 				"state", UpgradeStatePodDeletionRequired)
 		}(*node)
@@ -270,11 +287,7 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 
 				if numPodsToDelete == 0 {
 					m.Log.Info("No pods require deletion", "node", node.Name)
-					_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(
-						ctx,
-						&node,
-						m.nextStateAfterPodDeletion(config.RebootRequired),
-					)
+					m.changeNodeUpgradeStateAsync(ctx, &node, m.nextStateAfterPodDeletion(config.RebootRequired))
 					return
 				}
 
@@ -306,11 +319,7 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 				}
 
 				m.Log.Info("Deleted pods on the node", "node", node.Name)
-				_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(
-					ctx,
-					&node,
-					m.nextStateAfterPodDeletion(config.RebootRequired),
-				)
+				m.changeNodeUpgradeStateAsync(ctx, &node, m.nextStateAfterPodDeletion(config.RebootRequired))
 			}(*node)
 		} else {
 			m.Log.Info("Node is already getting pods deleted, skipping", "node", node.Name)
@@ -333,7 +342,7 @@ func (m *PodManager) updateNodeToDrainOrFailed(ctx context.Context, node corev1.
 			"node", node.Name)
 		nextState = UpgradeStateDrainRequired
 	}
-	_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, &node, nextState)
+	m.changeNodeUpgradeStateAsync(ctx, &node, nextState)
 }
 
 func (m *PodManager) SchedulePodsRestart(ctx context.Context, pods []*corev1.Pod) error {

@@ -164,32 +164,6 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 		})
 	})
 
-	Context("When BuildState returns ErrDriverDaemonSetHasUnscheduledPods", func() {
-		var (
-			reconciler *UpgradeReconciler
-			nn         types.NamespacedName
-		)
-
-		BeforeEach(func() {
-			mock := &mockStateManager{
-				buildStateFunc: func(_ context.Context, _ string, _ map[string]string) (*upgrade.ClusterUpgradeState, error) {
-					return nil, upgrade.ErrDriverDaemonSetHasUnscheduledPods
-				},
-			}
-			reconciler = newTestUpgradeReconciler(mock)
-
-			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("unscheduled-policy", &rblnv1beta1.DriverUpgradePolicySpec{
-				AutoUpgrade: true,
-			}))
-		})
-
-		It("requeues after transient interval (10s)", func() {
-			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
-		})
-	})
-
 	Context("When BuildState returns a general error", func() {
 		var (
 			reconciler *UpgradeReconciler

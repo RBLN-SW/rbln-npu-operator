@@ -6,6 +6,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -36,21 +37,21 @@ func (m *ClusterUpgradeStateManagerImpl) BuildState(ctx context.Context, namespa
 	}
 
 	podsByDaemonSet, orphanedPods := m.partitionDriverPods(podList.Items, daemonSets)
-	if err := m.validateDaemonSetScheduling(daemonSets, podsByDaemonSet); err != nil {
-		return nil, err
-	}
+	m.filterStableDaemonSets(daemonSets, podsByDaemonSet)
+
+	nodeCache := make(map[string]*corev1.Node)
 
 	for uid, dsPods := range podsByDaemonSet {
 		ownerDaemonSet, found := daemonSets[uid]
 		if !found {
 			return nil, fmt.Errorf("managed daemonset not found for uid %q", uid)
 		}
-		if err := m.addOwnedPodsToUpgradeState(ctx, &upgradeState, dsPods, ownerDaemonSet); err != nil {
+		if err := m.addOwnedPodsToUpgradeState(ctx, &upgradeState, dsPods, ownerDaemonSet, nodeCache); err != nil {
 			return nil, err
 		}
 	}
 
-	if err := m.addOrphanedPodsToUpgradeState(ctx, &upgradeState, orphanedPods); err != nil {
+	if err := m.addOrphanedPodsToUpgradeState(ctx, &upgradeState, orphanedPods, nodeCache); err != nil {
 		return nil, err
 	}
 
@@ -87,13 +88,14 @@ func (m *ClusterUpgradeStateManagerImpl) partitionDriverPods(
 
 	for i := range pods {
 		pod := &pods[i]
-		if IsOrphanedPod(pod) {
-			m.log.Info("Driver Pod has no owner DaemonSet", "pod", pod.Name)
+		controllerRef := metav1.GetControllerOf(pod)
+		if controllerRef == nil {
+			m.log.Info("Driver Pod has no controller owner", "pod", pod.Name)
 			orphanedPods = append(orphanedPods, *pod)
 			continue
 		}
 
-		ownerUID := pod.OwnerReferences[0].UID
+		ownerUID := controllerRef.UID
 		if _, found := daemonSets[ownerUID]; !found {
 			m.log.Info("Driver Pod is not owned by a managed Driver DaemonSet",
 				"pod", pod.Name, "ownerUID", ownerUID)
@@ -106,33 +108,37 @@ func (m *ClusterUpgradeStateManagerImpl) partitionDriverPods(
 	return podsByDaemonSet, orphanedPods
 }
 
-func (m *ClusterUpgradeStateManagerImpl) validateDaemonSetScheduling(
+// filterStableDaemonSets removes DaemonSets with scheduling inconsistencies from
+// both daemonSets and podsByDaemonSet so that stable DaemonSets can proceed with
+// upgrade processing while transiently inconsistent ones are skipped.
+func (m *ClusterUpgradeStateManagerImpl) filterStableDaemonSets(
 	daemonSets map[types.UID]*appsv1.DaemonSet,
 	podsByDaemonSet map[types.UID][]corev1.Pod,
-) error {
+) {
 	for uid, ds := range daemonSets {
 		if int(ds.Status.DesiredNumberScheduled) != len(podsByDaemonSet[uid]) {
-			m.log.Info("Driver DaemonSet has Unscheduled pods",
+			m.log.Info("Driver DaemonSet has scheduling inconsistency; skipping until stable",
 				"name", ds.Name,
 				"desiredNumberScheduled", ds.Status.DesiredNumberScheduled,
-				"runningPods", len(podsByDaemonSet[uid]))
-			return fmt.Errorf("%w: daemonset=%s desiredNumberScheduled=%d runningPods=%d",
-				ErrDriverDaemonSetHasUnscheduledPods,
-				ds.Name,
-				ds.Status.DesiredNumberScheduled,
-				len(podsByDaemonSet[uid]),
-			)
+				"observedPods", len(podsByDaemonSet[uid]))
+			delete(daemonSets, uid)
+			delete(podsByDaemonSet, uid)
 		}
 	}
-	return nil
 }
 
 func (m *ClusterUpgradeStateManagerImpl) buildNodeUpgradeState(
-	ctx context.Context, pod *corev1.Pod, ds *appsv1.DaemonSet,
+	ctx context.Context, pod *corev1.Pod, ds *appsv1.DaemonSet, nodeCache map[string]*corev1.Node,
 ) (*NodeUpgradeState, error) {
-	node, err := m.nodeUpgradeStateProvider.GetNode(ctx, pod.Spec.NodeName)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get node %s: %v", pod.Spec.NodeName, err)
+	nodeName := pod.Spec.NodeName
+	node, ok := nodeCache[nodeName]
+	if !ok {
+		var err error
+		node, err = m.nodeUpgradeStateProvider.GetNode(ctx, nodeName)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get node %s: %v", nodeName, err)
+		}
+		nodeCache[nodeName] = node
 	}
 
 	m.log.Info("Node hosting a driver pod",
@@ -146,9 +152,10 @@ func (m *ClusterUpgradeStateManagerImpl) addOwnedPodsToUpgradeState(
 	upgradeState *ClusterUpgradeState,
 	pods []corev1.Pod,
 	ownerDaemonSet *appsv1.DaemonSet,
+	nodeCache map[string]*corev1.Node,
 ) error {
 	for i := range pods {
-		if err := m.addPodToUpgradeState(ctx, upgradeState, &pods[i], ownerDaemonSet); err != nil {
+		if err := m.addPodToUpgradeState(ctx, upgradeState, &pods[i], ownerDaemonSet, nodeCache); err != nil {
 			return err
 		}
 	}
@@ -159,9 +166,10 @@ func (m *ClusterUpgradeStateManagerImpl) addOrphanedPodsToUpgradeState(
 	ctx context.Context,
 	upgradeState *ClusterUpgradeState,
 	pods []corev1.Pod,
+	nodeCache map[string]*corev1.Node,
 ) error {
 	for i := range pods {
-		if err := m.addPodToUpgradeState(ctx, upgradeState, &pods[i], nil); err != nil {
+		if err := m.addPodToUpgradeState(ctx, upgradeState, &pods[i], nil, nodeCache); err != nil {
 			return err
 		}
 	}
@@ -173,22 +181,20 @@ func (m *ClusterUpgradeStateManagerImpl) addPodToUpgradeState(
 	upgradeState *ClusterUpgradeState,
 	pod *corev1.Pod,
 	ownerDaemonSet *appsv1.DaemonSet,
+	nodeCache map[string]*corev1.Node,
 ) error {
 	if pod.Spec.NodeName == "" && pod.Status.Phase == corev1.PodPending {
 		m.log.Info("Driver Pod has no NodeName, skipping", "pod", pod.Name)
 		return nil
 	}
 
-	nodeState, err := m.buildNodeUpgradeState(ctx, pod, ownerDaemonSet)
+	nodeState, err := m.buildNodeUpgradeState(ctx, pod, ownerDaemonSet, nodeCache)
 	if err != nil {
 		m.log.Error(err, "Failed to build node upgrade state for pod", "pod", pod)
 		return err
 	}
 
 	nodeStateLabel := nodeState.Node.Labels[UpgradeStateLabelKey]
-	if nodeStateLabel == "" {
-		nodeStateLabel = UpgradeStateUnknown
-	}
 	if !IsManagedUpgradeState(nodeStateLabel) {
 		m.log.Info("Unknown node upgrade state label; falling back to unknown",
 			"node", nodeState.Node.Name,

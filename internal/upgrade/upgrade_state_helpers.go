@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func NewClusterUpgradeState() ClusterUpgradeState {
@@ -11,7 +12,7 @@ func NewClusterUpgradeState() ClusterUpgradeState {
 }
 
 func IsOrphanedPod(pod *corev1.Pod) bool {
-	return len(pod.OwnerReferences) < 1
+	return metav1.GetControllerOf(pod) == nil
 }
 
 func IsNodeUnschedulable(node *corev1.Node) bool {

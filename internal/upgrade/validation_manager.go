@@ -73,12 +73,15 @@ func (m *ValidationManager) Validate(ctx context.Context, node *corev1.Node) (bo
 			done = false
 			break
 		}
+	}
+
+	if done {
 		annotationKey := UpgradeValidationStartTimeAnnotationKey
 		err = m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node, annotationKey)
 		if err != nil {
 			m.Log.Error(err, "Failed to remove annotation used to track validation completion",
 				"node", node.Name, "annotation", annotationKey)
-			return done, err
+			return false, err
 		}
 	}
 	return done, nil
@@ -115,7 +118,11 @@ func (m *ValidationManager) handleTimeout(ctx context.Context, node *corev1.Node
 	}
 
 	if timedOut {
-		_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed)
+		if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
+			m.Log.Error(stateErr, "Failed to mark node as failed after validation timeout; will retry next cycle",
+				"node", node.Name)
+			return stateErr
+		}
 		m.Log.Info("Timeout exceeded for validation, updated the node state", "node", node.Name,
 			"state", UpgradeStateFailed)
 		err = m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node, annotationKey)

@@ -364,7 +364,11 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessPodDeletionRequiredNodes(
 	if !m.IsPodDeletionEnabled() {
 		m.log.Info("PodDeletion is not enabled, proceeding straight to the next state")
 		for _, nodeState := range currentClusterState.NodeStates[UpgradeStatePodDeletionRequired] {
-			_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, UpgradeStateDrainRequired)
+			if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, UpgradeStateDrainRequired); err != nil {
+				m.log.V(consts.LogLevelWarning).Error(err, "Failed to change node upgrade state, will retry next cycle",
+					"node", nodeState.Node.Name, "state", UpgradeStateDrainRequired)
+				continue
+			}
 		}
 		return nil
 	}
@@ -567,50 +571,77 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessRebootRequiredNodes(
 
 	for _, nodeState := range currentClusterState.NodeStates[UpgradeStateRebootRequired] {
 		node := nodeState.Node
-		preRebootBootID := node.Status.NodeInfo.BootID
-		if preRebootBootID == "" {
-			err := fmt.Errorf("node %q bootID is empty", node.Name)
-			m.log.V(consts.LogLevelError).Error(err, "Failed to read node bootID before reboot")
-			return err
-		}
 
-		err := m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(
-			ctx, node, UpgradePreRebootBootIDAnnotationKey, preRebootBootID)
-		if err != nil {
-			m.log.V(consts.LogLevelError).Error(
-				err, "Failed to set node pre-reboot bootID annotation",
-				"annotation", UpgradePreRebootBootIDAnnotationKey,
-				"node", node.Name)
-			return err
-		}
+		var preRebootBootID string
+		var rebootRequestedAt int64
+		var rebootPodName string
 
-		rebootRequestedAt := time.Now().Unix()
-		rebootRequestedAtValue := strconv.FormatInt(rebootRequestedAt, 10)
-		rebootPodName := BuildRebootPodName(node.Name, rebootRequestedAt)
-		err = m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(
-			ctx, node, UpgradeRebootRequestedAtAnnotationKey, rebootRequestedAtValue)
-		if err != nil {
-			m.log.V(consts.LogLevelError).Error(
-				err, "Failed to set node reboot request annotation",
-				"annotation", UpgradeRebootRequestedAtAnnotationKey,
-				"node", node.Name)
-			return err
-		}
+		// Check if a reboot was already partially initiated (crash recovery).
+		// If annotations exist from a previous attempt, reuse them to avoid
+		// creating orphaned reboot pods.
+		if existingPodName, ok := node.Annotations[UpgradeRebootPodNameAnnotationKey]; ok && existingPodName != "" {
+			m.log.Info("Reboot annotations already set from previous attempt; resuming",
+				"node", node.Name, "existingPod", existingPodName)
+			preRebootBootID = node.Annotations[UpgradePreRebootBootIDAnnotationKey]
+			requestedAtRaw := node.Annotations[UpgradeRebootRequestedAtAnnotationKey]
+			var parseErr error
+			rebootRequestedAt, parseErr = strconv.ParseInt(requestedAtRaw, 10, 64)
+			if parseErr != nil || preRebootBootID == "" {
+				m.log.V(consts.LogLevelWarning).Error(parseErr, "Corrupted reboot annotations; cleaning up and retrying next cycle",
+					"node", node.Name)
+				if cleanupErr := m.cleanupRebootArtifacts(ctx, namespace, node); cleanupErr != nil {
+					m.log.V(consts.LogLevelWarning).Error(cleanupErr, "Failed to cleanup corrupted reboot artifacts",
+						"node", node.Name)
+				}
+				continue
+			}
+			rebootPodName = existingPodName
+		} else {
+			preRebootBootID = node.Status.NodeInfo.BootID
+			if preRebootBootID == "" {
+				err := fmt.Errorf("node %q bootID is empty", node.Name)
+				m.log.V(consts.LogLevelError).Error(err, "Failed to read node bootID before reboot")
+				return err
+			}
 
-		err = m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(
-			ctx, node, UpgradeRebootPodNameAnnotationKey, rebootPodName)
-		if err != nil {
-			m.log.V(consts.LogLevelError).Error(
-				err, "Failed to set node reboot pod annotation",
-				"annotation", UpgradeRebootPodNameAnnotationKey,
-				"node", node.Name)
-			return err
+			err := m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(
+				ctx, node, UpgradePreRebootBootIDAnnotationKey, preRebootBootID)
+			if err != nil {
+				m.log.V(consts.LogLevelError).Error(
+					err, "Failed to set node pre-reboot bootID annotation",
+					"annotation", UpgradePreRebootBootIDAnnotationKey,
+					"node", node.Name)
+				return err
+			}
+
+			rebootRequestedAt = time.Now().Unix()
+			rebootRequestedAtValue := strconv.FormatInt(rebootRequestedAt, 10)
+			rebootPodName = BuildRebootPodName(node.Name, rebootRequestedAt)
+			err = m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(
+				ctx, node, UpgradeRebootRequestedAtAnnotationKey, rebootRequestedAtValue)
+			if err != nil {
+				m.log.V(consts.LogLevelError).Error(
+					err, "Failed to set node reboot request annotation",
+					"annotation", UpgradeRebootRequestedAtAnnotationKey,
+					"node", node.Name)
+				return err
+			}
+
+			err = m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(
+				ctx, node, UpgradeRebootPodNameAnnotationKey, rebootPodName)
+			if err != nil {
+				m.log.V(consts.LogLevelError).Error(
+					err, "Failed to set node reboot pod annotation",
+					"annotation", UpgradeRebootPodNameAnnotationKey,
+					"node", node.Name)
+				return err
+			}
 		}
 
 		if m.rebootManager == nil {
 			return fmt.Errorf("reboot manager is not configured")
 		}
-		err = m.rebootManager.Trigger(ctx, node, RebootTriggerRequest{
+		err := m.rebootManager.Trigger(ctx, node, RebootTriggerRequest{
 			RequestedAtUnix: rebootRequestedAt,
 			PreRebootBootID: preRebootBootID,
 			Namespace:       namespace,
@@ -618,7 +649,10 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessRebootRequiredNodes(
 			Image:           rebootImage,
 		})
 		if err != nil {
-			_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed)
+			if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
+				m.log.V(consts.LogLevelWarning).Error(stateErr, "Failed to mark node as failed after reboot trigger error",
+					"node", node.Name)
+			}
 			m.log.V(consts.LogLevelError).Error(
 				err, "Failed to trigger node reboot", "node", node.Name)
 			return err
@@ -671,16 +705,28 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessRebootValidationRequiredNodes(
 					"value", requestedAtRaw,
 					"annotation", UpgradeRebootRequestedAtAnnotationKey,
 				)
-				_ = m.cleanupRebootArtifacts(ctx, namespace, node)
-				_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed)
+				if cleanupErr := m.cleanupRebootArtifacts(ctx, namespace, node); cleanupErr != nil {
+					m.log.V(consts.LogLevelWarning).Error(cleanupErr, "Failed to cleanup reboot artifacts",
+						"node", node.Name)
+				}
+				if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
+					m.log.V(consts.LogLevelWarning).Error(stateErr, "Failed to mark node as failed; will retry next cycle",
+						"node", node.Name)
+				}
 				continue
 			}
 			if time.Now().Unix() > requestedAt+rebootTimeoutSeconds {
 				timeoutErr := fmt.Errorf("reboot validation timed out after %d seconds", rebootTimeoutSeconds)
 				m.log.V(consts.LogLevelWarning).Error(
 					timeoutErr, "Reboot validation timed out; marking upgrade failed", "node", node.Name)
-				_ = m.cleanupRebootArtifacts(ctx, namespace, node)
-				_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed)
+				if cleanupErr := m.cleanupRebootArtifacts(ctx, namespace, node); cleanupErr != nil {
+					m.log.V(consts.LogLevelWarning).Error(cleanupErr, "Failed to cleanup reboot artifacts",
+						"node", node.Name)
+				}
+				if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
+					m.log.V(consts.LogLevelWarning).Error(stateErr, "Failed to mark node as failed; will retry next cycle",
+						"node", node.Name)
+				}
 				continue
 			}
 		}
@@ -820,7 +866,11 @@ func (m *ClusterUpgradeStateManagerImpl) handleRebootPostTimeout(
 		timeoutErr := fmt.Errorf("post-reboot stabilization timed out after %d seconds", timeoutSeconds)
 		m.log.V(consts.LogLevelWarning).Error(
 			timeoutErr, "Post-reboot stabilization timed out; marking upgrade failed", "node", node.Name)
-		_ = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed)
+		if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
+			m.log.V(consts.LogLevelWarning).Error(stateErr, "Failed to mark node as failed; will retry next cycle",
+				"node", node.Name)
+			return false
+		}
 		cleanupErr := m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node, annotationKey)
 		if cleanupErr != nil {
 			m.log.V(consts.LogLevelWarning).Error(
@@ -974,13 +1024,14 @@ func (m *ClusterUpgradeStateManagerImpl) cleanupRebootArtifacts(
 	namespace string,
 	node *corev1.Node,
 ) error {
+	// Pod deletion is best-effort: the pod will be garbage-collected eventually.
+	// Annotation cleanup below is required for correct state machine behavior.
 	rebootPodName := node.Annotations[UpgradeRebootPodNameAnnotationKey]
 	if rebootPodName != "" {
 		if podRebootManager, ok := m.rebootManager.(*PodRebootManager); ok {
-			err := podRebootManager.DeleteRebootPod(ctx, namespace, rebootPodName)
-			if err != nil {
+			if err := podRebootManager.DeleteRebootPod(ctx, namespace, rebootPodName); err != nil {
 				m.log.V(consts.LogLevelWarning).Error(
-					err, "Failed to delete reboot pod",
+					err, "Failed to delete reboot pod (best-effort); continuing with annotation cleanup",
 					"namespace", namespace,
 					"pod", rebootPodName,
 					"node", node.Name)
