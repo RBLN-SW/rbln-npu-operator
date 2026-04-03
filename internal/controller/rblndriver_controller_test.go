@@ -26,6 +26,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -173,6 +174,52 @@ var _ = Describe("RBLNDriver Controller", Ordered, func() {
 		})
 	})
 
+	Context("When the driver resource is deleted", func() {
+		var (
+			driverNS   string
+			reconciler *RBLNDriverReconciler
+			nn         types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			driverNS = createTestNamespace(ctx, "rbln-driver-del")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", driverNS)
+			reconciler = newTestDriverReconciler("")
+			createClusterPolicyFixture(ctx, newDriverTestClusterPolicy("del-cp"))
+			nn = createDriverFixture(ctx, newDriverFixture("del-driver"))
+		})
+
+		It("should add a finalizer and clean up cluster-scoped resources on deletion", func() {
+			By("reconciling to add finalizer and create resources")
+			reconcileDriver(ctx, reconciler, nn)
+
+			By("verifying the finalizer is present")
+			var driver rebellionsaiv1alpha1.RBLNDriver
+			Expect(k8sClient.Get(ctx, nn, &driver)).To(Succeed())
+			Expect(driver.Finalizers).To(ContainElement(consts.DriverFinalizer))
+
+			By("verifying cluster-scoped resources exist")
+			expectClusterResource(ctx, &rbacv1.ClusterRole{}, "rbln-driver", 5*time.Second)
+			expectClusterResource(ctx, &rbacv1.ClusterRoleBinding{}, "rbln-driver", 5*time.Second)
+
+			By("deleting the driver")
+			Expect(k8sClient.Delete(ctx, &driver)).To(Succeed())
+
+			By("reconciling the deletion")
+			reconcileDriver(ctx, reconciler, nn)
+
+			By("verifying cluster-scoped resources are cleaned up")
+			expectClusterResourceDeleted(ctx, &rbacv1.ClusterRole{}, "rbln-driver", 5*time.Second)
+			expectClusterResourceDeleted(ctx, &rbacv1.ClusterRoleBinding{}, "rbln-driver", 5*time.Second)
+
+			By("verifying the CR is fully deleted")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, nn, &rebellionsaiv1alpha1.RBLNDriver{})
+				return apierrors.IsNotFound(err)
+			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "expected RBLNDriver to be fully deleted")
+		})
+	})
+
 	Context("When running on OpenShift", func() {
 		var (
 			driverNS   string
@@ -255,7 +302,16 @@ func newDriverFixture(name string) *rebellionsaiv1alpha1.RBLNDriver {
 
 func createDriverFixture(ctx context.Context, driver *rebellionsaiv1alpha1.RBLNDriver) types.NamespacedName {
 	Expect(k8sClient.Create(ctx, driver)).To(Succeed())
-	DeferCleanup(func() { _ = k8sClient.Delete(ctx, driver) })
+	DeferCleanup(func() {
+		var d rebellionsaiv1alpha1.RBLNDriver
+		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(driver), &d); err == nil {
+			if len(d.Finalizers) > 0 {
+				d.Finalizers = nil
+				_ = k8sClient.Update(ctx, &d)
+			}
+		}
+		_ = k8sClient.Delete(ctx, driver)
+	})
 	return types.NamespacedName{Name: driver.Name}
 }
 

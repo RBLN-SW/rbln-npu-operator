@@ -63,6 +63,18 @@ func NewDriverService(
 	return s, nil
 }
 
+// CleanUpAllComponents removes all managed component resources regardless of
+// whether they are enabled. This is used during CR deletion to ensure
+// cluster-scoped resources (ClusterRole, ClusterRoleBinding) are cleaned up.
+func (s *DriverService) CleanUpAllComponents(ctx context.Context) error {
+	for _, p := range s.patcher {
+		if err := p.CleanUp(ctx, s.singleton); err != nil {
+			return fmt.Errorf("cleanup %s: %w", p.ComponentName(), err)
+		}
+	}
+	return nil
+}
+
 // PatchComponents applies or removes each managed component according to
 // whether it is enabled.
 func (s *DriverService) PatchComponents(ctx context.Context) error {
