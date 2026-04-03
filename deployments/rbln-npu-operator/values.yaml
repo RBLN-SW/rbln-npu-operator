@@ -192,7 +192,7 @@ metricsExporter:
   image:
     registry: docker.io
     repository: rebellions/rbln-metrics-exporter
-    tag: v0.2.3
+    tag: v0.2.4
     pullPolicy: IfNotPresent
 
 # RBLN Daemon configuration
