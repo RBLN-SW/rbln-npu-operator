@@ -1,11 +1,15 @@
 package components
 
 import (
+	"context"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
@@ -125,4 +129,107 @@ func TestDriverManagerLabels(t *testing.T) {
 	if labels[driverManagerInstanceLabelKey] != testInstanceName {
 		t.Fatalf("instance label = %q, want %q", labels[driverManagerInstanceLabelKey], testInstanceName)
 	}
+}
+
+func newStaleTestDaemonSet(name, instanceName, poolName string) *appsv1.DaemonSet {
+	return &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: testNamespace,
+			Labels: map[string]string{
+				driverManagerAppLabelKey:      driverManagerName,
+				driverManagerNodePoolLabelKey: poolName,
+				driverManagerInstanceLabelKey: instanceName,
+			},
+		},
+	}
+}
+
+func TestCleanUpStaleDaemonSets(t *testing.T) {
+	tests := map[string]struct {
+		existingDS   []*appsv1.DaemonSet
+		desiredPools []nodePool
+		wantDeleted  []string // DS names that should be deleted
+		wantKept     []string // DS names that should remain
+	}{
+		"deletes orphaned DaemonSets": {
+			existingDS: []*appsv1.DaemonSet{
+				newStaleTestDaemonSet(testInstanceName+"-ubuntu22.04-5.15.0", testInstanceName, "ubuntu22.04-5.15.0"),
+				newStaleTestDaemonSet(testInstanceName+"-ubuntu22.04-5.19.0", testInstanceName, "ubuntu22.04-5.19.0"),
+			},
+			desiredPools: []nodePool{{name: "ubuntu22.04-5.19.0"}},
+			wantDeleted:  []string{testInstanceName + "-ubuntu22.04-5.15.0"},
+			wantKept:     []string{testInstanceName + "-ubuntu22.04-5.19.0"},
+		},
+		"no stale DaemonSets": {
+			existingDS: []*appsv1.DaemonSet{
+				newStaleTestDaemonSet(testInstanceName+"-ubuntu22.04-5.15.0", testInstanceName, "ubuntu22.04-5.15.0"),
+			},
+			desiredPools: []nodePool{{name: "ubuntu22.04-5.15.0"}},
+			wantDeleted:  nil,
+			wantKept:     []string{testInstanceName + "-ubuntu22.04-5.15.0"},
+		},
+		"all DaemonSets stale": {
+			existingDS: []*appsv1.DaemonSet{
+				newStaleTestDaemonSet(testInstanceName+"-ubuntu22.04-5.15.0", testInstanceName, "ubuntu22.04-5.15.0"),
+				newStaleTestDaemonSet(testInstanceName+"-rhel9-5.14.0", testInstanceName, "rhel9-5.14.0"),
+			},
+			desiredPools: []nodePool{{name: "ubuntu22.04-6.0.0"}},
+			wantDeleted:  []string{testInstanceName + "-ubuntu22.04-5.15.0", testInstanceName + "-rhel9-5.14.0"},
+			wantKept:     nil,
+		},
+		"ignores other instances": {
+			existingDS: []*appsv1.DaemonSet{
+				newStaleTestDaemonSet(testInstanceName+"-ubuntu22.04-5.15.0", testInstanceName, "ubuntu22.04-5.15.0"),
+				newStaleTestDaemonSet("other-instance-ubuntu22.04-5.15.0", "other-instance", "ubuntu22.04-5.15.0"),
+			},
+			desiredPools: []nodePool{{name: "ubuntu22.04-5.19.0"}},
+			wantDeleted:  []string{testInstanceName + "-ubuntu22.04-5.15.0"},
+			wantKept:     []string{"other-instance-ubuntu22.04-5.15.0"},
+		},
+		"empty existing list": {
+			existingDS:   nil,
+			desiredPools: []nodePool{{name: "ubuntu22.04-5.15.0"}},
+			wantDeleted:  nil,
+			wantKept:     nil,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			scheme := newTestScheme(t)
+			c := newFakeClientWithDS(t, scheme, tc.existingDS)
+
+			h := &driverManagerPatcher{
+				basePatcher: basePatcher{
+					client:       c,
+					log:          logf.Log,
+					name:         driverManagerName,
+					instanceName: testInstanceName,
+					namespace:    testNamespace,
+				},
+			}
+
+			ctx := context.Background()
+			if err := h.cleanUpStaleDaemonSets(ctx, tc.desiredPools); err != nil {
+				t.Fatalf("cleanUpStaleDaemonSets() error: %v", err)
+			}
+
+			for _, dsName := range tc.wantDeleted {
+				assertObjectNotExists(t, c, types.NamespacedName{Name: dsName, Namespace: testNamespace}, &appsv1.DaemonSet{})
+			}
+			for _, dsName := range tc.wantKept {
+				assertObjectExists(t, c, types.NamespacedName{Name: dsName, Namespace: testNamespace}, &appsv1.DaemonSet{})
+			}
+		})
+	}
+}
+
+func newFakeClientWithDS(t *testing.T, scheme *runtime.Scheme, dsList []*appsv1.DaemonSet) client.Client {
+	t.Helper()
+	objs := make([]client.Object, 0, len(dsList))
+	for _, ds := range dsList {
+		objs = append(objs, ds)
+	}
+	return newFakeClient(t, scheme, objs...)
 }

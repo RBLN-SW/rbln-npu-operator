@@ -86,6 +86,10 @@ func (h *driverManagerPatcher) Patch(ctx context.Context, owner *rebellionsaiv1a
 		}
 	}
 
+	if err := h.cleanUpStaleDaemonSets(ctx, nodePools); err != nil {
+		return err
+	}
+
 	return nil
 }
 

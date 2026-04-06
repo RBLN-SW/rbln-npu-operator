@@ -110,6 +110,43 @@ func (h *driverManagerPatcher) driverManagerLabels(pool nodePool) map[string]str
 	}
 }
 
+// cleanUpStaleDaemonSets removes DaemonSets that belong to node pools which
+// no longer have any matching nodes (e.g. after a kernel upgrade).
+func (h *driverManagerPatcher) cleanUpStaleDaemonSets(ctx context.Context, desiredPools []nodePool) error {
+	desiredPoolNames := make(map[string]struct{}, len(desiredPools))
+	for _, pool := range desiredPools {
+		desiredPoolNames[pool.name] = struct{}{}
+	}
+
+	existingDSList := &appsv1.DaemonSetList{}
+	if err := h.client.List(ctx, existingDSList,
+		client.InNamespace(h.namespace),
+		client.MatchingLabels(map[string]string{
+			driverManagerAppLabelKey:      h.name,
+			driverManagerInstanceLabelKey: h.instanceName,
+		}),
+	); err != nil {
+		return fmt.Errorf("list existing driver DaemonSets: %w", err)
+	}
+
+	for i := range existingDSList.Items {
+		ds := &existingDSList.Items[i]
+		poolName := ds.Labels[driverManagerNodePoolLabelKey]
+		if _, desired := desiredPoolNames[poolName]; !desired {
+			h.log.Info("Deleting stale DaemonSet for removed node pool",
+				"namespace", ds.Namespace,
+				"name", ds.Name,
+				"nodePool", poolName,
+			)
+			if err := h.deleteIfExists(ctx, ds); err != nil {
+				return fmt.Errorf("delete stale DaemonSet %s/%s: %w", ds.Namespace, ds.Name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
 func (h *driverManagerPatcher) startupProbeConfigMapName() string {
 	return fmt.Sprintf("%s-%s", h.name, startupProbeConfigMapSuffix)
 }
