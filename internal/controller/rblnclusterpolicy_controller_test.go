@@ -83,6 +83,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			GinkgoT().Setenv("OPERATOR_NAMESPACE", containerNS)
 			reconciler = newTestClusterPolicyReconciler("")
 			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("container-policy"))
+			DeferCleanup(func() { cleanupValidatorClusterRBAC(ctx) })
 		})
 
 		JustBeforeEach(func() {
@@ -140,6 +141,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			GinkgoT().Setenv("OPERATOR_NAMESPACE", vmNS)
 			reconciler = newTestClusterPolicyReconciler("")
 			nn = createClusterPolicyFixture(ctx, newVMPassthroughClusterPolicyFixture("container-policy"))
+			DeferCleanup(func() { cleanupValidatorClusterRBAC(ctx) })
 		})
 
 		JustBeforeEach(func() {
@@ -244,6 +246,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			reconciler = newTestClusterPolicyReconciler("")
 			activeNN = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("active-policy"))
 			ignoredNN = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("ignored-policy"))
+			DeferCleanup(func() { cleanupValidatorClusterRBAC(ctx) })
 		})
 
 		It("marks the second policy ignored and keeps resources scoped to the first policy", func() {
@@ -265,44 +268,37 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 		})
 	})
 
-	Context("When the cluster policy is deleted", func() {
-		var deletionNS string
+	Context("When cluster-scoped resources are created", func() {
+		var ownerRefNS string
 
 		BeforeEach(func() {
-			deletionNS = createTestNamespace(ctx, "rbln-deletion")
-			GinkgoT().Setenv("OPERATOR_NAMESPACE", deletionNS)
+			ownerRefNS = createTestNamespace(ctx, "rbln-ownerref")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", ownerRefNS)
 			reconciler = newTestClusterPolicyReconciler("")
-			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("deletion-policy"))
+			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("ownerref-policy"))
 		})
 
-		It("should add a finalizer and clean up cluster-scoped resources on deletion", func() {
-			By("reconciling to add finalizer and create resources")
+		It("should set ownerReferences on cluster-scoped resources for GC", func() {
+			By("reconciling to create resources")
 			reconcileClusterPolicy(ctx, reconciler, nn)
 
-			By("verifying the finalizer is present")
-			var policy rblnv1beta1.RBLNClusterPolicy
-			Expect(k8sClient.Get(ctx, nn, &policy)).To(Succeed())
-			Expect(policy.Finalizers).To(ContainElement(consts.ClusterPolicyFinalizer))
+			By("verifying the validator ClusterRole has an ownerReference to the policy")
+			var cr rbacv1.ClusterRole
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "rbln-operator-validator"}, &cr)).To(Succeed())
+			Expect(cr.OwnerReferences).To(HaveLen(1))
+			Expect(cr.OwnerReferences[0].Name).To(Equal(nn.Name))
+			Expect(cr.OwnerReferences[0].Kind).To(Equal("RBLNClusterPolicy"))
 
-			By("verifying cluster-scoped resources exist (validator)")
-			expectClusterResource(ctx, &rbacv1.ClusterRole{}, "rbln-operator-validator", 5*time.Second)
-			expectClusterResource(ctx, &rbacv1.ClusterRoleBinding{}, "rbln-operator-validator", 5*time.Second)
+			By("verifying the validator ClusterRoleBinding has an ownerReference to the policy")
+			var crb rbacv1.ClusterRoleBinding
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "rbln-operator-validator"}, &crb)).To(Succeed())
+			Expect(crb.OwnerReferences).To(HaveLen(1))
+			Expect(crb.OwnerReferences[0].Name).To(Equal(nn.Name))
 
-			By("deleting the cluster policy")
-			Expect(k8sClient.Delete(ctx, &policy)).To(Succeed())
-
-			By("reconciling the deletion")
-			reconcileClusterPolicy(ctx, reconciler, nn)
-
-			By("verifying cluster-scoped resources are cleaned up")
-			expectClusterResourceDeleted(ctx, &rbacv1.ClusterRole{}, "rbln-operator-validator", 5*time.Second)
-			expectClusterResourceDeleted(ctx, &rbacv1.ClusterRoleBinding{}, "rbln-operator-validator", 5*time.Second)
-
-			By("verifying the CR is fully deleted")
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, nn, &rblnv1beta1.RBLNClusterPolicy{})
-				return apierrors.IsNotFound(err)
-			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "expected RBLNClusterPolicy to be fully deleted")
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, &cr)
+				_ = k8sClient.Delete(ctx, &crb)
+			})
 		})
 	})
 
@@ -314,6 +310,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			GinkgoT().Setenv("OPERATOR_NAMESPACE", openShiftNS)
 			reconciler = newTestClusterPolicyReconciler("v4.14.0")
 			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("container-policy"))
+			DeferCleanup(func() { cleanupValidatorClusterRBAC(ctx) })
 		})
 
 		JustBeforeEach(func() {
@@ -425,16 +422,7 @@ func createTestNamespace(ctx context.Context, prefix string) string {
 
 func createClusterPolicyFixture(ctx context.Context, policy *rblnv1beta1.RBLNClusterPolicy) types.NamespacedName {
 	Expect(k8sClient.Create(ctx, policy)).To(Succeed())
-	DeferCleanup(func() {
-		var p rblnv1beta1.RBLNClusterPolicy
-		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(policy), &p); err == nil {
-			if len(p.Finalizers) > 0 {
-				p.Finalizers = nil
-				_ = k8sClient.Update(ctx, &p)
-			}
-		}
-		_ = k8sClient.Delete(ctx, policy)
-	})
+	DeferCleanup(func() { _ = k8sClient.Delete(ctx, policy) })
 	return types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}
 }
 
@@ -554,11 +542,9 @@ func patchDevicePluginEnabled(ctx context.Context, nn types.NamespacedName, enab
 // Utilities
 // ---------------------------------------------------------------------------
 
-func expectClusterResourceDeleted[T client.Object](ctx context.Context, obj T, name string, timeout time.Duration) {
-	Eventually(func() bool {
-		err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, obj)
-		return apierrors.IsNotFound(err)
-	}, timeout, 250*time.Millisecond).Should(BeTrue(), "expected %T %s to be removed", obj, name)
+func cleanupValidatorClusterRBAC(ctx context.Context) {
+	_ = k8sClient.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: "rbln-operator-validator"}})
+	_ = k8sClient.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "rbln-operator-validator"}})
 }
 
 func cloneLabels(in map[string]string) map[string]string {

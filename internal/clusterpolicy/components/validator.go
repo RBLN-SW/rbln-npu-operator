@@ -64,10 +64,10 @@ func (h *validatorPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClu
 	if err := h.reconcileRoleBinding(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleClusterRole(ctx); err != nil {
+	if err := h.handleClusterRole(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleClusterRoleBinding(ctx); err != nil {
+	if err := h.handleClusterRoleBinding(ctx, owner); err != nil {
 		return err
 	}
 	return h.handleDaemonSet(ctx, owner)
@@ -140,7 +140,7 @@ func (h *validatorPatcher) reconcileValidatorRole(ctx context.Context, owner *rb
 	return nil
 }
 
-func (h *validatorPatcher) handleClusterRole(ctx context.Context) error {
+func (h *validatorPatcher) handleClusterRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	role := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: h.name}}
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
@@ -151,7 +151,7 @@ func (h *validatorPatcher) handleClusterRole(ctx context.Context) error {
 				Verbs:     []string{"get", "list", "watch"},
 			},
 		}
-		return nil
+		return ctrl.SetControllerReference(owner, role, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile Validator ClusterRole")
@@ -161,7 +161,7 @@ func (h *validatorPatcher) handleClusterRole(ctx context.Context) error {
 	return nil
 }
 
-func (h *validatorPatcher) handleClusterRoleBinding(ctx context.Context) error {
+func (h *validatorPatcher) handleClusterRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	binding := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: h.name}}
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, binding, func() error {
@@ -177,7 +177,7 @@ func (h *validatorPatcher) handleClusterRoleBinding(ctx context.Context) error {
 				Namespace: h.namespace,
 			},
 		}
-		return nil
+		return ctrl.SetControllerReference(owner, binding, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile Validator ClusterRoleBinding")

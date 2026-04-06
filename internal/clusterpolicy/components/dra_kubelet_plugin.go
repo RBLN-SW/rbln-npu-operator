@@ -68,13 +68,13 @@ func (h *draKubeletPluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.
 	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleClusterRole(ctx); err != nil {
+	if err := h.handleClusterRole(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleClusterRoleBinding(ctx); err != nil {
+	if err := h.handleClusterRoleBinding(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleDRAClass(ctx); err != nil {
+	if err := h.handleDRAClass(ctx, owner); err != nil {
 		return err
 	}
 	return h.handleDaemonSet(ctx, owner)
@@ -119,11 +119,11 @@ func (h *draKubeletPluginPatcher) className() string {
 	return "npu.rebellions.ai"
 }
 
-func (h *draKubeletPluginPatcher) handleDRAClass(ctx context.Context) error {
-	return h.handleDeviceClass(ctx)
+func (h *draKubeletPluginPatcher) handleDRAClass(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	return h.handleDeviceClass(ctx, owner)
 }
 
-func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context) error {
+func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	deviceClass := &resourcev1.DeviceClass{
 		ObjectMeta: metav1.ObjectMeta{Name: h.className()},
 	}
@@ -139,7 +139,7 @@ func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context) error {
 			},
 			ExtendedResourceName: ptr(draExtendedResource),
 		}
-		return nil
+		return ctrl.SetControllerReference(owner, deviceClass, h.scheme)
 	})
 	if err != nil {
 		return err
@@ -164,7 +164,7 @@ func isNoMatchError(err error) bool {
 	return apimeta.IsNoMatchError(err) || runtime.IsNotRegisteredError(err) || strings.Contains(err.Error(), "no matches for kind")
 }
 
-func (h *draKubeletPluginPatcher) handleClusterRole(ctx context.Context) error {
+func (h *draKubeletPluginPatcher) handleClusterRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	clusterRole := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: h.clusterRoleName()}}
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, clusterRole, func() error {
@@ -190,7 +190,7 @@ func (h *draKubeletPluginPatcher) handleClusterRole(ctx context.Context) error {
 				Verbs:     []string{"get", "list", "watch", "create", "update", "patch", "delete"},
 			},
 		}
-		return nil
+		return ctrl.SetControllerReference(owner, clusterRole, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile DRA kubelet plugin ClusterRole")
@@ -200,7 +200,7 @@ func (h *draKubeletPluginPatcher) handleClusterRole(ctx context.Context) error {
 	return nil
 }
 
-func (h *draKubeletPluginPatcher) handleClusterRoleBinding(ctx context.Context) error {
+func (h *draKubeletPluginPatcher) handleClusterRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	binding := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: h.clusterRoleBindingName()}}
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, binding, func() error {
@@ -216,7 +216,7 @@ func (h *draKubeletPluginPatcher) handleClusterRoleBinding(ctx context.Context) 
 				Namespace: h.namespace,
 			},
 		}
-		return nil
+		return ctrl.SetControllerReference(owner, binding, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile DRA kubelet plugin ClusterRoleBinding")

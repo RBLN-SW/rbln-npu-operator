@@ -88,19 +88,6 @@ func (s *ClusterPolicyService) PatchComponents(ctx context.Context) error {
 	return nil
 }
 
-// CleanUpAllComponents removes all managed component resources regardless of
-// whether they are enabled. This is used during CR deletion to ensure
-// cluster-scoped resources (ClusterRole, ClusterRoleBinding, DeviceClass) are
-// cleaned up properly.
-func (s *ClusterPolicyService) CleanUpAllComponents(ctx context.Context) error {
-	for _, c := range s.components {
-		if err := c.CleanUp(ctx, s.policy); err != nil {
-			return fmt.Errorf("cleanup %s: %w", c.ComponentName(), err)
-		}
-	}
-	return nil
-}
-
 // AssembleComponentStatus returns the readiness state of each enabled component.
 // Status writing is the caller's responsibility.
 func (s *ClusterPolicyService) AssembleComponentStatus(ctx context.Context) []rblnv1beta1.RBLNComponentStatus {

@@ -91,21 +91,6 @@ func assertClusterObjectExists(t *testing.T, c client.Client, name string, obj c
 	}
 }
 
-func assertClusterObjectNotExists(t *testing.T, c client.Client, name string, obj client.Object) {
-	t.Helper()
-	err := c.Get(context.Background(), types.NamespacedName{Name: name}, obj)
-	if err == nil {
-		t.Fatalf("expected cluster object %s to not exist, but it does", name)
-	}
-}
-
-func assertNoOwnerRef(t *testing.T, obj metav1.Object) {
-	t.Helper()
-	if len(obj.GetOwnerReferences()) > 0 {
-		t.Fatalf("object %s should have no owner references, got %d", obj.GetName(), len(obj.GetOwnerReferences()))
-	}
-}
-
 func assertRoleHasRule(t *testing.T, role *rbacv1.Role, apiGroup, resource string) {
 	t.Helper()
 	for _, rule := range role.Rules {

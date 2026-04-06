@@ -9,8 +9,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-
-	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 )
 
 func TestNewDriverManagerPatcher_NilDriver(t *testing.T) {
@@ -49,10 +47,10 @@ func TestDriverManagerPatcher_Patch(t *testing.T) {
 		t.Fatalf("Patch() error: %v", err)
 	}
 
-	// ServiceAccount — no owner ref (shared)
+	// ServiceAccount — ownerRef to driver instance
 	sa := &corev1.ServiceAccount{}
 	assertObjectExists(t, c, types.NamespacedName{Name: driverManagerName, Namespace: testNamespace}, sa)
-	assertNoOwnerRef(t, sa)
+	assertHasOwnerRef(t, sa, owner.Name)
 
 	// ClusterRole
 	cr := &rbacv1.ClusterRole{}
@@ -99,16 +97,16 @@ func TestDriverManagerPatcher_Patch_OpenShift(t *testing.T) {
 		t.Fatalf("Patch() error: %v", err)
 	}
 
-	// OpenShift Role with SCC rule — no owner ref
+	// OpenShift Role with SCC rule — ownerRef to driver
 	role := &rbacv1.Role{}
 	assertObjectExists(t, c, types.NamespacedName{Name: driverManagerName, Namespace: testNamespace}, role)
-	assertNoOwnerRef(t, role)
+	assertHasOwnerRef(t, role, owner.Name)
 	assertRoleHasRule(t, role, "security.openshift.io", "securitycontextconstraints")
 
-	// OpenShift RoleBinding — no owner ref
+	// OpenShift RoleBinding — ownerRef to driver
 	rb := &rbacv1.RoleBinding{}
 	assertObjectExists(t, c, types.NamespacedName{Name: driverManagerName, Namespace: testNamespace}, rb)
-	assertNoOwnerRef(t, rb)
+	assertHasOwnerRef(t, rb, owner.Name)
 }
 
 func TestDriverManagerPatcher_CleanUp(t *testing.T) {
@@ -148,42 +146,10 @@ func TestDriverManagerPatcher_CleanUp(t *testing.T) {
 		t.Fatalf("CleanUp() error: %v", err)
 	}
 
-	assertObjectNotExists(t, c, types.NamespacedName{Name: driverManagerName, Namespace: testNamespace}, &corev1.ServiceAccount{})
-	assertClusterObjectNotExists(t, c, driverManagerName, &rbacv1.ClusterRole{})
-	assertClusterObjectNotExists(t, c, driverManagerName, &rbacv1.ClusterRoleBinding{})
+	// CleanUp deletes instance-specific DaemonSets and ConfigMap.
+	// ClusterRole, ClusterRoleBinding, and ServiceAccount are left for GC via ownerReferences.
 	assertObjectNotExists(t, c, types.NamespacedName{
 		Name:      driverManagerName + "-" + startupProbeConfigMapSuffix,
 		Namespace: testNamespace,
 	}, &corev1.ConfigMap{})
-}
-
-func TestDriverManagerPatcher_CleanUp_PreservesSharedResources(t *testing.T) {
-	scheme := newTestScheme(t)
-
-	// Create two RBLNDriver instances so shared resources are preserved.
-	otherDriver := &rebellionsaiv1alpha1.RBLNDriver{
-		ObjectMeta: metav1.ObjectMeta{Name: "other-driver", UID: "other-uid"},
-		Spec:       rebellionsaiv1alpha1.RBLNDriverSpec{Version: "3.0.0"},
-	}
-	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: driverManagerName, Namespace: testNamespace}}
-	cr := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: driverManagerName}}
-	crb := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: driverManagerName}}
-
-	c := newFakeClient(t, scheme, otherDriver, sa, cr, crb)
-	ctx := context.Background()
-
-	owner := newTestOwner()
-	p, err := NewDriverManagerPatcher(c, logf.Log, testNamespace, owner, scheme, "")
-	if err != nil {
-		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
-	}
-
-	if err := p.CleanUp(ctx, owner); err != nil {
-		t.Fatalf("CleanUp() error: %v", err)
-	}
-
-	// Shared resources should still exist because another driver instance exists.
-	assertObjectExists(t, c, types.NamespacedName{Name: driverManagerName, Namespace: testNamespace}, &corev1.ServiceAccount{})
-	assertClusterObjectExists(t, c, driverManagerName, &rbacv1.ClusterRole{})
-	assertClusterObjectExists(t, c, driverManagerName, &rbacv1.ClusterRoleBinding{})
 }
