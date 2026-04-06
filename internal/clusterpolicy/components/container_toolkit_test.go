@@ -75,6 +75,116 @@ func TestContainerToolkitPatch(t *testing.T) {
 	assertConfigMapHasKey(t, c, name+"-entrypoint", testNamespace, owner.Name, containerToolkitEntrypointKey)
 }
 
+func TestContainerToolkitSocketOverride(t *testing.T) {
+	tests := map[string]struct {
+		runtime        string
+		envOverride    []corev1.EnvVar
+		wantSocketPath string
+		wantVolumeName string
+	}{
+		"containerd default socket": {
+			runtime:        consts.Containerd,
+			wantSocketPath: containerdSockPath,
+			wantVolumeName: containerdSockVolumeName,
+		},
+		"containerd overridden socket": {
+			runtime: consts.Containerd,
+			envOverride: []corev1.EnvVar{
+				{Name: "RBLN_CTK_DAEMON_SOCKET", Value: "/run/k3s/containerd/containerd.sock"},
+			},
+			wantSocketPath: "/run/k3s/containerd/containerd.sock",
+			wantVolumeName: containerdSockVolumeName,
+		},
+		"docker default socket": {
+			runtime:        consts.Docker,
+			wantSocketPath: dockerSockPath,
+			wantVolumeName: dockerSockVolumeName,
+		},
+		"docker overridden socket": {
+			runtime: consts.Docker,
+			envOverride: []corev1.EnvVar{
+				{Name: "RBLN_CTK_DAEMON_SOCKET", Value: "/custom/docker.sock"},
+			},
+			wantSocketPath: "/custom/docker.sock",
+			wantVolumeName: dockerSockVolumeName,
+		},
+		"crio default socket": {
+			runtime:        consts.CRIO,
+			wantSocketPath: crioSockPath,
+			wantVolumeName: crioSockVolumeName,
+		},
+	}
+
+	dsName := consts.RBLNBaseName + "-" + consts.RBLNContainerToolkitName
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			scheme := newTestScheme(t)
+			c := newFakeClient(t, scheme)
+
+			owner := newTestOwner()
+			owner.Spec.ContainerToolkit.Env = tc.envOverride
+
+			p := NewContainerToolkitPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "", tc.runtime)
+			if err := p.Patch(context.Background(), owner); err != nil {
+				t.Fatalf("Patch() error: %v", err)
+			}
+
+			ds := &appsv1.DaemonSet{}
+			assertObjectExists(t, c, types.NamespacedName{Name: dsName, Namespace: testNamespace}, ds)
+
+			// Verify volume host path
+			foundVolume := false
+			for _, vol := range ds.Spec.Template.Spec.Volumes {
+				if vol.Name == tc.wantVolumeName {
+					foundVolume = true
+					if vol.HostPath.Path != tc.wantSocketPath {
+						t.Fatalf("volume %q host path = %q, want %q",
+							tc.wantVolumeName, vol.HostPath.Path, tc.wantSocketPath)
+					}
+					break
+				}
+			}
+			if !foundVolume {
+				t.Fatalf("expected volume %q not found", tc.wantVolumeName)
+			}
+
+			// Verify volume mount path
+			mainContainer := ds.Spec.Template.Spec.Containers[0]
+			foundMount := false
+			for _, vm := range mainContainer.VolumeMounts {
+				if vm.Name == tc.wantVolumeName {
+					foundMount = true
+					if vm.MountPath != tc.wantSocketPath {
+						t.Fatalf("volume mount %q path = %q, want %q",
+							tc.wantVolumeName, vm.MountPath, tc.wantSocketPath)
+					}
+					break
+				}
+			}
+			if !foundMount {
+				t.Fatalf("expected volume mount %q not found", tc.wantVolumeName)
+			}
+
+			// Verify env var
+			foundEnv := false
+			for _, env := range mainContainer.Env {
+				if env.Name == "RBLN_CTK_DAEMON_SOCKET" {
+					foundEnv = true
+					if env.Value != tc.wantSocketPath {
+						t.Fatalf("env RBLN_CTK_DAEMON_SOCKET = %q, want %q",
+							env.Value, tc.wantSocketPath)
+					}
+					break
+				}
+			}
+			if !foundEnv {
+				t.Fatalf("expected env RBLN_CTK_DAEMON_SOCKET not found")
+			}
+		})
+	}
+}
+
 func TestContainerToolkitCleanUp(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)

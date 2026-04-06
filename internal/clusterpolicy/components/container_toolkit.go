@@ -180,29 +180,42 @@ func (h *containerToolkitPatcher) handleConfigMap(ctx context.Context, owner *rb
 	return nil
 }
 
-func (h *containerToolkitPatcher) buildRuntimeMountsAndVolumes() ([]corev1.VolumeMount, []corev1.Volume) {
+// resolveSocketPath returns the effective socket path for the container runtime.
+// If the user specified RBLN_CTK_DAEMON_SOCKET in the CR env, that value takes precedence;
+// otherwise the default path for the detected runtime is returned.
+func (h *containerToolkitPatcher) resolveSocketPath() string {
+	if override, ok := envVarValue(h.desiredSpec.Env, "RBLN_CTK_DAEMON_SOCKET"); ok && override != "" {
+		return override
+	}
 	switch h.containerRuntime {
 	case consts.Containerd:
-		return []corev1.VolumeMount{
-				{Name: containerdSockVolumeName, MountPath: containerdSockPath},
-			}, []corev1.Volume{
-				hostPathVolume(containerdSockVolumeName, containerdSockPath, corev1.HostPathSocket),
-			}
+		return containerdSockPath
 	case consts.Docker:
-		return []corev1.VolumeMount{
-				{Name: dockerSockVolumeName, MountPath: dockerSockPath},
-			}, []corev1.Volume{
-				hostPathVolume(dockerSockVolumeName, dockerSockPath, corev1.HostPathSocket),
-			}
+		return dockerSockPath
 	case consts.CRIO:
-		return []corev1.VolumeMount{
-				{Name: crioSockVolumeName, MountPath: crioSockPath},
-			}, []corev1.Volume{
-				hostPathVolume(crioSockVolumeName, crioSockPath, corev1.HostPathSocket),
-			}
+		return crioSockPath
+	default:
+		return ""
+	}
+}
+
+func (h *containerToolkitPatcher) buildRuntimeMountsAndVolumes(socketPath string) ([]corev1.VolumeMount, []corev1.Volume) {
+	var volumeName string
+	switch h.containerRuntime {
+	case consts.Containerd:
+		volumeName = containerdSockVolumeName
+	case consts.Docker:
+		volumeName = dockerSockVolumeName
+	case consts.CRIO:
+		volumeName = crioSockVolumeName
 	default:
 		return nil, nil
 	}
+	return []corev1.VolumeMount{
+			{Name: volumeName, MountPath: socketPath},
+		}, []corev1.Volume{
+			hostPathVolume(volumeName, socketPath, corev1.HostPathSocket),
+		}
 }
 
 func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
@@ -246,24 +259,25 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		imagePullPolicy = corev1.PullIfNotPresent
 	}
 
-	runtimeMounts, runtimeVolumes := h.buildRuntimeMountsAndVolumes()
+	socketPath := h.resolveSocketPath()
+	runtimeMounts, runtimeVolumes := h.buildRuntimeMountsAndVolumes(socketPath)
 
 	runtimeEnv := []corev1.EnvVar{}
 	switch h.containerRuntime {
 	case consts.Containerd:
 		runtimeEnv = append(runtimeEnv,
 			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_RUNTIME", Value: consts.Containerd},
-			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_SOCKET", Value: containerdSockPath},
+			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_SOCKET", Value: socketPath},
 		)
 	case consts.Docker:
 		runtimeEnv = append(runtimeEnv,
 			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_RUNTIME", Value: consts.Docker},
-			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_SOCKET", Value: dockerSockPath},
+			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_SOCKET", Value: socketPath},
 		)
 	case consts.CRIO:
 		runtimeEnv = append(runtimeEnv,
 			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_RUNTIME", Value: consts.CRIO},
-			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_SOCKET", Value: crioSockPath},
+			corev1.EnvVar{Name: "RBLN_CTK_DAEMON_SOCKET", Value: socketPath},
 		)
 	}
 
