@@ -17,6 +17,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -61,6 +62,17 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	instance, err := r.fetchClusterPolicy(ctx, req)
 	if err != nil || instance == nil {
 		return ctrl.Result{}, err
+	}
+
+	if !instance.DeletionTimestamp.IsZero() {
+		return r.handleDeletion(ctx, instance)
+	}
+
+	if !controllerutil.ContainsFinalizer(instance, consts.ClusterPolicyFinalizer) {
+		controllerutil.AddFinalizer(instance, consts.ClusterPolicyFinalizer)
+		if err := r.Update(ctx, instance); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	ignored, err := r.handleSingletonPolicy(ctx, instance)
@@ -125,6 +137,47 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
+	return ctrl.Result{}, nil
+}
+
+func (r *RBLNClusterPolicyReconciler) handleDeletion(
+	ctx context.Context,
+	instance *rblnv1beta1.RBLNClusterPolicy,
+) (ctrl.Result, error) {
+	if !controllerutil.ContainsFinalizer(instance, consts.ClusterPolicyFinalizer) {
+		return ctrl.Result{}, nil
+	}
+
+	r.Log.Info("Cleaning up all components before RBLNClusterPolicy deletion", "name", instance.Name)
+
+	namespace := os.Getenv("OPERATOR_NAMESPACE")
+	if namespace == "" {
+		return ctrl.Result{}, fmt.Errorf("OPERATOR_NAMESPACE environment variable is not set")
+	}
+
+	openshiftVersion := ""
+	containerRuntime := ""
+	if r.ClusterInfo != nil {
+		openshiftVersion = r.ClusterInfo.OpenShiftVersion
+		containerRuntime = r.ClusterInfo.ContainerRuntime
+	}
+
+	service := clusterpolicy.NewClusterPolicyService(
+		r.Client, r.Log, r.Scheme, instance, namespace,
+		openshiftVersion, containerRuntime,
+	)
+	if err := service.CleanUpAllComponents(ctx); err != nil {
+		r.Log.Error(err, "Failed to clean up components during deletion")
+		return ctrl.Result{}, err
+	}
+
+	controllerutil.RemoveFinalizer(instance, consts.ClusterPolicyFinalizer)
+	if err := r.Update(ctx, instance); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	r.SingletonCRName = ""
+	r.Log.Info("Successfully cleaned up RBLNClusterPolicy", "name", instance.Name)
 	return ctrl.Result{}, nil
 }
 

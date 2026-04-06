@@ -265,6 +265,47 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 		})
 	})
 
+	Context("When the cluster policy is deleted", func() {
+		var deletionNS string
+
+		BeforeEach(func() {
+			deletionNS = createTestNamespace(ctx, "rbln-deletion")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", deletionNS)
+			reconciler = newTestClusterPolicyReconciler("")
+			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("deletion-policy"))
+		})
+
+		It("should add a finalizer and clean up cluster-scoped resources on deletion", func() {
+			By("reconciling to add finalizer and create resources")
+			reconcileClusterPolicy(ctx, reconciler, nn)
+
+			By("verifying the finalizer is present")
+			var policy rblnv1beta1.RBLNClusterPolicy
+			Expect(k8sClient.Get(ctx, nn, &policy)).To(Succeed())
+			Expect(policy.Finalizers).To(ContainElement(consts.ClusterPolicyFinalizer))
+
+			By("verifying cluster-scoped resources exist (validator)")
+			expectClusterResource(ctx, &rbacv1.ClusterRole{}, "rbln-operator-validator", 5*time.Second)
+			expectClusterResource(ctx, &rbacv1.ClusterRoleBinding{}, "rbln-operator-validator", 5*time.Second)
+
+			By("deleting the cluster policy")
+			Expect(k8sClient.Delete(ctx, &policy)).To(Succeed())
+
+			By("reconciling the deletion")
+			reconcileClusterPolicy(ctx, reconciler, nn)
+
+			By("verifying cluster-scoped resources are cleaned up")
+			expectClusterResourceDeleted(ctx, &rbacv1.ClusterRole{}, "rbln-operator-validator", 5*time.Second)
+			expectClusterResourceDeleted(ctx, &rbacv1.ClusterRoleBinding{}, "rbln-operator-validator", 5*time.Second)
+
+			By("verifying the CR is fully deleted")
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, nn, &rblnv1beta1.RBLNClusterPolicy{})
+				return apierrors.IsNotFound(err)
+			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "expected RBLNClusterPolicy to be fully deleted")
+		})
+	})
+
 	Context("When running on OpenShift: verify OpenShift-specific resources (RBAC/SCC)", func() {
 		var openShiftNS string
 
@@ -384,7 +425,16 @@ func createTestNamespace(ctx context.Context, prefix string) string {
 
 func createClusterPolicyFixture(ctx context.Context, policy *rblnv1beta1.RBLNClusterPolicy) types.NamespacedName {
 	Expect(k8sClient.Create(ctx, policy)).To(Succeed())
-	DeferCleanup(func() { _ = k8sClient.Delete(ctx, policy) })
+	DeferCleanup(func() {
+		var p rblnv1beta1.RBLNClusterPolicy
+		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(policy), &p); err == nil {
+			if len(p.Finalizers) > 0 {
+				p.Finalizers = nil
+				_ = k8sClient.Update(ctx, &p)
+			}
+		}
+		_ = k8sClient.Delete(ctx, policy)
+	})
 	return types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}
 }
 
@@ -503,6 +553,13 @@ func patchDevicePluginEnabled(ctx context.Context, nn types.NamespacedName, enab
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
+
+func expectClusterResourceDeleted[T client.Object](ctx context.Context, obj T, name string, timeout time.Duration) {
+	Eventually(func() bool {
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, obj)
+		return apierrors.IsNotFound(err)
+	}, timeout, 250*time.Millisecond).Should(BeTrue(), "expected %T %s to be removed", obj, name)
+}
 
 func cloneLabels(in map[string]string) map[string]string {
 	if in == nil {

@@ -110,6 +110,12 @@ const (
 	RBLNVFIOManagerName = "vfio-manager"
 )
 
+// Finalizers
+const (
+	ClusterPolicyFinalizer = "rebellions.ai/clusterpolicy-cleanup"
+	DriverFinalizer        = "rebellions.ai/driver-cleanup"
+)
+
 // Shared volume constants
 const (
 	ValidationsVolumeName = "run-rbln-validations"
