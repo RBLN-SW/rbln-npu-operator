@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -90,17 +89,6 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, wrappedErr
 	}
 
-	if !instance.DeletionTimestamp.IsZero() {
-		return r.handleDeletion(ctx, instance)
-	}
-
-	if !controllerutil.ContainsFinalizer(instance, consts.DriverFinalizer) {
-		controllerutil.AddFinalizer(instance, consts.DriverFinalizer)
-		if err := r.Update(ctx, instance); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
 	// Get the singleton RBLNClusterPolicy object in the cluster.
 	clusterPolicyList := &rblnv1beta1.RBLNClusterPolicyList{}
 	if err := r.List(ctx, clusterPolicyList); err != nil {
@@ -145,41 +133,6 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
-}
-
-func (r *RBLNDriverReconciler) handleDeletion(
-	ctx context.Context,
-	instance *rebellionsaiv1alpha1.RBLNDriver,
-) (ctrl.Result, error) {
-	if !controllerutil.ContainsFinalizer(instance, consts.DriverFinalizer) {
-		return ctrl.Result{}, nil
-	}
-
-	r.Log.Info("Cleaning up all components before RBLNDriver deletion", "name", instance.Name)
-
-	openshiftVersion := ""
-	if r.ClusterInfo != nil {
-		openshiftVersion = r.ClusterInfo.OpenShiftVersion
-	}
-
-	driverService, err := driver.NewDriverService(ctx, r.Client, r.Log, r.Scheme, instance, nil, openshiftVersion)
-	if err != nil {
-		r.Log.Error(err, "failed to initialize driver service for cleanup")
-		return ctrl.Result{}, err
-	}
-
-	if err := driverService.CleanUpAllComponents(ctx); err != nil {
-		r.Log.Error(err, "Failed to clean up components during deletion")
-		return ctrl.Result{}, err
-	}
-
-	controllerutil.RemoveFinalizer(instance, consts.DriverFinalizer)
-	if err := r.Update(ctx, instance); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	r.Log.Info("Successfully cleaned up RBLNDriver", "name", instance.Name)
 	return ctrl.Result{}, nil
 }
 

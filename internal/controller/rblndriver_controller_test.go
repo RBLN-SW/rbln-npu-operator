@@ -26,7 +26,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -174,7 +173,7 @@ var _ = Describe("RBLNDriver Controller", Ordered, func() {
 		})
 	})
 
-	Context("When the driver resource is deleted", func() {
+	Context("When cluster-scoped resources are created", func() {
 		var (
 			driverNS   string
 			reconciler *RBLNDriverReconciler
@@ -182,41 +181,30 @@ var _ = Describe("RBLNDriver Controller", Ordered, func() {
 		)
 
 		BeforeEach(func() {
-			driverNS = createTestNamespace(ctx, "rbln-driver-del")
+			driverNS = createTestNamespace(ctx, "rbln-driver-ownerref")
 			GinkgoT().Setenv("OPERATOR_NAMESPACE", driverNS)
 			reconciler = newTestDriverReconciler("")
-			createClusterPolicyFixture(ctx, newDriverTestClusterPolicy("del-cp"))
-			nn = createDriverFixture(ctx, newDriverFixture("del-driver"))
+			createClusterPolicyFixture(ctx, newDriverTestClusterPolicy("ownerref-cp"))
+			nn = createDriverFixture(ctx, newDriverFixture("ownerref-driver"))
+			DeferCleanup(func() { cleanupDriverClusterRBAC(ctx) })
 		})
 
-		It("should add a finalizer and clean up cluster-scoped resources on deletion", func() {
-			By("reconciling to add finalizer and create resources")
+		It("should set ownerReferences on cluster-scoped resources for GC", func() {
+			By("reconciling to create resources")
 			reconcileDriver(ctx, reconciler, nn)
 
-			By("verifying the finalizer is present")
-			var driver rebellionsaiv1alpha1.RBLNDriver
-			Expect(k8sClient.Get(ctx, nn, &driver)).To(Succeed())
-			Expect(driver.Finalizers).To(ContainElement(consts.DriverFinalizer))
+			By("verifying the ClusterRole has an ownerReference to the driver")
+			var cr rbacv1.ClusterRole
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "rbln-driver"}, &cr)).To(Succeed())
+			Expect(cr.OwnerReferences).To(HaveLen(1))
+			Expect(cr.OwnerReferences[0].Name).To(Equal(nn.Name))
+			Expect(cr.OwnerReferences[0].Kind).To(Equal("RBLNDriver"))
 
-			By("verifying cluster-scoped resources exist")
-			expectClusterResource(ctx, &rbacv1.ClusterRole{}, "rbln-driver", 5*time.Second)
-			expectClusterResource(ctx, &rbacv1.ClusterRoleBinding{}, "rbln-driver", 5*time.Second)
-
-			By("deleting the driver")
-			Expect(k8sClient.Delete(ctx, &driver)).To(Succeed())
-
-			By("reconciling the deletion")
-			reconcileDriver(ctx, reconciler, nn)
-
-			By("verifying cluster-scoped resources are cleaned up")
-			expectClusterResourceDeleted(ctx, &rbacv1.ClusterRole{}, "rbln-driver", 5*time.Second)
-			expectClusterResourceDeleted(ctx, &rbacv1.ClusterRoleBinding{}, "rbln-driver", 5*time.Second)
-
-			By("verifying the CR is fully deleted")
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, nn, &rebellionsaiv1alpha1.RBLNDriver{})
-				return apierrors.IsNotFound(err)
-			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "expected RBLNDriver to be fully deleted")
+			By("verifying the ClusterRoleBinding has an ownerReference to the driver")
+			var crb rbacv1.ClusterRoleBinding
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "rbln-driver"}, &crb)).To(Succeed())
+			Expect(crb.OwnerReferences).To(HaveLen(1))
+			Expect(crb.OwnerReferences[0].Name).To(Equal(nn.Name))
 		})
 	})
 
@@ -302,16 +290,7 @@ func newDriverFixture(name string) *rebellionsaiv1alpha1.RBLNDriver {
 
 func createDriverFixture(ctx context.Context, driver *rebellionsaiv1alpha1.RBLNDriver) types.NamespacedName {
 	Expect(k8sClient.Create(ctx, driver)).To(Succeed())
-	DeferCleanup(func() {
-		var d rebellionsaiv1alpha1.RBLNDriver
-		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(driver), &d); err == nil {
-			if len(d.Finalizers) > 0 {
-				d.Finalizers = nil
-				_ = k8sClient.Update(ctx, &d)
-			}
-		}
-		_ = k8sClient.Delete(ctx, driver)
-	})
+	DeferCleanup(func() { _ = k8sClient.Delete(ctx, driver) })
 	return types.NamespacedName{Name: driver.Name}
 }
 

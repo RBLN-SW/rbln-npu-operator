@@ -10,7 +10,7 @@ import (
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 )
 
-func (h *driverManagerPatcher) handleClusterRole(ctx context.Context) error {
+func (h *driverManagerPatcher) handleClusterRole(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {
 	role := &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: h.name},
 	}
@@ -37,7 +37,7 @@ func (h *driverManagerPatcher) handleClusterRole(ctx context.Context) error {
 				Verbs:     []string{"get"},
 			},
 		}
-		return nil
+		return controllerutil.SetOwnerReference(owner, role, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile ClusterRole", "name", h.name)
@@ -47,7 +47,7 @@ func (h *driverManagerPatcher) handleClusterRole(ctx context.Context) error {
 	return nil
 }
 
-func (h *driverManagerPatcher) handleClusterRoleBinding(ctx context.Context) error {
+func (h *driverManagerPatcher) handleClusterRoleBinding(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {
 	binding := &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{Name: h.name},
 	}
@@ -60,7 +60,7 @@ func (h *driverManagerPatcher) handleClusterRoleBinding(ctx context.Context) err
 		binding.Subjects = []rbacv1.Subject{
 			{Kind: rbacv1.ServiceAccountKind, Name: h.name, Namespace: h.namespace},
 		}
-		return nil
+		return controllerutil.SetOwnerReference(owner, binding, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile ClusterRoleBinding", "name", h.name)
@@ -68,18 +68,4 @@ func (h *driverManagerPatcher) handleClusterRoleBinding(ctx context.Context) err
 	}
 	h.log.Info("Reconciled ClusterRoleBinding", "name", binding.Name, "result", res)
 	return nil
-}
-
-func (h *driverManagerPatcher) hasOtherDriverInstances(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) (bool, error) {
-	driverList := &rebellionsaiv1alpha1.RBLNDriverList{}
-	if err := h.client.List(ctx, driverList); err != nil {
-		return false, err
-	}
-	for _, driver := range driverList.Items {
-		if owner != nil && driver.Name == owner.Name {
-			continue
-		}
-		return true, nil
-	}
-	return false, nil
 }

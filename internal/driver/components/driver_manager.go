@@ -7,7 +7,6 @@ import (
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	kapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -57,16 +56,16 @@ func (h *driverManagerPatcher) Patch(ctx context.Context, owner *rebellionsaiv1a
 		return nil
 	}
 
-	if err := h.reconcileServiceAccount(ctx); err != nil {
+	if err := h.reconcileServiceAccount(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.reconcileOpenShiftRBAC(ctx); err != nil {
+	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleClusterRole(ctx); err != nil {
+	if err := h.handleClusterRole(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleClusterRoleBinding(ctx); err != nil {
+	if err := h.handleClusterRoleBinding(ctx, owner); err != nil {
 		return err
 	}
 	if err := h.handleConfigMap(ctx); err != nil {
@@ -107,33 +106,14 @@ func (h *driverManagerPatcher) CleanUp(ctx context.Context, owner *rebellionsaiv
 		}
 	}
 
-	// Preserve shared resources if other RBLNDriver instances exist.
-	otherInstancesExist, err := h.hasOtherDriverInstances(ctx, owner)
-	if err != nil {
-		return err
-	}
-	if otherInstancesExist {
-		h.log.Info("Skip deleting shared driver manager resources because other RBLNDriver instances exist", "instance", h.instanceName)
-		return nil
-	}
-
-	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: h.name},
-	}); err != nil {
-		return err
-	}
-	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{Name: h.name},
-	}); err != nil {
-		return err
-	}
+	// Cluster-scoped resources (ClusterRole, ClusterRoleBinding) and shared
+	// namespaced resources (ServiceAccount, Role, RoleBinding) carry
+	// ownerReferences to each RBLNDriver instance. Kubernetes GC will only
+	// delete them once all owners are gone, so no manual deletion is needed.
 	if err := h.deleteIfExists(ctx, &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: h.startupProbeConfigMapName(), Namespace: h.namespace},
 	}); err != nil {
 		return err
 	}
-	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
-		return err
-	}
-	return h.deleteServiceAccount(ctx)
+	return nil
 }

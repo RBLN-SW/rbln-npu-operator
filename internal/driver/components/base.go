@@ -28,9 +28,9 @@ type DriverPatcher interface {
 // component patcher.  Concrete patchers embed this struct and inherit its
 // interface implementations.
 //
-// Unlike the clusterpolicy basePatcher, RBAC resources created here do NOT
-// carry an owner reference because they are shared across multiple
-// RBLNDriver instances.
+// Shared resources (ServiceAccount, Role, RoleBinding) carry non-controller
+// ownerReferences to each RBLNDriver instance via controllerutil.SetOwnerReference.
+// Kubernetes GC only deletes them once all owners are gone.
 type basePatcher struct {
 	client           client.Client
 	log              logr.Logger
@@ -54,12 +54,12 @@ func (b *basePatcher) ComponentNamespace() string { return b.namespace }
 // Shared reconcile helpers
 // ---------------------------------------------------------------------------
 
-func (b *basePatcher) reconcileServiceAccount(ctx context.Context) error {
+func (b *basePatcher) reconcileServiceAccount(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {
 	sa := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{Name: b.name, Namespace: b.namespace},
 	}
 	res, err := controllerutil.CreateOrPatch(ctx, b.client, sa, func() error {
-		return nil // no owner ref – shared across driver instances
+		return controllerutil.SetOwnerReference(owner, sa, b.scheme)
 	})
 	if err != nil {
 		b.log.Error(err, "Failed to reconcile ServiceAccount", "name", b.name)
@@ -71,17 +71,17 @@ func (b *basePatcher) reconcileServiceAccount(ctx context.Context) error {
 
 // reconcileOpenShiftRBAC creates the Role and RoleBinding required for
 // OpenShift SCC access.  It is a no-op on non-OpenShift clusters.
-func (b *basePatcher) reconcileOpenShiftRBAC(ctx context.Context) error {
+func (b *basePatcher) reconcileOpenShiftRBAC(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {
 	if b.openshiftVersion == "" {
 		return nil
 	}
-	if err := b.reconcileRole(ctx); err != nil {
+	if err := b.reconcileRole(ctx, owner); err != nil {
 		return err
 	}
-	return b.reconcileRoleBinding(ctx)
+	return b.reconcileRoleBinding(ctx, owner)
 }
 
-func (b *basePatcher) reconcileRole(ctx context.Context) error {
+func (b *basePatcher) reconcileRole(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{Name: b.name, Namespace: b.namespace},
 	}
@@ -94,7 +94,7 @@ func (b *basePatcher) reconcileRole(ctx context.Context) error {
 				Verbs:         []string{"use"},
 			},
 		}
-		return nil // no owner ref
+		return controllerutil.SetOwnerReference(owner, role, b.scheme)
 	})
 	if err != nil {
 		b.log.Error(err, "Failed to reconcile Role", "name", b.name)
@@ -104,7 +104,7 @@ func (b *basePatcher) reconcileRole(ctx context.Context) error {
 	return nil
 }
 
-func (b *basePatcher) reconcileRoleBinding(ctx context.Context) error {
+func (b *basePatcher) reconcileRoleBinding(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {
 	rb := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{Name: b.name, Namespace: b.namespace},
 	}
@@ -117,7 +117,7 @@ func (b *basePatcher) reconcileRoleBinding(ctx context.Context) error {
 		rb.Subjects = []rbacv1.Subject{
 			{Kind: "ServiceAccount", Name: b.name, Namespace: b.namespace},
 		}
-		return nil // no owner ref
+		return controllerutil.SetOwnerReference(owner, rb, b.scheme)
 	})
 	if err != nil {
 		b.log.Error(err, "Failed to reconcile RoleBinding", "name", b.name)
