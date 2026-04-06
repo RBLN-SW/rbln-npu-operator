@@ -141,7 +141,7 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
-			hostPathVolume("devicesock", "/var/lib/kubelet/device-plugin", corev1.HostPathDirectory),
+			hostPathVolume("devicesock", "/var/lib/kubelet/device-plugins", corev1.HostPathDirectory),
 			hostPathVolume("plugins-registry", "/var/lib/kubelet/plugins_registry", corev1.HostPathDirectory),
 			hostPathVolume("log", "/var/log", corev1.HostPathDirectory),
 			{
