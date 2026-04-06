@@ -45,6 +45,7 @@ const (
 	devicePluginNodeLabelKey   = "rebellions.ai/npu.deploy.device-plugin"
 	devicePluginNodeLabelValue = "true"
 	rblnClusterPolicyCRDName   = "rblnclusterpolicies.rebellions.ai"
+	rblnDriverCRDName          = "rblndrivers.rebellions.ai"
 	registryServer             = "repo.rebellions.ai"
 	registrySecretName         = "drivercred"
 )
@@ -91,6 +92,8 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 
 				k8sExtensionsClient := e2ek8s.NewExtensionClient(te.ExtClientSet)
 				err := k8sExtensionsClient.DeleteCRD(ctx, rblnClusterPolicyCRDName)
+				Expect(err).NotTo(HaveOccurred())
+				err = k8sExtensionsClient.DeleteCRD(ctx, rblnDriverCRDName)
 				Expect(err).NotTo(HaveOccurred())
 
 				cleanupCoreClient := e2ek8s.NewClient(te.ClientSet.CoreV1())
