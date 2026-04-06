@@ -110,6 +110,17 @@ func mergeEnvVars(base []corev1.EnvVar, additions ...[]corev1.EnvVar) []corev1.E
 	return merged
 }
 
+// envVarValue returns the value of the first env var with the given name,
+// or empty string and false if not found.
+func envVarValue(envs []corev1.EnvVar, name string) (string, bool) {
+	for _, e := range envs {
+		if e.Name == name {
+			return e.Value, true
+		}
+	}
+	return "", false
+}
+
 func collectDevices(productCardNames []string) ([]string, error) {
 	devices := make([]string, 0)
 	for _, productCardName := range productCardNames {

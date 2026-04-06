@@ -126,6 +126,52 @@ func TestMergeEnvVars(t *testing.T) {
 	}
 }
 
+func TestEnvVarValue(t *testing.T) {
+	tests := map[string]struct {
+		envs   []corev1.EnvVar
+		name   string
+		want   string
+		wantOK bool
+	}{
+		"found": {
+			envs:   []corev1.EnvVar{{Name: "FOO", Value: "bar"}},
+			name:   "FOO",
+			want:   "bar",
+			wantOK: true,
+		},
+		"not found": {
+			envs:   []corev1.EnvVar{{Name: "FOO", Value: "bar"}},
+			name:   "BAZ",
+			want:   "",
+			wantOK: false,
+		},
+		"empty list": {
+			envs:   nil,
+			name:   "FOO",
+			want:   "",
+			wantOK: false,
+		},
+		"returns first match": {
+			envs:   []corev1.EnvVar{{Name: "A", Value: "first"}, {Name: "A", Value: "second"}},
+			name:   "A",
+			want:   "first",
+			wantOK: true,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, ok := envVarValue(tc.envs, tc.name)
+			if ok != tc.wantOK {
+				t.Fatalf("envVarValue() ok = %v, want %v", ok, tc.wantOK)
+			}
+			if got != tc.want {
+				t.Fatalf("envVarValue() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCollectDevices(t *testing.T) {
 	tests := map[string]struct {
 		cards   []string
