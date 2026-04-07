@@ -27,7 +27,7 @@ operator:
   image:
     registry: docker.io
     repository: rebellions/rbln-npu-operator
-    tag: v0.3.2
+    tag: v0.3.3
     pullPolicy: IfNotPresent
   # Resource configuration
   replicas: 1
@@ -268,7 +268,7 @@ validator:
   image:
     registry: docker.io
     repository: rebellions/rbln-npu-operator-validator
-    tag: v0.3.2
+    tag: v0.3.3
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
