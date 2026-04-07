@@ -24,6 +24,8 @@ const (
 	hostDriverPath                            = "/run/rbln/driver"
 	hostRootVolumeName                        = "host-root"
 	hostRootPath                              = "/"
+	hostDevVolumeName                         = "host-dev"
+	hostDevPath                               = "/dev"
 )
 
 func ptr[T any](v T) *T {
