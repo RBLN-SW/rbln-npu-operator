@@ -18,10 +18,33 @@ jobs:
     uses: ./.github/workflows/go-tests.yaml
   go-build:
     uses: ./.github/workflows/go-build.yaml
-  image-build:
+  image-build-amd64:
     needs: [manifests-check, code-check, go-tests, go-build]
     uses: ./.github/workflows/image-build.yaml
     with:
       push-on-build: 'true'
       image-tag: latest
-    secrets: inherit
+      platform: linux/amd64
+      runner: ubuntu-latest
+    secrets:
+      REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+  image-build-arm64:
+    needs: [manifests-check, code-check, go-tests, go-build]
+    uses: ./.github/workflows/image-build.yaml
+    with:
+      push-on-build: 'true'
+      image-tag: latest
+      platform: linux/arm64
+      runner: ubuntu-22.04-rbln-arm
+    secrets:
+      REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+  image-manifest:
+    needs: [image-build-amd64, image-build-arm64]
+    uses: ./.github/workflows/image-manifest.yaml
+    with:
+      image-tag: latest
+    secrets:
+      REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}

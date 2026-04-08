@@ -68,7 +68,7 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
-          - name: OPERATOR_IMAGE_NAME
+          - name: RELATED_IMAGE_RBLN_NPU_OPERATOR
             value: docker.io/rebellions/rbln-npu-operator@sha256:f3dfd53e159c0ab05d65ca93f8d783659b33acd0a015b38975c26106b14a1600
           - name: RELATED_IMAGE_RBLN_K8S_DEVICE_PLUGIN
             value: docker.io/rebellions/k8s-device-plugin@sha256:d6a1b7653fa4978dc34e71a62d48a99537218f248c933871bbe5f8d5ff5a6e5d

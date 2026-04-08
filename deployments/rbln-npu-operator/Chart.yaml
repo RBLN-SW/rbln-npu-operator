@@ -1,9 +1,9 @@
 apiVersion: v2
-name: rbln-npu-operator
+name: rbln-npu-operator-chart
 description: A Helm chart for Kubernetes to deploy Rebellions NPU Operator for automated management and monitoring of Rebellions NPU devices
 type: application
 version: 0.0.1
-appVersion: "0.0.1"
+appVersion: "v0.0.1"
 home: https://github.com/rebellions-sw/rbln-npu-operator
 sources:
   - https://github.com/rebellions-sw/rbln-npu-operator

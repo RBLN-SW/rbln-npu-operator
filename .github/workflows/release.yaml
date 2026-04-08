@@ -9,46 +9,41 @@ permissions:
   contents: write
 
 jobs:
-  build-and-push-image:
-    name: Build and push multi-arch image
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up Docker buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Build and push images
-        env:
-          VERSION: ${{ github.ref_name }}
-          REGISTRY: docker.io/rebellions
-          PUSH_ON_BUILD: "true"
-          BUILD_MULTI_PLATFORM: "false" # TODO(mskim): revert when dedicated ARM runners become available
-        run: make build-image
-      - name: Build and push validator image
-        env:
-          VERSION: ${{ github.ref_name }}
-          REGISTRY: docker.io/rebellions
-          PUSH_ON_BUILD: "true"
-          BUILD_MULTI_PLATFORM: "false" # TODO(mskim): revert when dedicated ARM runners become available
-        run: make build-image IMAGE_NAME="${REGISTRY}/rbln-npu-operator-validator"
+  build-and-push-image-amd64:
+    uses: ./.github/workflows/image-build.yaml
+    with:
+      push-on-build: 'true'
+      image-tag: ${{ github.ref_name }}
+      platform: linux/amd64
+      runner: ubuntu-latest
+    secrets:
+      REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+  build-and-push-image-arm64:
+    uses: ./.github/workflows/image-build.yaml
+    with:
+      push-on-build: 'true'
+      image-tag: ${{ github.ref_name }}
+      platform: linux/arm64
+      runner: ubuntu-22.04-rbln-arm
+    secrets:
+      REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+  image-manifest:
+    needs: [build-and-push-image-amd64, build-and-push-image-arm64]
+    uses: ./.github/workflows/image-manifest.yaml
+    with:
+      image-tag: ${{ github.ref_name }}
+    secrets:
+      REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
   package-helm-chart:
-    name: Package Helm chart
+    name: Package and push Helm chart
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
-        with:
-          version: latest
       - name: Prepare chart dependencies
         run: |
           helm repo add nfd https://kubernetes-sigs.github.io/node-feature-discovery/charts
@@ -69,10 +64,137 @@ jobs:
         with:
           name: helm-chart-${{ github.ref_name }}
           path: dist/*.tgz
+      - name: Login to Docker Hub OCI registry
+        run: |
+          echo "${{ secrets.DOCKERHUB_PASSWORD }}" | \
+            helm registry login docker.io -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+      - name: Push chart to OCI registry
+        run: helm push dist/*.tgz oci://docker.io/rebellions
+
+  olm-bundle:
+    name: Create OLM bundle PR
+    needs: [image-manifest]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          REGCTL_VERSION=$(grep '^REGCTL_VERSION' versions.mk | cut -d'=' -f2 | tr -d ' ?')
+          curl -sSL "https://github.com/regclient/regclient/releases/download/${REGCTL_VERSION}/regctl-linux-amd64" \
+            -o /usr/local/bin/regctl
+          chmod +x /usr/local/bin/regctl
+
+          curl -sSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" \
+            -o /usr/local/bin/yq
+          chmod +x /usr/local/bin/yq
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      - name: Resolve image digests
+        id: digests
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          resolve() {
+            local image="$1"
+            local digest=$(regctl image digest "${image}")
+            echo "${image%%:*}@${digest}"
+          }
+
+          OPERATOR_DIGEST=$(regctl image digest "docker.io/rebellions/rbln-npu-operator:${TAG}")
+          echo "operator=docker.io/rebellions/rbln-npu-operator@${OPERATOR_DIGEST}" >> $GITHUB_OUTPUT
+          echo "device_plugin=$(resolve docker.io/rebellions/k8s-device-plugin:v0.3.7)" >> $GITHUB_OUTPUT
+          echo "metrics_exporter=$(resolve docker.io/rebellions/rbln-metrics-exporter:v0.2.4)" >> $GITHUB_OUTPUT
+          echo "npu_feature_discovery=$(resolve docker.io/rebellions/rbln-npu-feature-discovery:v0.2.1)" >> $GITHUB_OUTPUT
+          echo "vfio_manager=$(resolve docker.io/rebellions/rbln-vfio-manager:latest)" >> $GITHUB_OUTPUT
+      - name: Update image digests in manager config
+        env:
+          OPERATOR_DIGEST: ${{ steps.digests.outputs.operator }}
+          DEVICE_PLUGIN_DIGEST: ${{ steps.digests.outputs.device_plugin }}
+          METRICS_EXPORTER_DIGEST: ${{ steps.digests.outputs.metrics_exporter }}
+          NPU_FEATURE_DISCOVERY_DIGEST: ${{ steps.digests.outputs.npu_feature_discovery }}
+          VFIO_MANAGER_DIGEST: ${{ steps.digests.outputs.vfio_manager }}
+        run: |
+          FILE=config/manager/manager.yaml
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_NPU_OPERATOR")).value = env(OPERATOR_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_K8S_DEVICE_PLUGIN")).value = env(DEVICE_PLUGIN_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_METRICS_EXPORTER")).value = env(METRICS_EXPORTER_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_NPU_FEATURE_DISCOVERY")).value = env(NPU_FEATURE_DISCOVERY_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_VFIO_MANAGER")).value = env(VFIO_MANAGER_DIGEST)' "$FILE"
+      - name: Generate bundle
+        env:
+          TAG: ${{ github.ref_name }}
+          OPERATOR_DIGEST: ${{ steps.digests.outputs.operator }}
+        run: make bundle VERSION="${TAG}" IMAGE="${OPERATOR_DIGEST}"
+      - name: Patch bundle annotations
+        run: |
+          yq -i '.annotations."com.redhat.openshift.versions" = "v4.16-v4.20"' \
+            bundle/metadata/annotations.yaml
+      - name: Patch CSV containerImage
+        env:
+          OPERATOR_DIGEST: ${{ steps.digests.outputs.operator }}
+        run: |
+          yq -i '.metadata.annotations.containerImage = env(OPERATOR_DIGEST)' \
+            bundle/manifests/rbln-npu-operator.clusterserviceversion.yaml
+      - name: Validate bundle
+        run: make operator-sdk && ./bin/operator-sdk bundle validate ./bundle
+      - name: Create PR to certified-operators
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.CERTIFIED_OPERATORS_PAT }}
+          FORK: ${{ secrets.CERTIFIED_OPERATORS_FORK }}
+        run: |
+          VERSION="${TAG#v}"
+          BRANCH="pr/rbln-npu-operator/${VERSION}"
+
+          # Clone fork
+          gh repo clone "${FORK}" /tmp/certified-operators
+          cd /tmp/certified-operators
+
+          # Sync fork with upstream
+          git remote add upstream https://github.com/redhat-openshift-ecosystem/certified-operators.git
+          git fetch upstream main
+          git checkout -b "${BRANCH}" upstream/main
+
+          # Copy bundle files
+          DEST="operators/rbln-npu-operator/${VERSION}"
+          mkdir -p "${DEST}/manifests" "${DEST}/metadata" "${DEST}/tests"
+          cp "$GITHUB_WORKSPACE/bundle/manifests/rbln-npu-operator.clusterserviceversion.yaml" "${DEST}/manifests/"
+          cp "$GITHUB_WORKSPACE/bundle/manifests/rebellions.ai_rblnclusterpolicies.yaml" "${DEST}/manifests/"
+          cp "$GITHUB_WORKSPACE/bundle/manifests/rebellions.ai_rblndrivers.yaml" "${DEST}/manifests/"
+          cp "$GITHUB_WORKSPACE/bundle/metadata/annotations.yaml" "${DEST}/metadata/"
+          cp -r "$GITHUB_WORKSPACE/bundle/tests/scorecard" "${DEST}/tests/"
+
+          # Update ci.yaml
+          cat > operators/rbln-npu-operator/ci.yaml << 'EOF'
+          cert_project_id: 685d049721914f92599b0e27
+          merge: false
+          updateGraph: semver-mode
+          EOF
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Commit and push to fork
+          git add "${DEST}" operators/rbln-npu-operator/ci.yaml
+          git commit -m "operator rbln-npu-operator (${VERSION})"
+          git push origin "${BRANCH}"
+
+          # Cross-repo PR: fork → upstream
+          FORK_OWNER="${FORK%%/*}"
+          gh pr create \
+            --repo redhat-openshift-ecosystem/certified-operators \
+            --head "${FORK_OWNER}:${BRANCH}" \
+            --base main \
+            --title "operator rbln-npu-operator (${VERSION})" \
+            --body "Automated OLM bundle submission for rbln-npu-operator ${TAG}"
 
   draft-release:
     needs:
-      - build-and-push-image
+      - image-manifest
       - package-helm-chart
     runs-on: ubuntu-latest
     steps:

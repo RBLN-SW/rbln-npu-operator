@@ -157,7 +157,7 @@ spec:
     registry: {{ .Values.validator.image.registry | quote }}
     image: {{ .Values.validator.image.repository | quote }}
     imagePullPolicy: {{ .Values.validator.image.pullPolicy | quote }}
-    version: {{ .Values.validator.image.tag | quote }}
+    version: {{ .Values.validator.image.tag | default .Chart.AppVersion | quote }}
     {{- if .Values.validator.imagePullSecrets }}
     imagePullSecrets:
       {{- toYaml .Values.validator.imagePullSecrets | nindent 6 }}

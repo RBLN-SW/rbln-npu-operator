@@ -2,6 +2,9 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+# Override chart name for resource naming (keeps names short despite chart rename)
+nameOverride: rbln-npu-operator
+
 # Workload type: "container" (default) or "vm-passthrough".
 workloadType: container
 
@@ -27,7 +30,7 @@ operator:
   image:
     registry: docker.io
     repository: rebellions/rbln-npu-operator
-    tag: v0.3.3
+    tag: ""  # Defaults to Chart.AppVersion
     pullPolicy: IfNotPresent
   # Resource configuration
   replicas: 1
@@ -268,7 +271,7 @@ validator:
   image:
     registry: docker.io
     repository: rebellions/rbln-npu-operator-validator
-    tag: v0.3.3
+    tag: ""  # Defaults to Chart.AppVersion
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}

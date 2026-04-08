@@ -64,11 +64,6 @@ spec:
         path: containerToolkit.annotations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: 'Optional: List of arguments'
-        displayName: Arguments
-        path: containerToolkit.args
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text
       - description: Enabled indicates if deployment of RBLN container toolkit is
           enabled
         displayName: Enable RBLN Container Toolkit deployment
@@ -102,12 +97,6 @@ spec:
         path: containerToolkit.labels
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: PriorityClassName specifies the priority class for the DaemonSet
-          pods
-        displayName: PriorityClassName
-        path: containerToolkit.priorityClassName
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN Container Toolkit image
         displayName: Registry
         path: containerToolkit.registry
@@ -129,31 +118,6 @@ spec:
         path: containerToolkit.version
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: PodDefaults defines common configuration applied to all DaemonSet pods managed by this policy.
-        displayName: Pod Defaults
-        path: podDefaults
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced
-      - description: Annotations specifies the annotations for the DaemonSet pods
-        displayName: Annotations
-        path: podDefaults.annotations
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Labels specifies the labels for the DaemonSet pods
-        displayName: Labels
-        path: podDefaults.labels
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: PriorityClassName specifies the priority class for the DaemonSet pods
-        displayName: PriorityClassName
-        path: podDefaults.priorityClassName
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Tolerations specifies the tolerations for the DaemonSet pods
-        displayName: Tolerations
-        path: podDefaults.tolerations
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
       - description: DevicePlugin component spec
         displayName: Device Plugin
         path: devicePlugin
@@ -174,12 +138,6 @@ spec:
         path: devicePlugin.enabled
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
-      - description: HostBinPath specifies the host directory that contains binaries
-          required by the device plugin
-        displayName: Host binary path
-        path: devicePlugin.hostBinPath
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: RBLN Device Plugin image name
         displayName: Image
         path: devicePlugin.image
@@ -200,12 +158,6 @@ spec:
       - description: Labels specifies the labels for the DaemonSet pods
         displayName: Labels
         path: devicePlugin.labels
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: PriorityClassName specifies the priority class for the DaemonSet
-          pods
-        displayName: PriorityClassName
-        path: devicePlugin.priorityClassName
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN Device Plugin image
@@ -316,12 +268,6 @@ spec:
         path: draKubeletPlugin.labels
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: PriorityClassName specifies the priority class for the DaemonSet
-          pods
-        displayName: PriorityClassName
-        path: draKubeletPlugin.priorityClassName
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN DRA kubelet plugin image
         displayName: Registry
         path: draKubeletPlugin.registry
@@ -383,12 +329,6 @@ spec:
       - description: Labels specifies the labels for the DaemonSet pods
         displayName: Labels
         path: metricsExporter.labels
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: PriorityClassName specifies the priority class for the DaemonSet
-          pods
-        displayName: PriorityClassName
-        path: metricsExporter.priorityClassName
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN Metrics Exporter image
@@ -455,12 +395,6 @@ spec:
         path: npuFeatureDiscovery.labels
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: PriorityClassName specifies the priority class for the DaemonSet
-          pods
-        displayName: PriorityClassName
-        path: npuFeatureDiscovery.priorityClassName
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN NPU Feature Discovery image
         displayName: Registry
         path: npuFeatureDiscovery.registry
@@ -482,6 +416,33 @@ spec:
         path: npuFeatureDiscovery.version
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
+      - description: PodDefaults defines common configuration applied to all DaemonSet
+          pods managed by this policy.
+        displayName: Pod Defaults
+        path: podDefaults
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced
+      - description: Annotations specifies the annotations for the DaemonSet pods
+        displayName: Annotations
+        path: podDefaults.annotations
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Labels specifies the labels for the DaemonSet pods
+        displayName: Labels
+        path: podDefaults.labels
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: PriorityClassName specifies the priority class for the DaemonSet
+          pods
+        displayName: PriorityClassName
+        path: podDefaults.priorityClassName
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Tolerations specifies the tolerations for the DaemonSet pods
+        displayName: Tolerations
+        path: podDefaults.tolerations
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
       - description: RBLN Daemon component spec
         displayName: RBLN Daemon
         path: rblnDaemon
@@ -497,11 +458,6 @@ spec:
         path: rblnDaemon.annotations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: 'Optional: List of arguments'
-        displayName: Arguments
-        path: rblnDaemon.args
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text
       - description: Enabled indicates if deployment of RBLN daemon is enabled
         displayName: Enable RBLN Daemon deployment
         path: rblnDaemon.enabled
@@ -538,12 +494,6 @@ spec:
       - description: Labels specifies the labels for the DaemonSet pods
         displayName: Labels
         path: rblnDaemon.labels
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: PriorityClassName specifies the priority class for the DaemonSet
-          pods
-        displayName: PriorityClassName
-        path: rblnDaemon.priorityClassName
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN Daemon image
@@ -610,12 +560,6 @@ spec:
         path: sandboxDevicePlugin.labels
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: PriorityClassName specifies the priority class for the DaemonSet
-          pods
-        displayName: PriorityClassName
-        path: sandboxDevicePlugin.priorityClassName
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN Sandbox Device Plugin image
         displayName: Registry
         path: sandboxDevicePlugin.registry
@@ -652,37 +596,11 @@ spec:
         path: sandboxDevicePlugin.version
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: VFIOChecker specifies the configuration for the VFIO bind status
-          checker
-        displayName: VFIO Checker
-        path: sandboxDevicePlugin.vfioChecker
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced
-      - description: VFIO Checker image name
-        displayName: Image
-        path: sandboxDevicePlugin.vfioChecker.image
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Registry override for the VFIO Checker image
-        displayName: Registry
-        path: sandboxDevicePlugin.vfioChecker.registry
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: VFIO Checker image tag
-        displayName: Version
-        path: sandboxDevicePlugin.vfioChecker.version
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Validator defines the spec for operator-validator daemonset
         displayName: Validator
         path: validator
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced
-      - description: 'Optional: List of arguments'
-        displayName: Arguments
-        path: validator.args
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text
       - description: 'Optional: List of environment variables'
         displayName: Environment Variables
         path: validator.env
@@ -745,12 +663,6 @@ spec:
         path: vfioManager.labels
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: PriorityClassName specifies the priority class for the DaemonSet
-          pods
-        displayName: PriorityClassName
-        path: vfioManager.priorityClassName
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN VFIO Manager image
         displayName: Registry
         path: vfioManager.registry
@@ -810,11 +722,6 @@ spec:
         path: image
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Labels specifies the labels for the driver pod
-        displayName: Labels
-        path: labels
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Manager represents configuration for Rebellions Driver Manager
           initContainer
         displayName: Driver Manager
@@ -841,11 +748,6 @@ spec:
         path: manager.version
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Affinity specifies node affinity rules for driver pods
-        displayName: Node Affinity
-        path: nodeAffinity
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Affinity
       - description: NodeSelector specifies a selector for installation of the driver
         displayName: Node Selector
         path: nodeSelector
