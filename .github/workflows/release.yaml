@@ -159,8 +159,7 @@ jobs:
           gh repo clone "${FORK}" /tmp/certified-operators
           cd /tmp/certified-operators
 
-          # Sync fork with upstream
-          git remote add upstream https://github.com/redhat-openshift-ecosystem/certified-operators.git
+          # Sync fork with upstream (gh clone automatically sets upstream remote for forks)
           git fetch upstream main
           git checkout -b "${BRANCH}" upstream/main
 
