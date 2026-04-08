@@ -51,8 +51,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         name: Checkout code
-      - name: Install make
+      - name: Install prerequisites
         run: |
+          if ! command -v docker &>/dev/null; then
+            curl -fsSL https://get.docker.com | sudo sh
+          fi
           if ! command -v make &>/dev/null; then
             sudo apt-get update && sudo apt-get install -y make
           fi
