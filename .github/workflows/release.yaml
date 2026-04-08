@@ -96,19 +96,24 @@ jobs:
         id: digests
         env:
           TAG: ${{ github.ref_name }}
+          VALUES_FILE: deployments/rbln-npu-operator/values.yaml
         run: |
           resolve() {
-            local image="$1"
+            local component="$1"
+            local registry=$(yq ".${component}.image.registry" "$VALUES_FILE")
+            local repository=$(yq ".${component}.image.repository" "$VALUES_FILE")
+            local tag=$(yq ".${component}.image.tag" "$VALUES_FILE")
+            local image="${registry}/${repository}:${tag}"
             local digest=$(regctl image digest "${image}")
-            echo "${image%%:*}@${digest}"
+            echo "${registry}/${repository}@${digest}"
           }
 
           OPERATOR_DIGEST=$(regctl image digest "docker.io/rebellions/rbln-npu-operator:${TAG}")
           echo "operator=docker.io/rebellions/rbln-npu-operator@${OPERATOR_DIGEST}" >> $GITHUB_OUTPUT
-          echo "device_plugin=$(resolve docker.io/rebellions/k8s-device-plugin:v0.3.7)" >> $GITHUB_OUTPUT
-          echo "metrics_exporter=$(resolve docker.io/rebellions/rbln-metrics-exporter:v0.2.4)" >> $GITHUB_OUTPUT
-          echo "npu_feature_discovery=$(resolve docker.io/rebellions/rbln-npu-feature-discovery:v0.2.1)" >> $GITHUB_OUTPUT
-          echo "vfio_manager=$(resolve docker.io/rebellions/rbln-vfio-manager:latest)" >> $GITHUB_OUTPUT
+          echo "device_plugin=$(resolve devicePlugin)" >> $GITHUB_OUTPUT
+          echo "metrics_exporter=$(resolve metricsExporter)" >> $GITHUB_OUTPUT
+          echo "npu_feature_discovery=$(resolve npuFeatureDiscovery)" >> $GITHUB_OUTPUT
+          echo "vfio_manager=$(resolve vfioManager)" >> $GITHUB_OUTPUT
       - name: Update image digests in manager config
         env:
           OPERATOR_DIGEST: ${{ steps.digests.outputs.operator }}
