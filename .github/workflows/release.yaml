@@ -40,6 +40,7 @@ jobs:
 
   package-helm-chart:
     name: Package and push Helm chart
+    needs: [image-manifest]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
