@@ -13,54 +13,90 @@ on:
         required: false
         default: ''
         type: string
+      platform:
+        description: "Target platform (e.g. linux/amd64, linux/arm64)"
+        required: false
+        default: 'linux/amd64'
+        type: string
+      runner:
+        description: "GitHub Actions runner label"
+        required: false
+        default: 'ubuntu-latest'
+        type: string
+      registry:
+        description: "Container image registry"
+        required: false
+        default: 'docker.io/rebellions'
+        type: string
+    secrets:
+      REGISTRY_USERNAME:
+        required: true
+      REGISTRY_PASSWORD:
+        required: true
     outputs:
       operator-version:
-        description: "Short commit SHA used for the operator image tag"
-        value: ${{ jobs.build-npu-operator-build-amd64.outputs.operator-version }}
+        description: "Short commit SHA"
+        value: ${{ jobs.build-image.outputs.operator-version }}
       operator-image-tag:
         description: "Full operator image tag (including architecture suffix)"
-        value: ${{ jobs.build-npu-operator-build-amd64.outputs.operator-image-tag }}
+        value: ${{ jobs.build-image.outputs.operator-image-tag }}
 
 jobs:
-  build-npu-operator-build-amd64:
-    name: build operator image
-    runs-on: ubuntu-latest
+  build-image:
+    name: build image (${{ inputs.platform }})
+    runs-on: ${{ inputs.runner }}
     outputs:
       operator-version: ${{ steps.build_vars.outputs.commit_short_sha }}
       operator-image-tag: ${{ steps.build_vars.outputs.image_tag }}
     steps:
       - uses: actions/checkout@v4
         name: Checkout code
-      - name: Define variable to build
+      - name: Install make
+        run: |
+          if ! command -v make &>/dev/null; then
+            sudo apt-get update && sudo apt-get install -y make
+          fi
+      - name: Define build variables
         id: build_vars
         run: |
           COMMIT_SHORT_SHA=${GITHUB_SHA:0:8}
           INPUT_TAG="${{ inputs.image-tag }}"
+          ARCH="${{ inputs.platform }}"
+          ARCH_SUFFIX="${ARCH#linux/}"
+
           if [ -n "${INPUT_TAG}" ]; then
-            IMAGE_TAG="${INPUT_TAG}"
+            IMAGE_TAG="${INPUT_TAG}-${ARCH_SUFFIX}"
           else
-            IMAGE_TAG="${COMMIT_SHORT_SHA}-amd64"
+            IMAGE_TAG="${COMMIT_SHORT_SHA}-${ARCH_SUFFIX}"
           fi
-          echo "COMMIT_SHORT_SHA=${COMMIT_SHORT_SHA}" >> $GITHUB_ENV
+
           echo "PUSH_ON_BUILD=${{ inputs.push-on-build }}" >> $GITHUB_ENV
+
+          REGISTRY="${{ inputs.registry }}"
+          echo "registry_host=${REGISTRY%%/*}" >> $GITHUB_OUTPUT
           {
             echo "commit_short_sha=${COMMIT_SHORT_SHA}"
             echo "image_tag=${IMAGE_TAG}"
           } >> $GITHUB_OUTPUT
       - name: Set up Docker buildx
         uses: docker/setup-buildx-action@v3
-      - name: Login to Docker Hub
+      - name: Login to container registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          registry: ${{ steps.build_vars.outputs.registry_host }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
       - name: Build NPU operator image
         env:
           VERSION: ${{ steps.build_vars.outputs.image_tag }}
+          REGISTRY: ${{ inputs.registry }}
           PUSH_ON_BUILD: ${{ env.PUSH_ON_BUILD }}
+          PLATFORM: ${{ inputs.platform }}
         run: make build-image
       - name: Build validator image
         env:
           VERSION: ${{ steps.build_vars.outputs.image_tag }}
+          REGISTRY: ${{ inputs.registry }}
           PUSH_ON_BUILD: ${{ env.PUSH_ON_BUILD }}
-        run: make build-image IMAGE_NAME=docker.io/rebellions/rbln-npu-operator-validator
+          PLATFORM: ${{ inputs.platform }}
+        run: make build-image IMAGE_NAME=${{ inputs.registry }}/rbln-npu-operator-validator

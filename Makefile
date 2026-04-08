@@ -1,16 +1,6 @@
 # VERSION defines the project version for the bundle.
 include $(CURDIR)/versions.mk
 
-BUNDLE_PACKAGE ?= rbln-npu-operator
-
-CHANNELS ?= candidate,fast,stable
-
-DEFAULT_CHANNEL ?= stable
-
-PLATFORMS ?= linux/arm64,linux/amd64
-
-PLATFORM ?= linux/amd64
-
 MODULE := github.com/rebellions-sw/rbln-npu-operator
 
 # Component image versions (can be overridden)
@@ -20,13 +10,6 @@ DEVICE_PLUGIN_VERSION ?= latest
 METRICS_EXPORTER_VERSION ?= latest
 NPU_DISCOVERY_VERSION ?= latest
 VFIO_MANAGER_VERSION ?= latest
-
-# Set the Operator SDK version to use. By default, what is installed on the system is used.
-# This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
-OPERATOR_SDK_VERSION ?= v1.38.0
-
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.34.1
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -129,14 +112,14 @@ build:
 cmd: ## Build the main executable
 	@echo "Building npu-operator executable..."
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
-		go build -o npu-operator $(BUILD_FLAGS) $(COMMAND_BUILD_OPTIONS) $(MODULE)/cmd/npu-operator
+		go build -o npu-operator $(BUILD_FLAGS) $(MODULE)/cmd/npu-operator
 	@echo "npu-operator executable built successfully."
 
 .PHONY: cmd-validator
 cmd-validator: ## Build the validator executable
 	@echo "Building rbln-validator executable..."
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
-		go build -o rbln-validator $(BUILD_FLAGS) $(COMMAND_BUILD_OPTIONS) $(MODULE)/cmd/rbln-validator
+		go build -o rbln-validator $(BUILD_FLAGS) $(MODULE)/cmd/rbln-validator
 	@echo "rbln-validator executable built successfully."
 
 .PHONY: cmds
@@ -145,7 +128,6 @@ cmds: cmd cmd-validator ## Build all executables
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/npu-operator
-
 
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
@@ -189,10 +171,6 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 
-KUSTOMIZE_VERSION ?= v5.4.2
-CONTROLLER_TOOLS_VERSION ?= v0.20.1
-ENVTEST_VERSION ?= release-0.22
-
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 $(KUSTOMIZE): $(LOCALBIN)
@@ -227,51 +205,7 @@ mv $(1) $(1)-$(3)-go$(GOLANG_VERSION) ;\
 ln -sf $(1)-$(3)-go$(GOLANG_VERSION) $(1)
 endef
 
-# CHANNELS define the bundle channels used in the bundle.
-# Add a new line here if you would like to change its default config. (E.g CHANNELS = "candidate,fast,stable")
-# To re-generate a bundle for other specific channels without changing the standard setup, you can:
-# - use the CHANNELS as arg of the bundle target (e.g make bundle CHANNELS=candidate,fast,stable)
-# - use environment variables to overwrite this value (e.g export CHANNELS="candidate,fast,stable")
-ifneq ($(origin CHANNELS), undefined)
-BUNDLE_CHANNELS := --channels=$(CHANNELS)
-endif
-
-# DEFAULT_CHANNEL defines the default channel used in the bundle.
-# Add a new line here if you would like to change its default config. (E.g DEFAULT_CHANNEL = "stable")
-# To re-generate a bundle for any other default channel without changing the default setup, you can:
-# - use the DEFAULT_CHANNEL as arg of the bundle target (e.g make bundle DEFAULT_CHANNEL=stable)
-# - use environment variables to overwrite this value (e.g export DEFAULT_CHANNEL="stable")
-ifneq ($(origin DEFAULT_CHANNEL), undefined)
-BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
-endif
-BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
-
-.PHONY: operator-sdk
-OPERATOR_SDK ?= $(LOCALBIN)/operator-sdk
-operator-sdk: ## Download operator-sdk locally if necessary.
-ifeq (,$(wildcard $(OPERATOR_SDK)))
-ifeq (, $(shell which operator-sdk 2>/dev/null))
-	@{ \
-	set -e ;\
-	mkdir -p $(dir $(OPERATOR_SDK)) ;\
-	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-	curl -sSLo $(OPERATOR_SDK) https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/operator-sdk_$${OS}_$${ARCH} ;\
-	chmod +x $(OPERATOR_SDK) ;\
-	}
-else
-OPERATOR_SDK = $(shell which operator-sdk)
-endif
-endif
-
-
-.PHONY: bundle
-bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metadata with customizable image versions using tags.
-	$(OPERATOR_SDK) generate kustomize manifests -q
-	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE)
-	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS)
-	$(OPERATOR_SDK) bundle validate ./bundle
-
-
+##@ Checks
 
 .PHONY: verify-manifests-sync
 verify-manifests-sync: manifests generate sync-crds
@@ -279,6 +213,7 @@ verify-manifests-sync: manifests generate sync-crds
 	@git diff --exit-code -- api config deployments
 	@echo "Code and manifests synchronization check completed."
 
+.PHONY: verify-deps
 verify-deps:
 	@echo "Verifying that all Go dependencies and vendor files are consistent..."
 	go mod verify
@@ -310,13 +245,20 @@ DOCKERFILE ?= $(CURDIR)/Dockerfile
 PUSH_ON_BUILD ?= false
 BUILD_MULTI_PLATFORM ?= false
 DOCKER_BUILD_OPTIONS ?= --output=type=image,push=$(PUSH_ON_BUILD)
-BUILDX =
 
-ifeq ($(BUILD_MULTI_PLATFORM),true)
+# PLATFORM can be set to a single platform (e.g. linux/amd64, linux/arm64)
+# to override the default multi-platform logic.
+PLATFORM ?=
+
+ifneq ($(PLATFORM),)
+	DOCKER_BUILD_PLATFORM_OPTIONS := --platform=$(PLATFORM)
+	BUILDX := buildx
+else ifeq ($(BUILD_MULTI_PLATFORM),true)
 	DOCKER_BUILD_PLATFORM_OPTIONS ?= --platform=linux/amd64,linux/arm64
-	BUILDX = buildx
+	BUILDX := buildx
 else
 	DOCKER_BUILD_PLATFORM_OPTIONS := --platform=linux/amd64
+	BUILDX :=
 endif
 
 # Image registry and naming configuration
@@ -327,17 +269,80 @@ IMAGE_NAME ?= $(REGISTRY)/rbln-npu-operator
 IMAGE_TAG ?= $(VERSION)
 IMAGE := $(IMAGE_NAME):$(IMAGE_TAG)
 
-BUNDLE_SEMVER  = $(patsubst v%,%,$(VERSION))
-# BUNDLE_GEN_FLAGS are the flags passed to the operator-sdk generate bundle command
+.PHONY: build-image
+build-image: ## Build the NPU operator image.
+	DOCKER_BUILDKIT=1 \
+		$(CONTAINER_TOOL) $(BUILDX) build --pull \
+		$(DOCKER_BUILD_OPTIONS) \
+		$(DOCKER_BUILD_PLATFORM_OPTIONS) \
+		--tag $(IMAGE) \
+		--build-arg VERSION="$(VERSION)" \
+		--build-arg GOLANG_VERSION="$(GOLANG_VERSION)" \
+		--file $(DOCKERFILE) $(CURDIR)
+
+##@ OLM Bundle
+
+CHANNELS ?= candidate,fast,stable
+DEFAULT_CHANNEL ?= stable
+
+ifneq ($(origin CHANNELS), undefined)
+BUNDLE_CHANNELS := --channels=$(CHANNELS)
+endif
+
+ifneq ($(origin DEFAULT_CHANNEL), undefined)
+BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
+endif
+BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
+
+BUNDLE_SEMVER = $(patsubst v%,%,$(VERSION))
 BUNDLE_GEN_FLAGS ?= -q --overwrite --version $(BUNDLE_SEMVER) $(BUNDLE_METADATA_OPTS)
 
-# USE_IMAGE_DIGESTS defines if images are resolved via tags or digests
-# You can enable this value if you would like to use SHA Based Digests
-# To enable set flag to true
 USE_IMAGE_DIGESTS ?= false
 ifeq ($(USE_IMAGE_DIGESTS), true)
 	BUNDLE_GEN_FLAGS += --use-image-digests
 endif
+
+BUNDLE_IMAGE ?= $(REGISTRY)/rbln-npu-operator-bundle:$(BUNDLE_SEMVER)
+
+.PHONY: operator-sdk
+OPERATOR_SDK ?= $(LOCALBIN)/operator-sdk
+operator-sdk: ## Download operator-sdk locally if necessary.
+ifeq (,$(wildcard $(OPERATOR_SDK)))
+ifeq (, $(shell which operator-sdk 2>/dev/null))
+	@{ \
+	set -e ;\
+	mkdir -p $(dir $(OPERATOR_SDK)) ;\
+	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
+	curl -sSLo $(OPERATOR_SDK) https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/operator-sdk_$${OS}_$${ARCH} ;\
+	chmod +x $(OPERATOR_SDK) ;\
+	}
+else
+OPERATOR_SDK = $(shell which operator-sdk)
+endif
+endif
+
+.PHONY: bundle
+bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metadata with customizable image versions using tags.
+	$(OPERATOR_SDK) generate kustomize manifests -q
+	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE)
+	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS)
+	$(OPERATOR_SDK) bundle validate ./bundle
+
+.PHONY: build-bundle-image
+build-bundle-image:
+	DOCKER_BUILDKIT=1 \
+		$(CONTAINER_TOOL) $(BUILDX) build --pull \
+		$(DOCKER_BUILD_OPTIONS) \
+		$(DOCKER_BUILD_PLATFORM_OPTIONS) \
+		--tag $(BUNDLE_IMAGE) \
+		--build-arg DEFAULT_CHANNEL=$(DEFAULT_CHANNEL) \
+		--file bundle.Dockerfile $(CURDIR)
+
+.PHONY: push-bundle-image
+push-bundle-image: build-bundle-image
+	$(CONTAINER_TOOL) push $(BUNDLE_IMAGE)
+
+##@ OLM Catalog
 
 .PHONY: opm
 OPM = $(LOCALBIN)/opm
@@ -356,48 +361,10 @@ OPM = $(shell which opm)
 endif
 endif
 
-# The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
-
-# Set CATALOG_BASE_IMG to an existing catalog image tag to add $BUNDLE_IMGS to that image.
 ifneq ($(origin CATALOG_BASE_IMG), undefined)
 FROM_INDEX_OPT := --from-index $(CATALOG_BASE_IMG)
 endif
 
-##@ Main Operator Image
-
-.PHONY: build-image
-build-image: ## Build the NPU operator image.
-	DOCKER_BUILDKIT=1 \
-		$(CONTAINER_TOOL) $(BUILDX) build --pull \
-		$(DOCKER_BUILD_OPTIONS) \
-		$(DOCKER_BUILD_PLATFORM_OPTIONS) \
-		--tag $(IMAGE) \
-		--build-arg VERSION="$(VERSION)" \
-		--build-arg GOLANG_VERSION="$(GOLANG_VERSION)" \
-		--file $(DOCKERFILE) $(CURDIR)
-
-##@ Bundle Images
-
-BUNDLE_IMAGE ?= $(REGISTRY)/rbln-npu-operator-bundle:$(BUNDLE_SEMVER)
-
-build-bundle-image:
-	DOCKER_BUILDKIT=1 \
-		$(CONTAINER_TOOL) $(BUILDX) build --pull \
-		$(DOCKER_BUILD_OPTIONS) \
-		$(DOCKER_BUILD_PLATFORM_OPTIONS) \
-		--tag $(BUNDLE_IMAGE) \
-		--build-arg DEFAULT_CHANNEL=$(DEFAULT_CHANNEL) \
-		--file bundle.Dockerfile $(CURDIR)
-
-# Push the bundle image.
-push-bundle-image: build-bundle-image
-	$(CONTAINER_TOOL) push $(BUNDLE_IMAGE)
-
-##@ Catalog Images
-
-# Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
-# This recipe invokes 'opm' in 'semver' bundle add mode. For more information on add modes, see:
-# https://github.com/operator-framework/community-operators/blob/7f1438c/docs/packaging-operator.md#updating-your-existing-operator
 CATALOG_IMAGE ?= $(REGISTRY)/rbln-npu-operator-catalog:$(VERSION)
 
 .PHONY: catalog-build
@@ -405,7 +372,6 @@ catalog-build: opm ## Build a catalog image.
 	DOCKER_BUILDKIT=1 DOCKER_DEFAULT_PLATFORM=linux/amd64 \
 	$(OPM) index add --container-tool $(CONTAINER_TOOL) --mode semver --tag $(CATALOG_IMAGE) --bundles $(BUNDLE_IMAGE) $(FROM_INDEX_OPT)
 
-# Push the catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(CONTAINER_TOOL) push $(CATALOG_IMAGE)
