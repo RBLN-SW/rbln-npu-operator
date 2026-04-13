@@ -68,7 +68,7 @@ func (h *driverManagerPatcher) Patch(ctx context.Context, owner *rebellionsaiv1a
 	if err := h.handleClusterRoleBinding(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleConfigMap(ctx); err != nil {
+	if err := h.handleConfigMap(ctx, owner); err != nil {
 		return err
 	}
 
@@ -77,8 +77,8 @@ func (h *driverManagerPatcher) Patch(ctx context.Context, owner *rebellionsaiv1a
 		return err
 	}
 	if len(nodePools) == 0 {
-		h.log.Info("WARNING: no nodes matching the given selector for driver manager; skipping daemonset reconcile", "instance", h.instanceName)
-		return nil
+		h.log.Info("no nodes matching the given selector for driver manager; cleaning up all DaemonSets", "instance", h.instanceName)
+		return h.cleanUpStaleDaemonSets(ctx, nil)
 	}
 	for _, nodePool := range nodePools {
 		if err := h.handleDaemonSet(ctx, owner, nodePool); err != nil {
