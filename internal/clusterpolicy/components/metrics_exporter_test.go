@@ -62,8 +62,8 @@ func TestMetricsExporterPatch(t *testing.T) {
 	if len(svc.Spec.Ports) == 0 || svc.Spec.Ports[0].Port != 9090 {
 		t.Fatal("Service port should be 9090")
 	}
-	if svc.Spec.Selector["app"] != name {
-		t.Fatalf("Service selector app = %q, want %q", svc.Spec.Selector["app"], name)
+	if svc.Spec.Selector[consts.LabelAppName] != consts.OperatorName {
+		t.Fatalf("Service selector %s = %q, want %q", consts.LabelAppName, svc.Spec.Selector[consts.LabelAppName], consts.OperatorName)
 	}
 }
 

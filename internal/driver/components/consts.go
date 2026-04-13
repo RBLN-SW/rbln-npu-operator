@@ -2,6 +2,7 @@ package components
 
 const (
 	driverManagerName                         = "rbln-driver"
+	driverManagerAppNameLabelKey              = "app.kubernetes.io/name"
 	driverManagerAppLabelKey                  = "app.kubernetes.io/component"
 	driverManagerNodePoolLabelKey             = "rebellions.ai/driver-node-pool"
 	driverManagerInstanceLabelKey             = "rebellions.ai/driver-instance"

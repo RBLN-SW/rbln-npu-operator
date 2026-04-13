@@ -310,10 +310,12 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	podSpec := h.buildPodSpec()
 
-	labels := map[string]string{"app": h.name}
+	sel := selectorLabels(consts.RBLNValidatorName)
+
+	labels := map[string]string(nil)
 	annotations := map[string]string(nil)
 	if h.podDefaults != nil {
-		labels = k8sutil.MergeMaps(labels, h.podDefaults.Labels)
+		labels = h.podDefaults.Labels
 		annotations = h.podDefaults.Annotations
 	}
 
@@ -322,7 +324,7 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
 		builder.
-			WithLabelSelectors(map[string]string{"app": h.name}).
+			WithLabelSelectors(sel).
 			WithLabels(labels).
 			WithAnnotations(annotations).
 			WithPodSpec(podSpec)

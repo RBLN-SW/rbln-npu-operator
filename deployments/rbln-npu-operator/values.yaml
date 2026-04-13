@@ -28,9 +28,9 @@ podDefaults:
 operator:
   # Operator image configuration
   image:
-    registry: docker.io
+    registry: harbor.k8s.rebellions.in
     repository: rebellions/rbln-npu-operator
-    tag: ""  # Defaults to Chart.AppVersion
+    tag: v0.3.5  # Defaults to Chart.AppVersion
     pullPolicy: IfNotPresent
   # Resource configuration
   replicas: 1
@@ -148,9 +148,9 @@ driver:
   env: []
   manager:
     image:
-      registry: docker.io
+      registry: harbor.k8s.rebellions.in
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.1.2
+      tag: v0.1.3
       pullPolicy: IfNotPresent
   #  imagePullSecrets:
   #  - my-registry-secret
@@ -269,9 +269,9 @@ vfioManager:
 # Validator configuration
 validator:
   image:
-    registry: docker.io
+    registry: harbor.k8s.rebellions.in
     repository: rebellions/rbln-npu-operator-validator
-    tag: ""  # Defaults to Chart.AppVersion
+    tag: v0.3.5  # Defaults to Chart.AppVersion
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}

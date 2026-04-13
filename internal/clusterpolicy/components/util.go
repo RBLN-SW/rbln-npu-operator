@@ -12,6 +12,15 @@ import (
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
+// selectorLabels returns the standard Kubernetes recommended labels used as
+// immutable matchLabels for a component's DaemonSet and Service selector.
+func selectorLabels(component string) map[string]string {
+	return map[string]string{
+		consts.LabelAppName:      consts.OperatorName,
+		consts.LabelAppComponent: component,
+	}
+}
+
 // ComponentSpec defines the common interface for component specs.
 type ComponentSpec interface {
 	IsEnabled() bool

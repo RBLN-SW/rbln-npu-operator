@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
@@ -104,6 +105,7 @@ func (h *driverManagerPatcher) shouldSkipDaemonSetUpdateByDriverHash(current *ap
 
 func (h *driverManagerPatcher) driverManagerLabels(pool nodePool) map[string]string {
 	return map[string]string{
+		driverManagerAppNameLabelKey:  consts.OperatorName,
 		driverManagerAppLabelKey:      h.name,
 		driverManagerNodePoolLabelKey: pool.name,
 		driverManagerInstanceLabelKey: h.instanceName,
