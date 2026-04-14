@@ -162,7 +162,7 @@ devicePlugin:
   image:
     registry: docker.io
     repository: rebellions/k8s-device-plugin
-    tag: v0.3.7
+    tag: v0.4.0
     pullPolicy: IfNotPresent
   resourceList:
   - productCardNames:
