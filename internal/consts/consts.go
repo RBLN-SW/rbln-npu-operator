@@ -110,6 +110,13 @@ const (
 	RBLNVFIOManagerName = "vfio-manager"
 )
 
+// Kubernetes recommended labels
+const (
+	LabelAppName      = "app.kubernetes.io/name"
+	LabelAppComponent = "app.kubernetes.io/component"
+	OperatorName      = "rbln-npu-operator"
+)
+
 // Shared volume constants
 const (
 	ValidationsVolumeName = "run-rbln-validations"

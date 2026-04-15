@@ -44,6 +44,7 @@ const (
 	draDeviceClassName         = "npu.rebellions.ai"
 	devicePluginNodeLabelKey   = "rebellions.ai/npu.deploy.device-plugin"
 	devicePluginNodeLabelValue = "true"
+	appComponentLabelKey       = "app.kubernetes.io/component"
 	rblnClusterPolicyCRDName   = "rblnclusterpolicies.rebellions.ai"
 	rblnDriverCRDName          = "rblndrivers.rebellions.ai"
 	registryServer             = "repo.rebellions.ai"
@@ -105,18 +106,21 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 
 			It("should bring up the all of the operand pods successfully", func(ctx context.Context) {
 				waitForPodsReady(ctx, k8sCoreClient, testNamespace.Name, "rbln-driver", map[string]string{
-					"app.kubernetes.io/component": "rbln-driver",
+					appComponentLabelKey: "rbln-driver",
 				})
 
-				operands := []string{
-					"rbln-device-plugin",
-					"rbln-metrics-exporter",
-					"rbln-npu-feature-discovery",
+				operands := []struct {
+					name      string
+					component string
+				}{
+					{"rbln-device-plugin", "device-plugin"},
+					{"rbln-metrics-exporter", "metrics-exporter"},
+					{"rbln-npu-feature-discovery", "npu-feature-discovery"},
 				}
 				e2elog.Infof("Ensure that the npu operator operands come up")
 				for _, operand := range operands {
-					waitForPodsReady(ctx, k8sCoreClient, testNamespace.Name, operand, map[string]string{
-						"app": operand,
+					waitForPodsReady(ctx, k8sCoreClient, testNamespace.Name, operand.name, map[string]string{
+						appComponentLabelKey: operand.component,
 					})
 				}
 			})
@@ -202,7 +206,7 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 
 				Eventually(func(g Gomega) bool {
 					pods, err := k8sCoreClient.GetPodsByLabel(ctx, testNamespace.Name, map[string]string{
-						"app": "rbln-device-plugin",
+						appComponentLabelKey: "device-plugin",
 					})
 					g.Expect(err).NotTo(HaveOccurred())
 					return len(pods) == 0
@@ -212,7 +216,7 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 					Should(BeTrue(), "device-plugin pods were not removed")
 
 				waitForPodsReady(ctx, k8sCoreClient, testNamespace.Name, "rbln-dra-kubelet-plugin", map[string]string{
-					"app": "rbln-dra-kubelet-plugin",
+					appComponentLabelKey: "dra-kubelet-plugin",
 				})
 			})
 

@@ -74,8 +74,8 @@ func TestRBLNDaemonPatch(t *testing.T) {
 	if len(svc.Spec.Ports) == 0 || svc.Spec.Ports[0].Port != 50051 {
 		t.Fatal("Service port should be 50051")
 	}
-	if svc.Spec.Selector["app"] != name {
-		t.Fatalf("Service selector app = %q, want %q", svc.Spec.Selector["app"], name)
+	if svc.Spec.Selector[consts.LabelAppName] != consts.OperatorName {
+		t.Fatalf("Service selector %s = %q, want %q", consts.LabelAppName, svc.Spec.Selector[consts.LabelAppName], consts.OperatorName)
 	}
 }
 

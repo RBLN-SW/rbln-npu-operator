@@ -112,8 +112,10 @@ func assertDaemonSetBasics(t *testing.T, c client.Client, name, ownerName string
 	if ds.Spec.Template.Spec.ServiceAccountName != name {
 		t.Fatalf("DaemonSet %s: ServiceAccountName = %q, want %q", name, ds.Spec.Template.Spec.ServiceAccountName, name)
 	}
-	if ds.Spec.Selector == nil || ds.Spec.Selector.MatchLabels["app"] != name {
-		t.Fatalf("DaemonSet %s: matchLabels app should be %q", name, name)
+	if ds.Spec.Selector == nil ||
+		ds.Spec.Selector.MatchLabels[consts.LabelAppName] != consts.OperatorName ||
+		ds.Spec.Selector.MatchLabels[consts.LabelAppComponent] == "" {
+		t.Fatalf("DaemonSet %s: expected standard Kubernetes labels in matchLabels, got %v", name, ds.Spec.Selector.MatchLabels)
 	}
 	return ds
 }

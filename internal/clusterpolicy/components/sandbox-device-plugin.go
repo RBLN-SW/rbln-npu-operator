@@ -175,9 +175,11 @@ func (h *sandboxDevicePluginPatcher) handleDaemonSet(ctx context.Context, owner 
 	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
 	ds := builder.Build()
 
+	sel := selectorLabels(consts.RBLNSandboxDevicePluginName)
+
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
 		builder.
-			WithLabelSelectors(map[string]string{"app": h.name}).
+			WithLabelSelectors(sel).
 			WithLabels(h.desiredSpec.Labels).
 			WithAnnotations(h.desiredSpec.Annotations).
 			WithPodSpec(podSpec)

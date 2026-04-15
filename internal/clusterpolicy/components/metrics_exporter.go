@@ -74,7 +74,7 @@ func (h *metricsExporterPatcher) handleService(ctx context.Context, cp *rblnv1be
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: h.name + "-service", Namespace: h.namespace},
 	}
-	labelsMap := map[string]string{"app": h.name}
+	labelsMap := selectorLabels(consts.RBLNMetricExporterName)
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, svc, func() error {
 		svc.Labels = labelsMap
@@ -148,14 +148,15 @@ func (h *metricsExporterPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPoli
 
 func (h *metricsExporterPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	podSpec := h.buildPodSpec(owner)
-	labelsMap := map[string]string{"app": h.name}
+
+	sel := selectorLabels(consts.RBLNMetricExporterName)
 
 	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
 	ds := builder.Build()
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
 		builder.
-			WithLabelSelectors(labelsMap).
+			WithLabelSelectors(sel).
 			WithLabels(h.desiredSpec.Labels).
 			WithAnnotations(h.desiredSpec.Annotations).
 			WithPodSpec(podSpec)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -107,6 +108,54 @@ func TestDriverManagerPatcher_Patch_OpenShift(t *testing.T) {
 	rb := &rbacv1.RoleBinding{}
 	assertObjectExists(t, c, types.NamespacedName{Name: driverManagerName, Namespace: testNamespace}, rb)
 	assertHasOwnerRef(t, rb, owner.Name)
+}
+
+func TestDriverManagerPatcher_Patch_NoMatchingNodesDeletesStaleDaemonSets(t *testing.T) {
+	scheme := newTestScheme(t)
+
+	// Existing DaemonSet from a previous reconcile (e.g. before the node got
+	// the `rebellions.ai/npu.deploy.skip` label). The owner-managed controller
+	// has since removed the `rebellions.ai/npu.deploy.driver` label, so no
+	// nodes match the driver selector anymore.
+	existingDS := newStaleTestDaemonSet(
+		testInstanceName+"-ubuntu22.04-5.15.0-100-generic",
+		testInstanceName,
+		"ubuntu22.04-5.15.0-100-generic",
+	)
+
+	// Node is present in the cluster but no longer carries the deploy.driver
+	// label (simulating the skip-label cleanup by RBLNClusterPolicy).
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-skip",
+			Labels: map[string]string{
+				"rebellions.ai/npu.deploy.skip":                           "true",
+				"feature.node.kubernetes.io/system-os_release.ID":         "ubuntu",
+				"feature.node.kubernetes.io/system-os_release.VERSION_ID": "22.04",
+				"feature.node.kubernetes.io/kernel-version.full":          "5.15.0-100-generic",
+			},
+		},
+	}
+
+	c := newFakeClient(t, scheme, node, existingDS)
+	ctx := context.Background()
+
+	owner := newTestOwner()
+	p, err := NewDriverManagerPatcher(c, logf.Log, testNamespace, owner, scheme, "")
+	if err != nil {
+		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
+	}
+
+	if err := p.Patch(ctx, owner); err != nil {
+		t.Fatalf("Patch() error: %v", err)
+	}
+
+	// The stale DaemonSet must be deleted even though no node pools were
+	// detected. Otherwise driver pods on skipped nodes stay running.
+	assertObjectNotExists(t, c, types.NamespacedName{
+		Name:      existingDS.Name,
+		Namespace: testNamespace,
+	}, &appsv1.DaemonSet{})
 }
 
 func TestDriverManagerPatcher_CleanUp(t *testing.T) {

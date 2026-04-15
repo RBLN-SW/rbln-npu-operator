@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
@@ -49,7 +50,7 @@ func getSubscriptionPathsToVolumeSources(os string) (mountPathToVolumeSource, er
 
 // ─── ConfigMap ──────────────────────────────────────────────────────────────
 
-func (h *driverManagerPatcher) handleConfigMap(ctx context.Context) error {
+func (h *driverManagerPatcher) handleConfigMap(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {
 	script := `#!/bin/sh
 set -eu
 
@@ -86,7 +87,7 @@ mv "$TMP_FILE" "$READY_FILE"
 	}
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, cm, func() error {
 		cm.Data = map[string]string{startupProbeScriptName: script}
-		return nil
+		return controllerutil.SetOwnerReference(owner, cm, h.scheme)
 	})
 	if err != nil {
 		h.log.Error(err, "Failed to reconcile startup probe ConfigMap")
@@ -135,6 +136,10 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool) (*corev1.PodSpe
 			VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
 				Path: hostDevPath, Type: ptr(corev1.HostPathDirectory),
 			}},
+		},
+		{
+			Name:         chrootTmpVolumeName,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		},
 		{
 			Name: h.startupProbeConfigMapName(),
@@ -192,6 +197,14 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 				MountPath:        "/host",
 				ReadOnly:         true,
 				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
+			},
+			{
+				Name:      hostDevVolumeName,
+				MountPath: "/host/dev",
+			},
+			{
+				Name:      chrootTmpVolumeName,
+				MountPath: "/host/tmp",
 			},
 		}).
 		Build()

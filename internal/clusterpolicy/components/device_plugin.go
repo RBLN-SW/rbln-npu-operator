@@ -193,12 +193,14 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 func (h *devicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	podSpec := h.buildPodSpec(owner)
 
+	sel := selectorLabels(consts.RBLNDevicePluginName)
+
 	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
 	ds := builder.Build()
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
 		builder.
-			WithLabelSelectors(map[string]string{"app": h.name}).
+			WithLabelSelectors(sel).
 			WithLabels(h.desiredSpec.Labels).
 			WithAnnotations(h.desiredSpec.Annotations).
 			WithPodSpec(podSpec)

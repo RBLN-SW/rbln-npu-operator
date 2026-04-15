@@ -427,9 +427,11 @@ func (h *vfioManagerPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1b
 	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
 	ds := builder.Build()
 
+	sel := selectorLabels(consts.RBLNVFIOManagerName)
+
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, ds, func() error {
 		builder.
-			WithLabelSelectors(map[string]string{"app": h.name}).
+			WithLabelSelectors(sel).
 			WithLabels(h.desiredSpec.Labels).
 			WithAnnotations(h.desiredSpec.Annotations).
 			WithPodSpec(podSpec)

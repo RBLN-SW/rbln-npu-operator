@@ -189,7 +189,8 @@ func TestHandleConfigMap(t *testing.T) {
 		},
 	}
 
-	if err := h.handleConfigMap(context.Background()); err != nil {
+	owner := newTestOwner()
+	if err := h.handleConfigMap(context.Background(), owner); err != nil {
 		t.Fatalf("handleConfigMap() error: %v", err)
 	}
 
@@ -211,6 +212,10 @@ func TestHandleConfigMap(t *testing.T) {
 	if !contains(script, consts.ValidationsMountPath) {
 		t.Fatalf("script should reference %s", consts.ValidationsMountPath)
 	}
+
+	// Verify ConfigMap carries an ownerReference to the driver instance so
+	// that Kubernetes GC removes it when the RBLNDriver CR is deleted.
+	assertHasOwnerRef(t, cm, owner.Name)
 }
 
 func TestBuildDriverContainer(t *testing.T) {
@@ -298,11 +303,12 @@ func TestHandleConfigMap_Idempotent(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	owner := newTestOwner()
 	// Call twice — should not error.
-	if err := h.handleConfigMap(ctx); err != nil {
+	if err := h.handleConfigMap(ctx, owner); err != nil {
 		t.Fatalf("first handleConfigMap() error: %v", err)
 	}
-	if err := h.handleConfigMap(ctx); err != nil {
+	if err := h.handleConfigMap(ctx, owner); err != nil {
 		t.Fatalf("second handleConfigMap() error: %v", err)
 	}
 
