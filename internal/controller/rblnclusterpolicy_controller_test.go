@@ -95,7 +95,6 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			By("creating the device plugin resources")
 			expectResource(ctx, &corev1.ServiceAccount{}, "rbln-device-plugin", containerNS, 5*time.Second)
 			expectResource(ctx, &appsv1.DaemonSet{}, "rbln-device-plugin", containerNS, 5*time.Second)
-			expectResource(ctx, &corev1.ConfigMap{}, "rbln-device-plugin-config", containerNS, 5*time.Second)
 
 			By("creating the NPU feature discovery resources")
 			expectResource(ctx, &corev1.ServiceAccount{}, "rbln-npu-feature-discovery", containerNS, 5*time.Second)
@@ -117,7 +116,6 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 		It("Should clean up DevicePlugin artifacts when the component is disabled", func() {
 			// first reconcile leaves the device-plugin resources in place
 			expectResource(ctx, &corev1.ServiceAccount{}, "rbln-device-plugin", containerNS, 5*time.Second)
-			expectResource(ctx, &corev1.ConfigMap{}, "rbln-device-plugin-config", containerNS, 5*time.Second)
 			expectResource(ctx, &appsv1.DaemonSet{}, "rbln-device-plugin", containerNS, 5*time.Second)
 
 			By("disabling the device plugin in the cluster policy")
@@ -128,7 +126,6 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 
 			// artifacts should be gone once CleanUp runs
 			expectResourceDeleted(ctx, &corev1.ServiceAccount{}, "rbln-device-plugin", containerNS, 5*time.Second)
-			expectResourceDeleted(ctx, &corev1.ConfigMap{}, "rbln-device-plugin-config", containerNS, 5*time.Second)
 			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-device-plugin", containerNS, 5*time.Second)
 		})
 	})
