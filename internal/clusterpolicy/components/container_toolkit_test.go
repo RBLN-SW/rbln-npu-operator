@@ -185,6 +185,117 @@ func TestContainerToolkitSocketOverride(t *testing.T) {
 	}
 }
 
+func TestContainerToolkitConfigPathOverride(t *testing.T) {
+	tests := map[string]struct {
+		runtime       string
+		envOverride   []corev1.EnvVar
+		wantHostDir   string
+		wantEnvValue  string
+		wantMountPath string
+	}{
+		"containerd default config": {
+			runtime:       consts.Containerd,
+			wantHostDir:   "/etc/containerd",
+			wantEnvValue:  "/runtime/config-dir/config.toml",
+			wantMountPath: "/runtime/config-dir",
+		},
+		"docker default config": {
+			runtime:       consts.Docker,
+			wantHostDir:   "/etc/docker",
+			wantEnvValue:  "/runtime/config-dir/daemon.json",
+			wantMountPath: "/runtime/config-dir",
+		},
+		"crio default config": {
+			runtime:       consts.CRIO,
+			wantHostDir:   "/etc/crio/crio.conf.d",
+			wantEnvValue:  "/runtime/config-dir/99-rbln.conf",
+			wantMountPath: "/runtime/config-dir",
+		},
+		"containerd overridden config": {
+			runtime: consts.Containerd,
+			envOverride: []corev1.EnvVar{
+				{Name: "RBLN_CTK_DAEMON_CONFIG_PATH", Value: "/custom/runtime/config.toml"},
+			},
+			wantHostDir:   "/custom/runtime",
+			wantEnvValue:  "/runtime/config-dir/config.toml",
+			wantMountPath: "/runtime/config-dir",
+		},
+	}
+
+	dsName := consts.RBLNBaseName + "-" + consts.RBLNContainerToolkitName
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			scheme := newTestScheme(t)
+			c := newFakeClient(t, scheme)
+
+			owner := newTestOwner()
+			owner.Spec.ContainerToolkit.Env = tc.envOverride
+
+			p := NewContainerToolkitPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "", tc.runtime)
+			if err := p.Patch(context.Background(), owner); err != nil {
+				t.Fatalf("Patch() error: %v", err)
+			}
+
+			ds := &appsv1.DaemonSet{}
+			assertObjectExists(t, c, types.NamespacedName{Name: dsName, Namespace: testNamespace}, ds)
+
+			// Verify volume host path (directory mount)
+			foundVolume := false
+			for _, vol := range ds.Spec.Template.Spec.Volumes {
+				if vol.Name == containerToolkitConfigDirVolumeName {
+					foundVolume = true
+					if vol.HostPath.Path != tc.wantHostDir {
+						t.Fatalf("volume host path = %q, want %q", vol.HostPath.Path, tc.wantHostDir)
+					}
+					if *vol.HostPath.Type != corev1.HostPathDirectoryOrCreate {
+						t.Fatalf("volume type = %v, want DirectoryOrCreate", *vol.HostPath.Type)
+					}
+					break
+				}
+			}
+			if !foundVolume {
+				t.Fatalf("expected volume %q not found", containerToolkitConfigDirVolumeName)
+			}
+
+			// Verify volume mount (writable)
+			mainContainer := ds.Spec.Template.Spec.Containers[0]
+			foundMount := false
+			for _, vm := range mainContainer.VolumeMounts {
+				if vm.Name == containerToolkitConfigDirVolumeName {
+					foundMount = true
+					if vm.MountPath != tc.wantMountPath {
+						t.Fatalf("volume mount path = %q, want %q", vm.MountPath, tc.wantMountPath)
+					}
+					if vm.ReadOnly {
+						t.Fatal("config volume mount should be writable, not read-only")
+					}
+					break
+				}
+			}
+			if !foundMount {
+				t.Fatalf("expected volume mount %q not found", containerToolkitConfigDirVolumeName)
+			}
+
+			// Verify env var (remapped container path)
+			foundEnv := false
+			for _, env := range mainContainer.Env {
+				if env.Name == "RBLN_CTK_DAEMON_CONFIG_PATH" {
+					foundEnv = true
+					if env.Value != tc.wantEnvValue {
+						t.Fatalf("env RBLN_CTK_DAEMON_CONFIG_PATH = %q, want %q",
+							env.Value, tc.wantEnvValue)
+					}
+					break
+				}
+			}
+			if !foundEnv {
+				t.Fatal("expected env RBLN_CTK_DAEMON_CONFIG_PATH not found")
+			}
+		})
+	}
+}
+
 func TestContainerToolkitCleanUp(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)

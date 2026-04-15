@@ -2,6 +2,7 @@ package components
 
 import (
 	"context"
+	"path"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -19,21 +20,26 @@ import (
 )
 
 const (
-	containerToolkitCDIRootVolumeName = "cdi-root"
-	containerToolkitCDIRootPath       = "/var/run/cdi"
-	containerToolkitRunVolumeName     = "run-rbln"
-	containerToolkitRunPath           = "/run/rbln"
-	containerToolkitHostBinVolumeName = "host-bin"
-	containerToolkitHostBinPath       = "/usr/local/bin"
-	containerToolkitHostBinMountPath  = "/host/usr/local/bin"
-	containerdSockVolumeName          = "containerd-sock"
-	containerdSockPath                = "/run/containerd/containerd.sock"
-	dockerSockVolumeName              = "docker-sock"
-	dockerSockPath                    = "/var/run/docker.sock"
-	crioSockVolumeName                = "crio-sock"
-	crioSockPath                      = "/var/run/crio/crio.sock"
-	containerToolkitEntrypointKey     = "entrypoint.sh"
-	containerToolkitEntrypointPath    = "/bin/entrypoint.sh"
+	containerToolkitCDIRootVolumeName   = "cdi-root"
+	containerToolkitCDIRootPath         = "/var/run/cdi"
+	containerToolkitRunVolumeName       = "run-rbln"
+	containerToolkitRunPath             = "/run/rbln"
+	containerToolkitHostBinVolumeName   = "host-bin"
+	containerToolkitHostBinPath         = "/usr/local/bin"
+	containerToolkitHostBinMountPath    = "/host/usr/local/bin"
+	containerdSockVolumeName            = "containerd-sock"
+	containerdSockPath                  = "/run/containerd/containerd.sock"
+	dockerSockVolumeName                = "docker-sock"
+	dockerSockPath                      = "/var/run/docker.sock"
+	crioSockVolumeName                  = "crio-sock"
+	crioSockPath                        = "/var/run/crio/crio.sock"
+	containerToolkitEntrypointKey       = "entrypoint.sh"
+	containerToolkitEntrypointPath      = "/bin/entrypoint.sh"
+	containerToolkitConfigDirVolumeName = "runtime-config-dir"
+	containerToolkitConfigDirMountPath  = "/runtime/config-dir"
+	containerdConfigPath                = "/etc/containerd/config.toml"
+	dockerConfigPath                    = "/etc/docker/daemon.json"
+	crioConfigPath                      = "/etc/crio/crio.conf.d/99-rbln.conf"
 )
 
 type containerToolkitPatcher struct {
@@ -199,6 +205,25 @@ func (h *containerToolkitPatcher) resolveSocketPath() string {
 	}
 }
 
+// resolveConfigPath returns the effective runtime config file path on the host.
+// If the user specified RBLN_CTK_DAEMON_CONFIG_PATH in the CR env, that value
+// takes precedence; otherwise the default path for the detected runtime is returned.
+func (h *containerToolkitPatcher) resolveConfigPath() string {
+	if override, ok := envVarValue(h.desiredSpec.Env, "RBLN_CTK_DAEMON_CONFIG_PATH"); ok && override != "" {
+		return override
+	}
+	switch h.containerRuntime {
+	case consts.Containerd:
+		return containerdConfigPath
+	case consts.Docker:
+		return dockerConfigPath
+	case consts.CRIO:
+		return crioConfigPath
+	default:
+		return ""
+	}
+}
+
 func (h *containerToolkitPatcher) buildRuntimeMountsAndVolumes(socketPath string) ([]corev1.VolumeMount, []corev1.Volume) {
 	var volumeName string
 	switch h.containerRuntime {
@@ -281,6 +306,26 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		)
 	}
 
+	configHostPath := h.resolveConfigPath()
+	var configMounts []corev1.VolumeMount
+	var configVolumes []corev1.Volume
+	var configEnv []corev1.EnvVar
+	if configHostPath != "" {
+		configHostDir := path.Dir(configHostPath)
+		configFileName := path.Base(configHostPath)
+		containerConfigPath := path.Join(containerToolkitConfigDirMountPath, configFileName)
+
+		configEnv = []corev1.EnvVar{
+			{Name: "RBLN_CTK_DAEMON_CONFIG_PATH", Value: containerConfigPath},
+		}
+		configMounts = []corev1.VolumeMount{
+			{Name: containerToolkitConfigDirVolumeName, MountPath: containerToolkitConfigDirMountPath},
+		}
+		configVolumes = []corev1.Volume{
+			hostPathVolume(containerToolkitConfigDirVolumeName, configHostDir, corev1.HostPathDirectoryOrCreate),
+		}
+	}
+
 	toolkitVolumeMounts := []corev1.VolumeMount{
 		{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
 		{Name: validatorHostDriverVolumeName, MountPath: validatorHostDriverPath},
@@ -296,12 +341,13 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		},
 	}
 	toolkitVolumeMounts = append(toolkitVolumeMounts, runtimeMounts...)
+	toolkitVolumeMounts = append(toolkitVolumeMounts, configMounts...)
 
 	toolkitContainer := k8sutil.NewContainerBuilder().
 		WithName(h.name).
 		WithImage(k8sutil.ComposeImageReference(toolkitSpec.Registry, toolkitSpec.Image), toolkitSpec.Version, imagePullPolicy).
 		WithCommands([]string{containerToolkitEntrypointPath}).
-		WithEnvs(mergeEnvVars(runtimeEnv, toolkitSpec.Env)).
+		WithEnvs(mergeEnvVars(runtimeEnv, toolkitSpec.Env, configEnv)).
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged: ptr(true),
 			RunAsUser:  ptr(int64(0)),
@@ -329,6 +375,7 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		},
 	}
 	toolkitVolumes = append(toolkitVolumes, runtimeVolumes...)
+	toolkitVolumes = append(toolkitVolumes, configVolumes...)
 
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).
