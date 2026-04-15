@@ -29,12 +29,6 @@ type RBLNDevicePluginSpec struct {
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
-
-	// ResourceList is the list of resources to be managed by the device plugin
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:={{resourceName:ATOM,resourcePrefix:rebellions.ai,productCardNames:{RBLN-CA12,RBLN-CA22,RBLN-CA25}}}
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Resource List",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
-	ResourceList []RBLNDevicePluginResourceSpec `json:"resourceList"`
 }
 
 // RBLNSandboxDevicePluginSpec defines the desired state of RBLNSandboxDevicePlugin
