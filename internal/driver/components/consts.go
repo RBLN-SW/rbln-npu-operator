@@ -27,6 +27,7 @@ const (
 	hostRootPath                              = "/"
 	hostDevVolumeName                         = "host-dev"
 	hostDevPath                               = "/dev"
+	chrootTmpVolumeName                       = "chroot-tmp"
 )
 
 func ptr[T any](v T) *T {

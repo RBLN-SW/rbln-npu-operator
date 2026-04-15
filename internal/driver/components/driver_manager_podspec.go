@@ -138,6 +138,10 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool) (*corev1.PodSpe
 			}},
 		},
 		{
+			Name:         chrootTmpVolumeName,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		},
+		{
 			Name: h.startupProbeConfigMapName(),
 			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
 				LocalObjectReference: corev1.LocalObjectReference{Name: h.startupProbeConfigMapName()},
@@ -193,6 +197,14 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 				MountPath:        "/host",
 				ReadOnly:         true,
 				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
+			},
+			{
+				Name:      hostDevVolumeName,
+				MountPath: "/host/dev",
+			},
+			{
+				Name:      chrootTmpVolumeName,
+				MountPath: "/host/tmp",
 			},
 		}).
 		Build()
