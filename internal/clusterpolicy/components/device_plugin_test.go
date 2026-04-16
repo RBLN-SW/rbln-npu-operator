@@ -2,8 +2,6 @@ package components
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -16,78 +14,6 @@ import (
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
-func TestBuildDevicePluginConfig(t *testing.T) {
-	tests := map[string]struct {
-		resourceList []rblnv1beta1.RBLNDevicePluginResourceSpec
-		wantErr      bool
-		errContains  string
-		wantStrings  []string
-		noStrings    []string
-	}{
-		"valid resource list": {
-			resourceList: []rblnv1beta1.RBLNDevicePluginResourceSpec{
-				{
-					ResourceName:     "ATOM",
-					ResourcePrefix:   "rebellions.ai",
-					ProductCardNames: []string{"RBLN-CA22", "RBLN-CA25"},
-				},
-			},
-			wantStrings: []string{
-				`"resourceName": "ATOM"`,
-				`"resourcePrefix": "rebellions.ai"`,
-				`"deviceType": "accelerator"`,
-				`"1220"`, `"1221"`, `"1250"`, `"1251"`,
-			},
-			noStrings: []string{`"1120"`, `"1121"`},
-		},
-		"invalid product card name": {
-			resourceList: []rblnv1beta1.RBLNDevicePluginResourceSpec{
-				{
-					ResourceName:     "ATOM",
-					ResourcePrefix:   "rebellions.ai",
-					ProductCardNames: []string{"RBLN-CA12", "INVALID"},
-				},
-			},
-			wantErr:     true,
-			errContains: "unknown product card name: INVALID",
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			patcher := &devicePluginPatcher{
-				desiredSpec: &rblnv1beta1.RBLNDevicePluginSpec{
-					ResourceList: tc.resourceList,
-				},
-			}
-
-			result, err := patcher.buildDevicePluginConfig()
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if !strings.Contains(err.Error(), tc.errContains) {
-					t.Fatalf("error %q should contain %q", err.Error(), tc.errContains)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			for _, s := range tc.wantStrings {
-				if !strings.Contains(result, s) {
-					t.Errorf("result should contain %q", s)
-				}
-			}
-			for _, s := range tc.noStrings {
-				if strings.Contains(result, s) {
-					t.Errorf("result should NOT contain %q", s)
-				}
-			}
-		})
-	}
-}
-
 func TestDevicePluginPatch(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
@@ -99,13 +25,6 @@ func TestDevicePluginPatch(t *testing.T) {
 		Registry: "docker.io",
 		Image:    "rebellions/k8s-device-plugin",
 		Version:  "latest",
-		ResourceList: []rblnv1beta1.RBLNDevicePluginResourceSpec{
-			{
-				ResourceName:     "ATOM",
-				ResourcePrefix:   "rebellions.ai",
-				ProductCardNames: []string{consts.RBLNCardCA12},
-			},
-		},
 	}
 
 	name := consts.RBLNBaseName + "-" + consts.RBLNDevicePluginName
@@ -130,25 +49,6 @@ func TestDevicePluginPatch(t *testing.T) {
 		t.Fatalf("expected 1 init container, got %d", len(ds.Spec.Template.Spec.InitContainers))
 	}
 	assertContainerImage(t, ds.Spec.Template.Spec.InitContainers[0], "rebellions/rbln-validator", "v1.0")
-
-	// ConfigMap
-	cm := &corev1.ConfigMap{}
-	assertObjectExists(t, c, types.NamespacedName{Name: name + "-config", Namespace: testNamespace}, cm)
-	assertHasOwnerRef(t, cm, owner.Name)
-
-	var cfg configResourceList
-	if err := json.Unmarshal([]byte(cm.Data["config.json"]), &cfg); err != nil {
-		t.Fatalf("config.json is not valid JSON: %v", err)
-	}
-	if len(cfg.ResourceList) != 1 {
-		t.Fatalf("expected 1 resource, got %d", len(cfg.ResourceList))
-	}
-	if cfg.ResourceList[0].ResourceName != "ATOM" {
-		t.Fatalf("resourceName = %q, want ATOM", cfg.ResourceList[0].ResourceName)
-	}
-	if cfg.ResourceList[0].Selectors.Drivers[0] != consts.RBLNDriverName {
-		t.Fatalf("driver = %q, want %q", cfg.ResourceList[0].Selectors.Drivers[0], consts.RBLNDriverName)
-	}
 }
 
 func TestDevicePluginPatch_Disabled(t *testing.T) {
@@ -183,13 +83,6 @@ func TestDevicePluginCleanUp(t *testing.T) {
 		Registry: "docker.io",
 		Image:    "rebellions/k8s-device-plugin",
 		Version:  "latest",
-		ResourceList: []rblnv1beta1.RBLNDevicePluginResourceSpec{
-			{
-				ResourceName:     "ATOM",
-				ResourcePrefix:   "rebellions.ai",
-				ProductCardNames: []string{consts.RBLNCardCA12},
-			},
-		},
 	}
 
 	name := consts.RBLNBaseName + "-" + consts.RBLNDevicePluginName
@@ -204,7 +97,6 @@ func TestDevicePluginCleanUp(t *testing.T) {
 	}
 
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &appsv1.DaemonSet{})
-	assertObjectNotExists(t, c, types.NamespacedName{Name: name + "-config", Namespace: testNamespace}, &corev1.ConfigMap{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
 }
 
@@ -219,13 +111,6 @@ func TestDevicePluginPatch_OpenShift(t *testing.T) {
 		Registry: "docker.io",
 		Image:    "rebellions/k8s-device-plugin",
 		Version:  "latest",
-		ResourceList: []rblnv1beta1.RBLNDevicePluginResourceSpec{
-			{
-				ResourceName:     "ATOM",
-				ResourcePrefix:   "rebellions.ai",
-				ProductCardNames: []string{consts.RBLNCardCA12},
-			},
-		},
 	}
 
 	name := consts.RBLNBaseName + "-" + consts.RBLNDevicePluginName

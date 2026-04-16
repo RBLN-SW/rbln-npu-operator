@@ -162,19 +162,8 @@ devicePlugin:
   image:
     registry: docker.io
     repository: rebellions/k8s-device-plugin
-    tag: v0.3.7
+    tag: v0.4.0
     pullPolicy: IfNotPresent
-  resourceList:
-  - productCardNames:
-    - RBLN-CA12
-    - RBLN-CA22
-    - RBLN-CA25
-    resourceName: ATOM
-    resourcePrefix: rebellions.ai
-  - productCardNames:
-    - RBLN-CR03
-    resourceName: REBEL
-    resourcePrefix: rebellions.ai
 
 # NPU DRA kubelet plugin configuration
 draKubeletPlugin:

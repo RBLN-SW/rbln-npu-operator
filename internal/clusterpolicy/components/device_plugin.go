@@ -2,11 +2,9 @@ package components
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -57,9 +55,6 @@ func (h *devicePluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLN
 	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleConfigMap(ctx, owner); err != nil {
-		return err
-	}
 	return h.handleDaemonSet(ctx, owner)
 }
 
@@ -68,66 +63,10 @@ func (h *devicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RB
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
-	if err := h.deleteIfExists(ctx, &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: h.name + "-config", Namespace: h.namespace},
-	}); err != nil {
-		return err
-	}
 	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
 		return err
 	}
 	return h.deleteServiceAccount(ctx)
-}
-
-func (h *devicePluginPatcher) buildDevicePluginConfig() (string, error) {
-	configResources := make([]configResource, 0)
-
-	for _, resource := range h.desiredSpec.ResourceList {
-		devices, err := collectDevices(resource.ProductCardNames)
-		if err != nil {
-			h.log.Error(err, "Failed to collect devices for resource", "resourceName", resource.ResourceName)
-			return "", err
-		}
-		configResources = append(configResources, configResource{
-			ResourceName:   resource.ResourceName,
-			ResourcePrefix: resource.ResourcePrefix,
-			DeviceType:     consts.DeviceTypeAccelerator,
-			Selectors: deviceSelector{
-				Vendors: []string{consts.RBLNVendorCode},
-				Drivers: []string{consts.RBLNDriverName},
-				Devices: devices,
-			},
-		})
-	}
-
-	configDataBytes, err := json.MarshalIndent(configResourceList{ResourceList: configResources}, "", "  ")
-	if err != nil {
-		h.log.Error(err, "Failed to marshal device plugin config")
-		return "", err
-	}
-	return string(configDataBytes), nil
-}
-
-func (h *devicePluginPatcher) handleConfigMap(ctx context.Context, cp *rblnv1beta1.RBLNClusterPolicy) error {
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: h.name + "-config", Namespace: h.namespace},
-	}
-
-	configData, err := h.buildDevicePluginConfig()
-	if err != nil {
-		return err
-	}
-
-	res, err := controllerutil.CreateOrPatch(ctx, h.client, cm, func() error {
-		cm.Data = map[string]string{"config.json": configData}
-		return ctrl.SetControllerReference(cp, cm, h.scheme)
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile DevicePlugin ConfigMap")
-		return err
-	}
-	h.log.Info("Reconciled DevicePlugin ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", res)
-	return nil
 }
 
 func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
@@ -151,14 +90,6 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 					Type: ptr(corev1.HostPathDirectoryOrCreate),
 				}},
 			},
-			{
-				Name: "config-volume",
-				VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: h.name + "-config"},
-					Items:                []corev1.KeyToPath{{Key: "config.json", Path: "config.json"}},
-					DefaultMode:          ptr(int32(0o644)),
-				}},
-			},
 			hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
 			hostPathVolume("host-dev", "/dev", corev1.HostPathDirectory),
 			hostPathVolume(hostUsrBinVolumeName, hostUsrBinPath, corev1.HostPathDirectory),
@@ -175,7 +106,6 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 					{Name: "plugins-registry", MountPath: "/var/lib/kubelet/plugins_registry"},
 					{Name: "log", MountPath: "/var/log"},
 					{Name: "device-info", MountPath: "/var/run/k8s.cni.cncf.io/devinfo/dp"},
-					{Name: "config-volume", MountPath: "/etc/pcidp"},
 					{Name: hostUsrBinVolumeName, MountPath: hostUsrBinMountPath, ReadOnly: true},
 					{Name: hostDriverUsrBinName, MountPath: hostDriverUsrBinMountPath, ReadOnly: true},
 					{Name: "host-dev", MountPath: "/dev"},

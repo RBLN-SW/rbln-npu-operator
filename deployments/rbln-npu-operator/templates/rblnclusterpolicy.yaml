@@ -66,10 +66,6 @@ spec:
     image: {{ .Values.devicePlugin.image.repository | quote }}
     version: {{ .Values.devicePlugin.image.tag | quote }}
     imagePullPolicy: {{ .Values.devicePlugin.image.pullPolicy | quote }}
-    {{- if .Values.devicePlugin.resourceList }}
-    resourceList:
-      {{- toYaml .Values.devicePlugin.resourceList | nindent 4 }}
-    {{- end }}
 
   draKubeletPlugin:
     enabled: {{ .Values.draKubeletPlugin.enabled }}
