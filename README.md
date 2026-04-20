@@ -5,7 +5,7 @@ The RBLN NPU Operator automates the deployment and management of all Rebellions 
 ## Key Capabilities
 
 - **Lifecycle automation** – Automatically manages the full NPU exposure flow, from detecting PCI `1eff:*` functions and labeling nodes to deploying the appropriate device plugins per workload type.
-- **Dual workload types** – Container mode publishes resources (for example `rebellions.ai/ATOM`) through the standard device plugin, while sandbox mode rebinds functions to `vfio-pci` and advertises VFIO-backed resources such as `rebellions.ai/ATOM_CA25_PT`.
+- **Dual workload types** – Container mode publishes resources (for example `rebellions.ai/npu`) through the standard device plugin, while sandbox mode rebinds functions to `vfio-pci` and advertises VFIO-backed resources such as `rebellions.ai/ATOM_CA25_PT`.
 
 ## Compatibility Matrix
 
@@ -36,7 +36,7 @@ RBLNClusterPolicy (Cluster-scoped CR)
 
 1. Enable by keeping `spec.workloadType` (or the Helm value) set to `container`, which is the default.
 2. Components:
-   - **Device Plugin** publishes `rebellions.ai/ATOM` resources.
+   - **Device Plugin** publishes `rebellions.ai/npu` resources.
    - **DRA Kubelet Plugin** enables workloads to consume NPUs through Kubernetes Dynamic Resource Allocation (DRA).
    - **Metrics Exporter** exposes Prometheus-ready telemetry.
    - **NPU Feature Discovery** labels nodes with RBLN hardware inventory.

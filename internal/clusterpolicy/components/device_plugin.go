@@ -2,6 +2,7 @@ package components
 
 import (
 	"context"
+	"os"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -72,6 +73,11 @@ func (h *devicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RB
 func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
 	initContainer := buildToolkitValidationInitContainer(owner.Spec.Validator)
 
+	var envs []corev1.EnvVar
+	if v := os.Getenv("DEVICE_PLUGIN_USE_GENERIC_RESOURCE_NAME"); v != "" {
+		envs = append(envs, corev1.EnvVar{Name: "USE_GENERIC_RESOURCE_NAME", Value: v})
+	}
+
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.device-plugin": "true"}).
@@ -100,6 +106,7 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 			k8sutil.NewContainerBuilder().
 				WithName(h.name).
 				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+				WithEnvs(envs).
 				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 				WithVolumeMounts([]corev1.VolumeMount{
 					{Name: "devicesock", MountPath: "/var/lib/kubelet/device-plugins"},

@@ -78,7 +78,7 @@ The operator supports two main workload configurations:
 #### Container Workloads (`container`)
 - **Components**: Device Plugin, Metrics Exporter, NPU Feature Discovery
 - **Use Case**: Traditional containerized AI applications
-- **Resource Types**: `rebellions.ai/ATOM`
+- **Resource Types**: `rebellions.ai/npu`
 
 #### VM Passthrough Workloads (`vm-passthrough`)
 - **Components**: Sandbox Device Plugin, VFIO Manager
@@ -145,9 +145,9 @@ spec:
     image: your-ai-app:latest
     resources:
       requests:
-        rebellions.ai/ATOM: 1
+        rebellions.ai/npu: 1
       limits:
-        rebellions.ai/ATOM: 1
+        rebellions.ai/npu: 1
 ```
 
 #### VM Passthrough Workloads
