@@ -164,6 +164,10 @@ devicePlugin:
     repository: rebellions/k8s-device-plugin
     tag: v0.4.0
     pullPolicy: IfNotPresent
+  # Advertise the generic resource name (rebellions.ai/npu) in addition to
+  # product-specific ones. Forwarded to the device plugin as the
+  # USE_GENERIC_RESOURCE_NAME env var.
+  useGenericResourceName: true
 
 # NPU DRA kubelet plugin configuration
 draKubeletPlugin:

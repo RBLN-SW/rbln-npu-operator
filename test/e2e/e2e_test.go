@@ -40,7 +40,7 @@ import (
 const (
 	defaultOperandPollInterval = 5 * time.Second
 	defaultOperandWaitTimeout  = 15 * time.Minute
-	NPUResourceName            = corev1.ResourceName("rebellions.ai/ATOM")
+	NPUResourceName            = corev1.ResourceName("rebellions.ai/npu")
 	draDeviceClassName         = "npu.rebellions.ai"
 	devicePluginNodeLabelKey   = "rebellions.ai/npu.deploy.device-plugin"
 	devicePluginNodeLabelValue = "true"
@@ -125,7 +125,7 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 				}
 			})
 
-			It("should advertise rebellions.ai/ATOM on ready nodes", func(ctx context.Context) {
+			It("should advertise rebellions.ai/npu on ready nodes", func(ctx context.Context) {
 				Eventually(func(g Gomega) bool {
 					nodes, err := k8sCoreClient.ListNodes(ctx, map[string]string{
 						devicePluginNodeLabelKey: devicePluginNodeLabelValue,
@@ -157,7 +157,7 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 				}).WithContext(ctx).
 					WithPolling(defaultOperandPollInterval).
 					Within(defaultOperandWaitTimeout).
-					Should(BeTrue(), "no ready labeled node exposed rebellions.ai/ATOM")
+					Should(BeTrue(), "no ready labeled node exposed rebellions.ai/npu")
 			})
 
 			It("should run model-zoo compile/inference on ubuntu 24.04", func(ctx context.Context) {
