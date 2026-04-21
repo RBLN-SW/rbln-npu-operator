@@ -120,11 +120,15 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	componentStatuses := service.AssembleComponentStatus(ctx)
-	if err := r.reconcileStatus(ctx, instance, componentStatuses); err != nil {
+	allReady, err := r.reconcileStatus(ctx, instance, componentStatuses)
+	if err != nil {
 		r.Log.Error(err, "Failed to reconcile status in RBLNClusterPolicy Scope")
 		return ctrl.Result{}, err
 	}
 
+	if !allReady {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -175,6 +179,7 @@ func (r *RBLNClusterPolicyReconciler) setNotReadyStatus(
 	instance *rblnv1beta1.RBLNClusterPolicy,
 	reason, message string,
 ) error {
+	instance.Status.State = "notReady"
 	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 		Type:               consts.RBLNConditionTypeReady,
 		Status:             metav1.ConditionFalse,
@@ -194,10 +199,10 @@ func (r *RBLNClusterPolicyReconciler) reconcileStatus(
 	ctx context.Context,
 	policy *rblnv1beta1.RBLNClusterPolicy,
 	componentStatuses []rblnv1beta1.RBLNComponentStatus,
-) error {
+) (bool, error) {
 	instance := &rblnv1beta1.RBLNClusterPolicy{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(policy), instance); err != nil {
-		return fmt.Errorf("get cluster policy for status update: %w", err)
+		return false, fmt.Errorf("get cluster policy for status update: %w", err)
 	}
 
 	instance.Status.Components = componentStatuses
@@ -213,19 +218,18 @@ func (r *RBLNClusterPolicyReconciler) reconcileStatus(
 
 	if allReady {
 		n := len(componentStatuses)
-		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-			Type:               consts.RBLNConditionTypeComponentsReady,
-			Status:             metav1.ConditionTrue,
-			ObservedGeneration: instance.Generation,
-			Reason:             consts.RBLNConditionReasonAllComponentsReady,
-			Message:            "All managed components are Ready",
-		})
+		instance.Status.State = "ready"
 		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 			Type:               consts.RBLNConditionTypeReady,
 			Status:             metav1.ConditionTrue,
 			ObservedGeneration: instance.Generation,
 			Reason:             consts.RBLNConditionReasonAllComponentsReady,
 			Message:            fmt.Sprintf("All components are Ready (%d/%d)", n, n),
+		})
+		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+			Type:   consts.RBLNConditionTypeError,
+			Status: metav1.ConditionFalse,
+			Reason: consts.RBLNConditionReasonAllComponentsReady,
 		})
 	} else {
 		notReady := make([]string, 0, len(componentStatuses))
@@ -235,13 +239,7 @@ func (r *RBLNClusterPolicyReconciler) reconcileStatus(
 			}
 		}
 		message := fmt.Sprintf("Components not ready: %s", strings.Join(notReady, ", "))
-		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-			Type:               consts.RBLNConditionTypeComponentsReady,
-			Status:             metav1.ConditionFalse,
-			ObservedGeneration: instance.Generation,
-			Reason:             consts.RBLNConditionReasonSomeNotReady,
-			Message:            message,
-		})
+		instance.Status.State = "notReady"
 		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 			Type:               consts.RBLNConditionTypeReady,
 			Status:             metav1.ConditionFalse,
@@ -252,16 +250,16 @@ func (r *RBLNClusterPolicyReconciler) reconcileStatus(
 	}
 
 	if err := r.Client.Status().Update(ctx, instance); err != nil {
-		return fmt.Errorf("update cluster policy status: %w", err)
+		return false, fmt.Errorf("update cluster policy status: %w", err)
 	}
-	return nil
+	return allReady, nil
 }
 
 func (r *RBLNClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	genChanged := predicate.GenerationChangedPredicate{}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&rblnv1beta1.RBLNClusterPolicy{}).
-		Owns(&appsv1.DaemonSet{}, builder.WithPredicates(genChanged)).
+		Owns(&appsv1.DaemonSet{}).
 		Owns(&corev1.ConfigMap{}, builder.WithPredicates(genChanged)).
 		Owns(&corev1.Service{}, builder.WithPredicates(genChanged)).
 		Watches(

@@ -202,3 +202,116 @@ func TestDriverManagerPatcher_CleanUp(t *testing.T) {
 		Namespace: testNamespace,
 	}, &corev1.ConfigMap{})
 }
+
+func TestDriverManagerPatcher_IsReady(t *testing.T) {
+	tests := map[string]struct {
+		existingDS []*appsv1.DaemonSet
+		wantErr    bool
+	}{
+		"no DaemonSets means ready": {
+			existingDS: nil,
+			wantErr:    false,
+		},
+		"single DaemonSet all pods ready": {
+			existingDS: []*appsv1.DaemonSet{
+				newTestDaemonSetWithStatus(testInstanceName+"-pool1", testInstanceName, "pool1", appsv1.DaemonSetStatus{
+					DesiredNumberScheduled: 2,
+					NumberReady:            2,
+					NumberUnavailable:      0,
+				}),
+			},
+			wantErr: false,
+		},
+		"single DaemonSet some pods not ready": {
+			existingDS: []*appsv1.DaemonSet{
+				newTestDaemonSetWithStatus(testInstanceName+"-pool1", testInstanceName, "pool1", appsv1.DaemonSetStatus{
+					DesiredNumberScheduled: 3,
+					NumberReady:            1,
+					NumberUnavailable:      2,
+				}),
+			},
+			wantErr: true,
+		},
+		"single DaemonSet zero desired": {
+			existingDS: []*appsv1.DaemonSet{
+				newTestDaemonSetWithStatus(testInstanceName+"-pool1", testInstanceName, "pool1", appsv1.DaemonSetStatus{
+					DesiredNumberScheduled: 0,
+					NumberReady:            0,
+					NumberUnavailable:      0,
+				}),
+			},
+			wantErr: true,
+		},
+		"multiple DaemonSets one not ready": {
+			existingDS: []*appsv1.DaemonSet{
+				newTestDaemonSetWithStatus(testInstanceName+"-pool1", testInstanceName, "pool1", appsv1.DaemonSetStatus{
+					DesiredNumberScheduled: 1,
+					NumberReady:            1,
+					NumberUnavailable:      0,
+				}),
+				newTestDaemonSetWithStatus(testInstanceName+"-pool2", testInstanceName, "pool2", appsv1.DaemonSetStatus{
+					DesiredNumberScheduled: 2,
+					NumberReady:            0,
+					NumberUnavailable:      2,
+				}),
+			},
+			wantErr: true,
+		},
+		"multiple DaemonSets all ready": {
+			existingDS: []*appsv1.DaemonSet{
+				newTestDaemonSetWithStatus(testInstanceName+"-pool1", testInstanceName, "pool1", appsv1.DaemonSetStatus{
+					DesiredNumberScheduled: 1,
+					NumberReady:            1,
+					NumberUnavailable:      0,
+				}),
+				newTestDaemonSetWithStatus(testInstanceName+"-pool2", testInstanceName, "pool2", appsv1.DaemonSetStatus{
+					DesiredNumberScheduled: 3,
+					NumberReady:            3,
+					NumberUnavailable:      0,
+				}),
+			},
+			wantErr: false,
+		},
+		"ignores other instances": {
+			existingDS: []*appsv1.DaemonSet{
+				newTestDaemonSetWithStatus("other-instance-pool1", "other-instance", "pool1", appsv1.DaemonSetStatus{
+					DesiredNumberScheduled: 2,
+					NumberReady:            0,
+					NumberUnavailable:      2,
+				}),
+			},
+			wantErr: false,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			scheme := newTestScheme(t)
+			c := newFakeClientWithDS(t, scheme, tc.existingDS)
+
+			h := &driverManagerPatcher{
+				basePatcher: basePatcher{
+					client:       c,
+					log:          logf.Log,
+					name:         driverManagerName,
+					instanceName: testInstanceName,
+					namespace:    testNamespace,
+				},
+			}
+
+			err := h.IsReady(context.Background())
+			if tc.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+		})
+	}
+}
+
+func newTestDaemonSetWithStatus(name, instanceName, poolName string, status appsv1.DaemonSetStatus) *appsv1.DaemonSet {
+	ds := newStaleTestDaemonSet(name, instanceName, poolName)
+	ds.Status = status
+	return ds
+}

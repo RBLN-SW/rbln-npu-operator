@@ -63,6 +63,20 @@ func NewDriverService(
 	return s, nil
 }
 
+// IsReady returns nil when every enabled component reports ready, or the
+// first non-ready error it encounters.
+func (s *DriverService) IsReady(ctx context.Context) error {
+	for _, p := range s.patcher {
+		if !p.IsEnabled() {
+			continue
+		}
+		if err := p.IsReady(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // PatchComponents applies or removes each managed component according to
 // whether it is enabled.
 func (s *DriverService) PatchComponents(ctx context.Context) error {

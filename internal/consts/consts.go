@@ -37,8 +37,7 @@ const (
 
 // Condition types
 const (
-	RBLNConditionTypeReady           = "Ready"
-	RBLNConditionTypeComponentsReady = "ComponentsReady"
+	RBLNConditionTypeReady = "Ready"
 )
 
 // Condition types (driver)

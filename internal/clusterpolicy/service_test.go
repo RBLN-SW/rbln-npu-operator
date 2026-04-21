@@ -143,7 +143,7 @@ func TestAssembleComponentStatus(t *testing.T) {
 			},
 			want: []rblnv1beta1.RBLNComponentStatus{
 				{Name: "device-plugin", Namespace: "rbln-system", State: rblnv1beta1.ComponentStateReady},
-				{Name: "vfio-manager", Namespace: "rbln-system", State: rblnv1beta1.ComponentStateNotReady},
+				{Name: "vfio-manager", Namespace: "rbln-system", State: rblnv1beta1.ComponentStateNotReady, Message: "not ready"},
 			},
 		},
 		"returns empty slice when all components are disabled": {

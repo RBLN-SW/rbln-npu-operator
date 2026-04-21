@@ -14,7 +14,14 @@ spec:
     singular: rblnclusterpolicy
   scope: Cluster
   versions:
-  - name: v1beta1
+  - additionalPrinterColumns:
+    - jsonPath: .status.state
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta1
     schema:
       openAPIV3Schema:
         description: RBLNClusterPolicy is the Schema for the RBLNClusterPolicys API
@@ -9719,6 +9726,10 @@ spec:
                 description: Components is a list of components and their status
                 items:
                   properties:
+                    message:
+                      description: Message contains details about why the component
+                        is not ready.
+                      type: string
                     name:
                       type: string
                     namespace:
@@ -9794,6 +9805,12 @@ spec:
                   by the controller.
                 format: int64
                 type: integer
+              state:
+                description: State indicates the overall status of the RBLNClusterPolicy.
+                enum:
+                - ready
+                - notReady
+                type: string
             type: object
         type: object
     served: true

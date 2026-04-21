@@ -20,6 +20,7 @@ type DriverPatcher interface {
 	IsEnabled() bool
 	Patch(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error
 	CleanUp(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error
+	IsReady(ctx context.Context) error
 	ComponentName() string
 	ComponentNamespace() string
 }

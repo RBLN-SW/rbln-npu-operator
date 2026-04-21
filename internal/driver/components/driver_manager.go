@@ -93,6 +93,37 @@ func (h *driverManagerPatcher) Patch(ctx context.Context, owner *rebellionsaiv1a
 	return nil
 }
 
+func (h *driverManagerPatcher) IsReady(ctx context.Context) error {
+	dsList := &appsv1.DaemonSetList{}
+	if err := h.client.List(ctx, dsList,
+		client.InNamespace(h.namespace),
+		client.MatchingLabels(map[string]string{
+			driverManagerAppLabelKey:      h.name,
+			driverManagerInstanceLabelKey: h.instanceName,
+		}),
+	); err != nil {
+		return fmt.Errorf("list driver DaemonSets: %w", err)
+	}
+
+	if len(dsList.Items) == 0 {
+		return nil
+	}
+
+	for i := range dsList.Items {
+		ds := &dsList.Items[i]
+		ready := ds.Status.DesiredNumberScheduled > 0 &&
+			ds.Status.NumberReady == ds.Status.DesiredNumberScheduled &&
+			ds.Status.NumberUnavailable == 0
+		if !ready {
+			return fmt.Errorf("DaemonSet %s/%s is progressing: %d of %d pods are Ready (%d unavailable)",
+				ds.Namespace, ds.Name,
+				ds.Status.NumberReady, ds.Status.DesiredNumberScheduled, ds.Status.NumberUnavailable)
+		}
+	}
+
+	return nil
+}
+
 func (h *driverManagerPatcher) CleanUp(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {
 	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "Driver Manager")
 
