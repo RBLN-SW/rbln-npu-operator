@@ -17,6 +17,7 @@ type fakeDriverPatcher struct {
 	enabled    bool
 	patchErr   error
 	cleanupErr error
+	readyErr   error
 	patchCalls int
 	cleanCalls int
 }
@@ -35,8 +36,9 @@ func (f *fakeDriverPatcher) CleanUp(_ context.Context, _ *rebellionsaiv1alpha1.R
 	return f.cleanupErr
 }
 
-func (f *fakeDriverPatcher) ComponentName() string      { return f.name }
-func (f *fakeDriverPatcher) ComponentNamespace() string { return f.namespace }
+func (f *fakeDriverPatcher) IsReady(_ context.Context) error { return f.readyErr }
+func (f *fakeDriverPatcher) ComponentName() string           { return f.name }
+func (f *fakeDriverPatcher) ComponentNamespace() string      { return f.namespace }
 
 func TestPatchComponents(t *testing.T) {
 	errPatch := errors.New("patch boom")

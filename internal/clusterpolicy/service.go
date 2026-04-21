@@ -105,6 +105,7 @@ func (s *ClusterPolicyService) AssembleComponentStatus(ctx context.Context) []rb
 
 		if err := c.IsReady(ctx); err != nil {
 			status.State = rblnv1beta1.ComponentStateNotReady
+			status.Message = err.Error()
 			s.log.V(consts.LogLevelDebug).Info("component not ready",
 				"component", c.ComponentName(),
 				"reason", err.Error(),

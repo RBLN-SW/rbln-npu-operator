@@ -15,10 +15,18 @@ type RBLNComponentStatus struct {
 	Name      string         `json:"name"`
 	Namespace string         `json:"namespace"`
 	State     ComponentState `json:"state"`
+	// Message contains details about why the component is not ready.
+	// +optional
+	Message string `json:"message,omitempty"`
 }
 
 // RBLNClusterPolicyStatus defines the observed state of RBLNClusterPolicy
 type RBLNClusterPolicyStatus struct {
+	// +kubebuilder:validation:Enum=ready;notReady
+	// +optional
+	// State indicates the overall status of the RBLNClusterPolicy.
+	// +operator-sdk:csv:customresourcedefinitions:type=status,displayName="State",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
+	State string `json:"state,omitempty"`
 	// ObservedGeneration is the most recent generation observed by the controller.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`

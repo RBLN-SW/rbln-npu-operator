@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
@@ -133,6 +134,13 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
+	if err := driverService.IsReady(ctx); err != nil {
+		r.Log.Info("driver components not ready", "reason", err.Error())
+		r.setDriverStatusNotReady(ctx, instance, consts.RBLNConditionReasonSomeNotReady, err.Error())
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	r.setDriverStatusReady(ctx, instance)
 	return ctrl.Result{}, nil
 }
 
@@ -148,6 +156,24 @@ func (r *RBLNDriverReconciler) setDriverStatusError(ctx context.Context, instanc
 		Status:  metav1.ConditionTrue,
 		Reason:  consts.RBLNConditionReasonReconcileFailed,
 		Message: err.Error(),
+	})
+	if statusErr := r.Status().Update(ctx, instance); statusErr != nil {
+		r.Log.Error(statusErr, "failed to update RBLNDriver status")
+	}
+}
+
+func (r *RBLNDriverReconciler) setDriverStatusReady(ctx context.Context, instance *rebellionsaiv1alpha1.RBLNDriver) {
+	instance.Status.State = rebellionsaiv1alpha1.DriverStateReady
+	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+		Type:    consts.RBLNConditionTypeReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  consts.RBLNConditionReasonAllComponentsReady,
+		Message: "All driver components are Ready",
+	})
+	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+		Type:   consts.RBLNConditionTypeError,
+		Status: metav1.ConditionFalse,
+		Reason: consts.RBLNConditionReasonAllComponentsReady,
 	})
 	if statusErr := r.Status().Update(ctx, instance); statusErr != nil {
 		r.Log.Error(statusErr, "failed to update RBLNDriver status")
