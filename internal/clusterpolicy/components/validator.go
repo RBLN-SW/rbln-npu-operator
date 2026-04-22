@@ -190,9 +190,6 @@ func (h *validatorPatcher) handleClusterRoleBinding(ctx context.Context, owner *
 func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 	validatorSpec := h.desiredSpec
 	imagePullPolicy := validatorSpec.ImagePullPolicy
-	if imagePullPolicy == "" {
-		imagePullPolicy = corev1.PullIfNotPresent
-	}
 
 	validatorImage := k8sutil.ComposeImageReference(validatorSpec.Registry, validatorSpec.Image)
 

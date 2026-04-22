@@ -49,6 +49,7 @@ type PodDefaultsSpec struct {
 type PodSpec struct {
 	// ImagePullPolicy specifies the image pull policy for the DaemonSet pods
 	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Enum=Always;IfNotPresent;Never
 	// +kubebuilder:default:=IfNotPresent
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Image Pull Policy",xDescriptors="urn:alm:descriptor:com.tectonic.ui:imagePullPolicy"
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`

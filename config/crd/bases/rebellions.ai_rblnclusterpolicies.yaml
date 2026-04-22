@@ -1147,6 +1147,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -2215,6 +2219,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -3293,6 +3301,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -4487,6 +4499,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -5554,6 +5570,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -6847,6 +6867,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -7914,6 +7938,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -8399,7 +8427,12 @@ spec:
                     pattern: '[a-zA-Z0-9\-]+'
                     type: string
                   imagePullPolicy:
+                    default: IfNotPresent
                     description: Image pull policy
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: Image pull secrets
@@ -9578,6 +9611,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -9719,6 +9756,12 @@ spec:
             - sandboxDevicePlugin
             - vfioManager
             type: object
+            x-kubernetes-validations:
+            - message: vfioManager.enabled must be true when workloadType is vm-passthrough
+              rule: self.workloadType != 'vm-passthrough' || self.vfioManager.enabled
+            - message: sandboxDevicePlugin.enabled must be true when workloadType
+                is vm-passthrough
+              rule: self.workloadType != 'vm-passthrough' || self.sandboxDevicePlugin.enabled
           status:
             description: RBLNClusterPolicyStatus defines the observed state of RBLNClusterPolicy
             properties:
