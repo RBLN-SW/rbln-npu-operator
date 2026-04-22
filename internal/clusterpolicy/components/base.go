@@ -82,13 +82,9 @@ func (b *basePatcher) IsReady(ctx context.Context) error {
 // buildToolkitValidationInitContainer returns the standard "wait for toolkit-ready"
 // init container used by components that depend on the container toolkit.
 func buildToolkitValidationInitContainer(validatorSpec rblnv1beta1.ValidatorSpec) *corev1.Container {
-	pullPolicy := validatorSpec.ImagePullPolicy
-	if pullPolicy == "" {
-		pullPolicy = corev1.PullIfNotPresent
-	}
 	return k8sutil.NewContainerBuilder().
 		WithName("toolkit-validation").
-		WithImage(k8sutil.ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, pullPolicy).
+		WithImage(k8sutil.ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, validatorSpec.ImagePullPolicy).
 		WithCommands([]string{"sh", "-c"}).
 		WithArgs([]string{"until [ -f " + consts.ValidationsMountPath + "/toolkit-ready ]; do echo waiting for rbln container stack to be setup; sleep 5; done"}).
 		WithSecurityContext(&corev1.SecurityContext{Privileged: ptr(true)}).

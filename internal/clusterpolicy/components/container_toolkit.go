@@ -280,9 +280,6 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 
 	toolkitSpec := h.desiredSpec
 	imagePullPolicy := toolkitSpec.ImagePullPolicy
-	if imagePullPolicy == "" {
-		imagePullPolicy = corev1.PullIfNotPresent
-	}
 
 	socketPath := h.resolveSocketPath()
 	runtimeMounts, runtimeVolumes := h.buildRuntimeMountsAndVolumes(socketPath)

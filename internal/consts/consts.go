@@ -55,6 +55,7 @@ const (
 	RBLNConditionReasonError                = "Error"
 	RBLNConditionReasonReconcileFailed      = "ReconcileFailed"
 	RBLNConditionReasonMissingClusterPolicy = "MissingClusterPolicy"
+	RBLNConditionReasonInvalidSpec          = "InvalidSpec"
 )
 
 // Base name prefix for all RBLN components

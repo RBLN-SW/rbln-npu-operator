@@ -71,6 +71,14 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 
+	if err := instance.Spec.Validate(); err != nil {
+		r.Log.Error(err, "RBLNClusterPolicy spec is invalid")
+		if statusErr := r.setNotReadyStatus(ctx, instance, consts.RBLNConditionReasonInvalidSpec, err.Error()); statusErr != nil {
+			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set ClusterPolicy status")
+		}
+		return ctrl.Result{}, nil
+	}
+
 	namespace := os.Getenv("OPERATOR_NAMESPACE")
 	if namespace == "" {
 		return ctrl.Result{}, fmt.Errorf("OPERATOR_NAMESPACE environment variable is not set")

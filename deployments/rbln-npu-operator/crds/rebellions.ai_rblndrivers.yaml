@@ -217,6 +217,10 @@ spec:
                 default: IfNotPresent
                 description: ImagePullPolicy specifies the image pull policy for the
                   driver pod
+                enum:
+                - Always
+                - IfNotPresent
+                - Never
                 type: string
               imagePullSecrets:
                 description: ImagePullSecrets specifies the image pull secrets for
@@ -234,7 +238,12 @@ spec:
                     pattern: '[a-zA-Z0-9\-]+'
                     type: string
                   imagePullPolicy:
+                    default: IfNotPresent
                     description: Image pull policy
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: Image pull secrets

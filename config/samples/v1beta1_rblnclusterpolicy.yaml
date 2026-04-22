@@ -80,3 +80,4 @@ spec:
     image: rebellions/rbln-npu-operator-validator
     version: latest
     imagePullPolicy: IfNotPresent
+  driver: {}
