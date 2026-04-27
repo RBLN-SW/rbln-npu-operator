@@ -1,70 +1,35 @@
 package driver
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+const hostDriverProbeTimeout = 10 * time.Second
 
 func validateHostDriver() error {
 	slog.Info("Attempting to validate a pre-installed driver on the host")
-	installed, err := detectInstalledHostDriver()
+
+	ctx, cancel := context.WithTimeout(context.Background(), hostDriverProbeTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "chroot", hostRootMountPath, hostSmiBinary, "--version")
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return err
+		slog.Info("rbln-smi execution failed, host driver not detected",
+			"err", err, "output", strings.TrimSpace(string(out)))
+		return fmt.Errorf("host driver not detected via %s: %w", hostSmiBinary, err)
 	}
-	if !installed {
-		return fmt.Errorf("host driver module %q not installed", hostDriverModuleName)
+
+	version := strings.TrimSpace(string(out))
+	if version == "" {
+		return fmt.Errorf("host driver not detected: %s produced empty output", hostSmiBinary)
 	}
-	loaded, err := detectLoadedHostDriver()
-	if err != nil {
-		return err
-	}
-	if !loaded {
-		return fmt.Errorf("host driver module %q not loaded", hostDriverModuleName)
-	}
+
+	slog.Info("Host driver detected", "version", version)
 	return nil
-}
-
-func detectInstalledHostDriver() (bool, error) {
-	versionCmd := exec.Command(
-		"chroot",
-		hostRootMountPath,
-		"modinfo",
-		"-F",
-		"version",
-		hostDriverModuleName,
-	)
-	versionOut, err := versionCmd.Output()
-	if err != nil {
-		if _, ok := err.(*exec.ExitError); ok {
-			return false, nil
-		}
-		slog.Debug("host driver version check failed", "err", err)
-		return false, err
-	}
-	version := strings.TrimSpace(string(versionOut))
-	if version != "" {
-		slog.Info("Detected host driver module version", "module", hostDriverModuleName, "version", version)
-	}
-	return version != "", nil
-}
-
-func detectLoadedHostDriver() (bool, error) {
-	loadedCmd := exec.Command(
-		"chroot",
-		hostRootMountPath,
-		"test",
-		"-d",
-		"/sys/module/"+hostDriverModuleName,
-	)
-	if err := loadedCmd.Run(); err != nil {
-		if _, ok := err.(*exec.ExitError); ok {
-			return false, nil
-		}
-		slog.Debug("host driver load check failed", "err", err)
-		return false, err
-	}
-	slog.Info("Detected host driver module loaded", "module", hostDriverModuleName)
-	return true, nil
 }
