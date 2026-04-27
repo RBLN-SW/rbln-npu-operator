@@ -193,6 +193,15 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 		}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{
+				// k8s-driver-manager's unmountRootfs() resolves the driver
+				// staging tree at this exact path; without Bidirectional
+				// propagation an unmount inside the init container would not
+				// be visible to the host, leaving stale binds across reinstalls.
+				Name:             hostDriverVolumeName,
+				MountPath:        hostDriverPath,
+				MountPropagation: ptr(corev1.MountPropagationBidirectional),
+			},
+			{
 				Name:             hostRootVolumeName,
 				MountPath:        "/host",
 				ReadOnly:         true,
