@@ -7,6 +7,6 @@ const (
 	driverContainerLibraryPath = "/usr/local/lib/rbln"
 	shell                      = "sh"
 	hostRootMountPath          = "/host"
-	hostDriverModuleName       = "rebellions"
+	hostSmiBinary              = "rbln-smi"
 	driverInstallDirDefault    = "/run/rbln/driver"
 )
