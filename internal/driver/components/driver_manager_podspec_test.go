@@ -174,6 +174,31 @@ func TestBuildDriverManagerInitContainer(t *testing.T) {
 			t.Fatalf("missing required env var %q", required)
 		}
 	}
+
+	// Regression guard: k8s-driver-manager's unmountRootfs() looks up the
+	// driver staging tree via os.Stat(driverRoot) where driverRoot equals
+	// hostDriverPath. Without a Bidirectional mount at that exact path the
+	// init container can never observe — let alone unmount — the host's
+	// /run/rbln/driver, which leaves stale bind mounts across reinstalls
+	// (the symptom users hit when downgrading driver versions).
+	var hostDriverMount *corev1.VolumeMount
+	for i := range c.VolumeMounts {
+		if c.VolumeMounts[i].Name == hostDriverVolumeName {
+			hostDriverMount = &c.VolumeMounts[i]
+			break
+		}
+	}
+	if hostDriverMount == nil {
+		t.Fatalf("init container missing %q volume mount", hostDriverVolumeName)
+	}
+	if hostDriverMount.MountPath != hostDriverPath {
+		t.Fatalf("host-driver mountPath = %q, want %q", hostDriverMount.MountPath, hostDriverPath)
+	}
+	if hostDriverMount.MountPropagation == nil ||
+		*hostDriverMount.MountPropagation != corev1.MountPropagationBidirectional {
+		t.Fatalf("host-driver mountPropagation = %v, want Bidirectional",
+			hostDriverMount.MountPropagation)
+	}
 }
 
 func TestHandleConfigMap(t *testing.T) {
