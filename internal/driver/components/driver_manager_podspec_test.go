@@ -274,6 +274,31 @@ func TestHandleConfigMap(t *testing.T) {
 		t.Fatalf("script should reference %s", consts.ValidationsMountPath)
 	}
 
+	// Verify the probe wires kernel-module + marker-file checks, both env
+	// vars/defaults, and the component-ready publication helper.
+	for _, needle := range []string{
+		"/sys/module/rebellions/refcnt",
+		driverReadyDirEnvName,
+		driverReadyFileEnvName,
+		defaultDriverReadyDir,
+		defaultDriverReadyFile,
+		"DRIVER_READY_MARKER",
+		"publish_component_ready",
+	} {
+		if !contains(script, needle) {
+			t.Fatalf("script should reference %q", needle)
+		}
+	}
+
+	// Regression guard: rbln-smi heuristic must not creep back in. The
+	// marker contract is mandatory; legacy images that relied on rbln-smi
+	// alone are intentionally unsupported.
+	for _, forbidden := range []string{"rbln-smi"} {
+		if contains(script, forbidden) {
+			t.Fatalf("script must not reference %q (legacy heuristic removed)", forbidden)
+		}
+	}
+
 	// Verify ConfigMap carries an ownerReference to the driver instance so
 	// that Kubernetes GC removes it when the RBLNDriver CR is deleted.
 	assertHasOwnerRef(t, cm, owner.Name)
@@ -303,6 +328,84 @@ func TestBuildDriverContainer(t *testing.T) {
 	}
 	if container.Lifecycle == nil || container.Lifecycle.PreStop == nil {
 		t.Fatal("expected lifecycle preStop hook")
+	}
+
+	envByName := make(map[string]string, len(container.Env))
+	for _, env := range container.Env {
+		envByName[env.Name] = env.Value
+	}
+	if envByName[driverReadyDirEnvName] != defaultDriverReadyDir {
+		t.Fatalf("env %s = %q, want %q",
+			driverReadyDirEnvName, envByName[driverReadyDirEnvName], defaultDriverReadyDir)
+	}
+	if envByName[driverReadyFileEnvName] != defaultDriverReadyFile {
+		t.Fatalf("env %s = %q, want %q",
+			driverReadyFileEnvName, envByName[driverReadyFileEnvName], defaultDriverReadyFile)
+	}
+
+	var foundReadyMount bool
+	for _, m := range container.VolumeMounts {
+		if m.Name == driverReadyVolumeName {
+			foundReadyMount = true
+			if m.MountPath != defaultDriverReadyDir {
+				t.Fatalf("%s mountPath = %q, want %q",
+					driverReadyVolumeName, m.MountPath, defaultDriverReadyDir)
+			}
+		}
+	}
+	if !foundReadyMount {
+		t.Fatalf("driver container missing %q volume mount", driverReadyVolumeName)
+	}
+}
+
+func TestBuildDriverPodSpec_HasDriverStateVolume(t *testing.T) {
+	h := newTestPatcher(t, "")
+	pool := nodePool{
+		osRelease: "ubuntu",
+		osVersion: "22.04",
+		kernel:    "5.15.0-100-generic",
+	}
+
+	spec, err := h.buildDriverPodSpec(pool)
+	if err != nil {
+		t.Fatalf("buildDriverPodSpec() error: %v", err)
+	}
+
+	for _, v := range spec.Volumes {
+		if v.Name == driverReadyVolumeName {
+			if v.EmptyDir == nil {
+				t.Fatalf("%s volume must be emptyDir, got %+v", driverReadyVolumeName, v.VolumeSource)
+			}
+			return
+		}
+	}
+	t.Fatalf("pod spec missing %q volume", driverReadyVolumeName)
+}
+
+func TestDriverContainerEnvs_OperatorOverridesUser(t *testing.T) {
+	userEnv := []corev1.EnvVar{
+		{Name: "FOO", Value: "bar"},
+		{Name: driverReadyDirEnvName, Value: "/wrong/path"},
+		{Name: driverReadyFileEnvName, Value: "wrong-file"},
+	}
+
+	got := driverContainerEnvs(userEnv)
+
+	envByName := make(map[string]string, len(got))
+	for _, env := range got {
+		envByName[env.Name] = env.Value
+	}
+
+	if envByName["FOO"] != "bar" {
+		t.Fatalf("user-supplied FOO lost: got %q", envByName["FOO"])
+	}
+	if envByName[driverReadyDirEnvName] != defaultDriverReadyDir {
+		t.Fatalf("operator did not override %s: got %q",
+			driverReadyDirEnvName, envByName[driverReadyDirEnvName])
+	}
+	if envByName[driverReadyFileEnvName] != defaultDriverReadyFile {
+		t.Fatalf("operator did not override %s: got %q",
+			driverReadyFileEnvName, envByName[driverReadyFileEnvName])
 	}
 }
 
