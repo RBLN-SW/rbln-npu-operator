@@ -132,6 +132,7 @@ func (h *metricsExporterPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPoli
 						}},
 					},
 					{Name: "RBLN_METRICS_EXPORTER_RBLN_DAEMON_URL", Value: "http://$(NODE_IP):50051"},
+					{Name: "PROMETHEUS_METRIC_NAMES", Value: "true"},
 				}).
 				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 				WithSecurityContext(&corev1.SecurityContext{
