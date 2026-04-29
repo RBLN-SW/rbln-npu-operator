@@ -4,9 +4,9 @@ description: A Helm chart for Kubernetes to deploy Rebellions NPU Operator for a
 type: application
 version: 0.0.1
 appVersion: "v0.0.1"
-home: https://github.com/rebellions-sw/rbln-npu-operator
+home: https://github.com/RBLN-SW/rbln-npu-operator
 sources:
-  - https://github.com/rebellions-sw/rbln-npu-operator
+  - https://github.com/RBLN-SW/rbln-npu-operator
 maintainers:
   - name: Rebellions Team
     email: sw-sdk-cloud@rebellions.ai

@@ -14,7 +14,14 @@ spec:
     singular: rblndriver
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.state
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: RBLNDriver is the Schema for the rblndrivers API
@@ -210,6 +217,10 @@ spec:
                 default: IfNotPresent
                 description: ImagePullPolicy specifies the image pull policy for the
                   driver pod
+                enum:
+                - Always
+                - IfNotPresent
+                - Never
                 type: string
               imagePullSecrets:
                 description: ImagePullSecrets specifies the image pull secrets for
@@ -227,7 +238,12 @@ spec:
                     pattern: '[a-zA-Z0-9\-]+'
                     type: string
                   imagePullPolicy:
+                    default: IfNotPresent
                     description: Image pull policy
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: Image pull secrets

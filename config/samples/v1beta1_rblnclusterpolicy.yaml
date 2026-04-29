@@ -6,27 +6,47 @@ metadata:
   name: rbln-cluster-policy
 spec:
   workloadType: container
+  # podDefaults applies to all DaemonSet pods managed by this policy.
+  # podDefaults:
+  #   labels: {}
+  #   annotations: {}
+  #   tolerations:
+  #   - key: node-role.kubernetes.io/control-plane
+  #     operator: Exists
+  #     effect: NoSchedule
+  #   priorityClassName: system-node-critical
+  driver:
+    upgradePolicy:
+      autoUpgrade: false
+      maxParallelUpgrades: 1
+      waitForCompletion:
+        timeoutSeconds: 0
+      podDeletion:
+        force: false
+        timeoutSeconds: 300
+      drain:
+        enable: false
+        force: false
+        deleteEmptyDirData: false
+        timeoutSeconds: 300
+      reboot:
+        enable: false
+        rebootTimeoutSeconds: 0
+        image:
+          registry: docker.io
+          image: rebellions/rbln-node-reboot
+          version: latest
   devicePlugin:
     enabled: true
     registry: docker.io
     image: rebellions/k8s-device-plugin
-    version: latest
+    version: v0.4.0
     imagePullPolicy: IfNotPresent
-    resourceList:
-      - resourceName: ATOM
-        resourcePrefix: rebellions.ai
-        productCardNames:
-          - RBLN-CA22
-          - RBLN-CA25
-      - resourceName: REBEL
-        resourcePrefix: rebellions.ai
-        productCardNames:
-          - RBLN-CR03
   draKubeletPlugin:
     enabled: false
     registry: docker.io
     image: rebellions/k8s-dra-driver-npu
-    version: latest
+    version: v0.1.2
     imagePullPolicy: IfNotPresent
     driverName: npu.rebellions.ai
     kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
@@ -36,39 +56,48 @@ spec:
     enabled: true
     registry: docker.io
     image: rebellions/rbln-metrics-exporter
-    version: latest
+    version: v0.2.4
     imagePullPolicy: IfNotPresent
   npuFeatureDiscovery:
     enabled: true
     registry: docker.io
     image: rebellions/rbln-npu-feature-discovery
-    version: latest
+    version: v0.2.1
     imagePullPolicy: IfNotPresent
   containerToolkit:
     enabled: true
     registry: docker.io
     image: rebellions/rbln-container-toolkit
-    version: latest
+    version: v0.1.1
     imagePullPolicy: IfNotPresent
   rblnDaemon:
-    enabled: true
+    enabled: false
     registry: repo.rebellions.ai
     image: rebellions/rbln-daemon
-    version: 3.0.0
+    version: "3.0.0"
     imagePullPolicy: IfNotPresent
     hostPort: 50051
+    imagePullSecrets:
+    - drivercred
   sandboxDevicePlugin:
     enabled: false
     registry: docker.io
     image: rebellions/k8s-device-plugin
-    version: latest
+    version: v0.3.7
     imagePullPolicy: IfNotPresent
     resourceList:
-      - resourceName: ATOM_PT
-        resourcePrefix: rebellions.ai
-        productCardNames:
-          - RBLN-CA22
-          - RBLN-CA25
+    - resourceName: ATOM_PT
+      resourcePrefix: rebellions.ai
+      productCardNames:
+      - RBLN-CA12
+    - resourceName: ATOM_MAX_PT
+      resourcePrefix: rebellions.ai
+      productCardNames:
+      - RBLN-CA25
+    - resourceName: REBEL_PT
+      resourcePrefix: rebellions.ai
+      productCardNames:
+      - RBLN-CR03
   vfioManager:
     enabled: false
     registry: docker.io
@@ -80,4 +109,3 @@ spec:
     image: rebellions/rbln-npu-operator-validator
     version: latest
     imagePullPolicy: IfNotPresent
-  driver: {}

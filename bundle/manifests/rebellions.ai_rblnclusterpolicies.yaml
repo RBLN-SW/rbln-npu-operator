@@ -14,7 +14,14 @@ spec:
     singular: rblnclusterpolicy
   scope: Cluster
   versions:
-  - name: v1beta1
+  - additionalPrinterColumns:
+    - jsonPath: .status.state
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta1
     schema:
       openAPIV3Schema:
         description: RBLNClusterPolicy is the Schema for the RBLNClusterPolicys API
@@ -1140,6 +1147,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -2208,6 +2219,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -2224,38 +2239,6 @@ spec:
                     default: docker.io
                     description: Registry override for the RBLN Device Plugin image
                     type: string
-                  resourceList:
-                    default:
-                    - productCardNames:
-                      - RBLN-CA12
-                      - RBLN-CA22
-                      - RBLN-CA25
-                      resourceName: ATOM
-                      resourcePrefix: rebellions.ai
-                    description: ResourceList is the list of resources to be managed
-                      by the device plugin
-                    items:
-                      properties:
-                        productCardNames:
-                          default:
-                          - RBLN-CA12
-                          - RBLN-CA22
-                          - RBLN-CA25
-                          description: ProductCardNames is the name of the product
-                            card
-                          items:
-                            type: string
-                          type: array
-                        resourceName:
-                          default: ATOM
-                          description: ResourceName is the name of the resource
-                          type: string
-                        resourcePrefix:
-                          default: rebellions.ai
-                          description: ResourcePrefix is the prefix of the resource
-                          type: string
-                      type: object
-                    type: array
                   resources:
                     description: Resources specifies the resource requirements for
                       the DaemonSet pods
@@ -3318,6 +3301,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -4512,6 +4499,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -5579,6 +5570,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -6872,6 +6867,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -7939,6 +7938,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -8424,7 +8427,12 @@ spec:
                     pattern: '[a-zA-Z0-9\-]+'
                     type: string
                   imagePullPolicy:
+                    default: IfNotPresent
                     description: Image pull policy
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: Image pull secrets
@@ -9603,6 +9611,10 @@ spec:
                     default: IfNotPresent
                     description: ImagePullPolicy specifies the image pull policy for
                       the DaemonSet pods
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
                     type: string
                   imagePullSecrets:
                     description: ImagePullSecrets specifies the image pull secrets
@@ -9744,6 +9756,12 @@ spec:
             - sandboxDevicePlugin
             - vfioManager
             type: object
+            x-kubernetes-validations:
+            - message: vfioManager.enabled must be true when workloadType is vm-passthrough
+              rule: self.workloadType != 'vm-passthrough' || self.vfioManager.enabled
+            - message: sandboxDevicePlugin.enabled must be true when workloadType
+                is vm-passthrough
+              rule: self.workloadType != 'vm-passthrough' || self.sandboxDevicePlugin.enabled
           status:
             description: RBLNClusterPolicyStatus defines the observed state of RBLNClusterPolicy
             properties:
@@ -9751,6 +9769,10 @@ spec:
                 description: Components is a list of components and their status
                 items:
                   properties:
+                    message:
+                      description: Message contains details about why the component
+                        is not ready.
+                      type: string
                     name:
                       type: string
                     namespace:
@@ -9826,6 +9848,12 @@ spec:
                   by the controller.
                 format: int64
                 type: integer
+              state:
+                description: State indicates the overall status of the RBLNClusterPolicy.
+                enum:
+                - ready
+                - notReady
+                type: string
             type: object
         type: object
     served: true

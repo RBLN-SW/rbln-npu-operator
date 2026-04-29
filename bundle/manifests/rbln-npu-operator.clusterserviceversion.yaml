@@ -11,17 +11,21 @@ metadata:
             "labels": {
               "app.kubernetes.io/name": "rbln-npu-operator"
             },
-            "name": "rblndriver-sample"
+            "name": "rbln-driver"
           },
           "spec": {
             "image": "rebellions/rbln-driver",
-            "imagePullPolicy": "Always",
+            "imagePullPolicy": "IfNotPresent",
+            "imagePullSecrets": [
+              "drivercred"
+            ],
             "manager": {
               "image": "rebellions/rbln-k8s-driver-manager",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "latest"
+              "version": "v0.1.3"
             },
+            "priorityClassName": "system-node-critical",
             "registry": "repo.rebellions.ai",
             "resources": {
               "limits": {
@@ -51,31 +55,14 @@ metadata:
               "image": "rebellions/rbln-container-toolkit",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "latest"
+              "version": "v0.1.1"
             },
             "devicePlugin": {
               "enabled": true,
               "image": "rebellions/k8s-device-plugin",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "resourceList": [
-                {
-                  "productCardNames": [
-                    "RBLN-CA22",
-                    "RBLN-CA25"
-                  ],
-                  "resourceName": "ATOM",
-                  "resourcePrefix": "rebellions.ai"
-                },
-                {
-                  "productCardNames": [
-                    "RBLN-CR03"
-                  ],
-                  "resourceName": "REBEL",
-                  "resourcePrefix": "rebellions.ai"
-                }
-              ],
-              "version": "latest"
+              "version": "v0.4.0"
             },
             "draKubeletPlugin": {
               "driverName": "npu.rebellions.ai",
@@ -86,27 +73,58 @@ metadata:
               "kubeletPluginsDirectoryPath": "/var/lib/kubelet/plugins",
               "kubeletRegistrarDirectoryPath": "/var/lib/kubelet/plugins_registry",
               "registry": "docker.io",
-              "version": "latest"
+              "version": "v0.1.2"
+            },
+            "driver": {
+              "upgradePolicy": {
+                "autoUpgrade": false,
+                "drain": {
+                  "deleteEmptyDirData": false,
+                  "enable": false,
+                  "force": false,
+                  "timeoutSeconds": 300
+                },
+                "maxParallelUpgrades": 1,
+                "podDeletion": {
+                  "force": false,
+                  "timeoutSeconds": 300
+                },
+                "reboot": {
+                  "enable": false,
+                  "image": {
+                    "image": "rebellions/rbln-node-reboot",
+                    "registry": "docker.io",
+                    "version": "latest"
+                  },
+                  "rebootTimeoutSeconds": 0
+                },
+                "waitForCompletion": {
+                  "timeoutSeconds": 0
+                }
+              }
             },
             "metricsExporter": {
               "enabled": true,
               "image": "rebellions/rbln-metrics-exporter",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "latest"
+              "version": "v0.2.4"
             },
             "npuFeatureDiscovery": {
               "enabled": true,
               "image": "rebellions/rbln-npu-feature-discovery",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "latest"
+              "version": "v0.2.1"
             },
             "rblnDaemon": {
-              "enabled": true,
+              "enabled": false,
               "hostPort": 50051,
               "image": "rebellions/rbln-daemon",
               "imagePullPolicy": "IfNotPresent",
+              "imagePullSecrets": [
+                "drivercred"
+              ],
               "registry": "repo.rebellions.ai",
               "version": "3.0.0"
             },
@@ -118,14 +136,27 @@ metadata:
               "resourceList": [
                 {
                   "productCardNames": [
-                    "RBLN-CA22",
-                    "RBLN-CA25"
+                    "RBLN-CA12"
                   ],
                   "resourceName": "ATOM_PT",
                   "resourcePrefix": "rebellions.ai"
+                },
+                {
+                  "productCardNames": [
+                    "RBLN-CA25"
+                  ],
+                  "resourceName": "ATOM_MAX_PT",
+                  "resourcePrefix": "rebellions.ai"
+                },
+                {
+                  "productCardNames": [
+                    "RBLN-CR03"
+                  ],
+                  "resourceName": "REBEL_PT",
+                  "resourcePrefix": "rebellions.ai"
                 }
               ],
-              "version": "latest"
+              "version": "v0.3.7"
             },
             "validator": {
               "image": "rebellions/rbln-npu-operator-validator",
@@ -146,7 +177,7 @@ metadata:
       ]
     capabilities: Basic Install
     containerImage: docker.io/rebellions/rbln-npu-operator:latest
-    createdAt: "2026-04-09T01:02:15Z"
+    createdAt: "2026-04-29T03:18:18Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -305,27 +336,6 @@ spec:
       - description: Registry override for the RBLN Device Plugin image
         displayName: Registry
         path: devicePlugin.registry
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ResourceList is the list of resources to be managed by the device
-          plugin
-        displayName: Resource List
-        path: devicePlugin.resourceList
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced
-      - description: ProductCardNames is the name of the product card
-        displayName: Product Card Names
-        path: devicePlugin.resourceList[0].productCardNames
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ResourceName is the name of the resource
-        displayName: Resource Name
-        path: devicePlugin.resourceList[0].resourceName
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ResourcePrefix is the prefix of the resource
-        displayName: Resource Prefix
-        path: devicePlugin.resourceList[0].resourcePrefix
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Resources specifies the resource requirements for the DaemonSet
@@ -843,6 +853,11 @@ spec:
         path: conditions
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes.conditions
+      - description: State indicates the overall status of the RBLNClusterPolicy.
+        displayName: State
+        path: state
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
       version: v1beta1
     - description: RBLNDriver is the Schema for the rblndrivers API
       displayName: RBLNDriver
@@ -1215,8 +1230,10 @@ spec:
   - AI acceleration
   - ML inference
   links:
-  - name: Rbln K8s Operator
-    url: https://rbln-npu-operator.domain
+  - name: Documentation
+    url: https://docs.rbln.ai/latest/software/system_management/kubernetes/about_npu_operator.html
+  - name: Source Code
+    url: https://github.com/RBLN-SW/rbln-npu-operator
   maintainers:
   - email: heesu.sung@rebellions.ai
     name: heesu.sung

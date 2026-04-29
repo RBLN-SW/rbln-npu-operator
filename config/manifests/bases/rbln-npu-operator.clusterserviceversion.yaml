@@ -165,27 +165,6 @@ spec:
         path: devicePlugin.registry
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ResourceList is the list of resources to be managed by the device
-          plugin
-        displayName: Resource List
-        path: devicePlugin.resourceList
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced
-      - description: ProductCardNames is the name of the product card
-        displayName: Product Card Names
-        path: devicePlugin.resourceList[0].productCardNames
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ResourceName is the name of the resource
-        displayName: Resource Name
-        path: devicePlugin.resourceList[0].resourceName
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ResourcePrefix is the prefix of the resource
-        displayName: Resource Prefix
-        path: devicePlugin.resourceList[0].resourcePrefix
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Resources specifies the resource requirements for the DaemonSet
           pods
         displayName: Resource Requirements
@@ -701,6 +680,11 @@ spec:
         path: conditions
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes.conditions
+      - description: State indicates the overall status of the RBLNClusterPolicy.
+        displayName: State
+        path: state
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
       version: v1beta1
     - description: RBLNDriver is the Schema for the rblndrivers API
       displayName: RBLNDriver
@@ -809,8 +793,10 @@ spec:
   - AI acceleration
   - ML inference
   links:
-  - name: Rbln K8s Operator
-    url: https://rbln-npu-operator.domain
+  - name: Documentation
+    url: https://docs.rbln.ai/latest/software/system_management/kubernetes/about_npu_operator.html
+  - name: Source Code
+    url: https://github.com/RBLN-SW/rbln-npu-operator
   maintainers:
   - email: heesu.sung@rebellions.ai
     name: heesu.sung
