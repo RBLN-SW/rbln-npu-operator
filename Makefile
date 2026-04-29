@@ -280,6 +280,43 @@ build-image: ## Build the NPU operator image.
 		--build-arg GOLANG_VERSION="$(GOLANG_VERSION)" \
 		--file $(DOCKERFILE) $(CURDIR)
 
+##@ Helm Chart
+
+# Helm chart configuration
+HELM ?= helm
+CHART_DIR ?= $(PROJECT_DIR)/deployments/rbln-npu-operator
+CHART_DIST_DIR ?= $(PROJECT_DIR)/dist
+CHART_NAME ?= rbln-npu-operator-chart
+CHART_VERSION ?= $(patsubst v%,%,$(VERSION))
+CHART_APP_VERSION ?= $(VERSION)
+
+# OCI registry for `helm push`. Default mirrors release.yaml; override for
+# pre-release testing on a private registry (e.g., Harbor):
+#   make helm-push-oci HELM_REGISTRY=oci://harbor.example.com/rebellions
+HELM_REGISTRY ?= oci://docker.io/rebellions
+
+.PHONY: helm-deps
+helm-deps: ## Resolve helm chart dependencies (NFD).
+	$(HELM) repo add nfd https://kubernetes-sigs.github.io/node-feature-discovery/charts --force-update
+	$(HELM) dependency build $(CHART_DIR)
+
+.PHONY: helm-package
+helm-package: helm-deps ## Package helm chart into $(CHART_DIST_DIR).
+	@mkdir -p $(CHART_DIST_DIR)
+	$(HELM) package $(CHART_DIR) \
+		--destination $(CHART_DIST_DIR) \
+		--version "$(CHART_VERSION)" \
+		--app-version "$(CHART_APP_VERSION)"
+
+.PHONY: helm-push-oci
+helm-push-oci: helm-package ## Push packaged chart to OCI registry. Run `helm registry login` first.
+	$(HELM) push $(CHART_DIST_DIR)/$(CHART_NAME)-$(CHART_VERSION).tgz $(HELM_REGISTRY)
+
+.PHONY: helm-clean
+helm-clean: ## Remove packaged charts and downloaded dependency archives.
+	rm -rf $(CHART_DIST_DIR)
+	rm -f $(CHART_DIR)/charts/*.tgz
+
 ##@ OLM Bundle
 
 CHANNELS ?= candidate,fast,stable
