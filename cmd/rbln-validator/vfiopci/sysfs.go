@@ -48,6 +48,21 @@ func verifyVFIOBinding(devPath string) error {
 	return nil
 }
 
+// currentDriver returns the basename of the driver symlink for the device,
+// or empty string when the device has no driver bound. Returned errors only
+// surface unexpected failures (permission, IO); a missing symlink is reported
+// as the empty string.
+func currentDriver(devPath string) (string, error) {
+	target, err := os.Readlink(filepath.Join(devPath, "driver"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("readlink %s/driver: %w", devPath, err)
+	}
+	return filepath.Base(target), nil
+}
+
 func readSysfsField(devPath, field string) (string, error) {
 	// #nosec G304 -- devPath comes from os.ReadDir under the sysfs root and field is a package-internal constant.
 	data, err := os.ReadFile(filepath.Join(devPath, field))

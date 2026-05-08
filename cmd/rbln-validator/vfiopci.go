@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 )
 
 func newVFIOPCICommand(config *rootConfig) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "vfio-pci",
 		Short: "Validate that NPU devices are bound to vfio-pci",
 		Args:  cobra.NoArgs,
@@ -19,6 +20,38 @@ func newVFIOPCICommand(config *rootConfig) *cobra.Command {
 			return validateVFIOPCI(config.vfioPCIConfig(), defaultVFIOPCIRuntime())
 		},
 	}
+	cmd.AddCommand(newVFIOPCIAssertRBLNCommand(config))
+	return cmd
+}
+
+func newVFIOPCIAssertRBLNCommand(_ *rootConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:   "assert-rbln",
+		Short: "Assert that every Rebellions NPU is bound to the rbln driver",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return assertRBLNBound(vfiovalidator.AssertConfig{})
+		},
+	}
+}
+
+func assertRBLNBound(cfg vfiovalidator.AssertConfig) error {
+	result, err := vfiovalidator.AssertRBLNBound(cfg)
+	if err != nil {
+		return err
+	}
+	slog.Info("rbln binding assertion",
+		"clean", len(result.CleanDevices),
+		"dirty", len(result.DirtyDevices))
+	if len(result.DirtyDevices) > 0 {
+		for _, d := range result.DirtyDevices {
+			slog.Error("device not bound to rbln driver",
+				"bdf", d.BDF,
+				"currentDriver", d.CurrentDriver)
+		}
+		return fmt.Errorf("%d device(s) not bound to rbln driver", len(result.DirtyDevices))
+	}
+	return nil
 }
 
 type vfioPCIRuntime struct {

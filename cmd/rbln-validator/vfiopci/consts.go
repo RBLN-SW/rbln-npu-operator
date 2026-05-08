@@ -7,4 +7,5 @@ const (
 	rblnVendorID          = "0x1eff"
 	rblnDeviceClassNPU    = "0x120000"
 	vfioPCIDriverName     = "vfio-pci"
+	rblnDriverNameDefault = "rebellions"
 )
