@@ -52,7 +52,6 @@ func TestSandboxDevicePluginPatch(t *testing.T) {
 	assertContainerImage(t, mainContainer, "rebellions/k8s-device-plugin", "latest")
 	assertPrivileged(t, mainContainer)
 
-	// vfio-pci validation init container gates startup until vfio-manager binds NPUs.
 	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(ds.Spec.Template.Spec.InitContainers))
 	}

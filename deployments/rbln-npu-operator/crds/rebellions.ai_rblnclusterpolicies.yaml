@@ -9598,14 +9598,8 @@ spec:
                       pods
                     type: object
                   driverManager:
-                    description: |-
-                      DriverManager configures the rbln-k8s-driver-manager init container that
-                      evicts operator-owned pods on the node before the main container binds
-                      devices to vfio-pci. Mirrors NVIDIA gpu-operator's driver-manager init.
                     properties:
                       env:
-                        description: Env vars passed to the init container (e.g.,
-                          DRIVER_MANAGER_TIMEOUT).
                         items:
                           description: EnvVar represents an environment variable present
                             in a Container.
@@ -9764,12 +9758,12 @@ spec:
                         type: array
                       image:
                         default: rebellions/rbln-k8s-driver-manager
-                        description: Image name of the rbln-k8s-driver-manager container.
                         pattern: '[a-zA-Z0-9\-]+'
                         type: string
                       imagePullPolicy:
                         default: IfNotPresent
-                        description: ImagePullPolicy applied to the init container.
+                        description: PullPolicy describes a policy for if/when to
+                          pull a container image
                         enum:
                         - Always
                         - IfNotPresent
@@ -9777,13 +9771,9 @@ spec:
                         type: string
                       registry:
                         default: docker.io
-                        description: Registry hosting the rbln-k8s-driver-manager
-                          image.
                         type: string
                       version:
                         default: latest
-                        description: Version (tag) of the rbln-k8s-driver-manager
-                          image.
                         type: string
                     type: object
                   enabled:

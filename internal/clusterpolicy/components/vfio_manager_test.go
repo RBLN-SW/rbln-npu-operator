@@ -47,7 +47,6 @@ func TestVFIOManagerPatch(t *testing.T) {
 	ds := assertDaemonSetBasics(t, c, name, owner.Name)
 	assertNodeSelector(t, ds, "rebellions.ai/npu.deploy.vfio-manager")
 
-	// driver-uninstall init container evicts operator-owned pods before bind.
 	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container (driver-uninstall), got %d", len(ds.Spec.Template.Spec.InitContainers))
 	}
@@ -63,18 +62,13 @@ func TestVFIOManagerPatch(t *testing.T) {
 	if len(initContainer.Args) != 1 || initContainer.Args[0] != "reconcile-driver-state" {
 		t.Fatalf("init container args = %v, want [reconcile-driver-state]", initContainer.Args)
 	}
-	// Verify the init container has /sys + /host mounted so rbln-k8s-driver-manager's
-	// ensureVfioUnbound can do sysfs writes against the host.
 	assertContainerHasVolumeMount(t, initContainer, "host-sys")
 	assertContainerHasVolumeMount(t, initContainer, "host-root")
-	// Self-eviction guard: ENABLE_NPU_POD_EVICTION must be off in this context
-	// because the vfio-manager pod is the parent of this init container.
 	if envValue(initContainer.Env, "ENABLE_NPU_POD_EVICTION") != "false" {
 		t.Fatalf("ENABLE_NPU_POD_EVICTION = %q, want false (would cordon+drain own host)",
 			envValue(initContainer.Env, "ENABLE_NPU_POD_EVICTION"))
 	}
 
-	// Role: pods + pods/eviction + daemonsets
 	role := &rbacv1.Role{}
 	assertObjectExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, role)
 	assertHasOwnerRef(t, role, owner.Name)
@@ -82,7 +76,6 @@ func TestVFIOManagerPatch(t *testing.T) {
 	assertRoleHasRule(t, role, "", "pods/eviction")
 	assertRoleHasRule(t, role, "apps", "daemonsets")
 
-	// RoleBinding bound to vfio-manager SA
 	rb := &rbacv1.RoleBinding{}
 	assertObjectExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, rb)
 	assertHasOwnerRef(t, rb, owner.Name)
@@ -113,7 +106,6 @@ func TestVFIOManagerPatch(t *testing.T) {
 	// ConfigMap (vfio-manage.sh)
 	assertConfigMapHasKey(t, c, name+"-config", testNamespace, owner.Name, "vfio-manage.sh")
 
-	// Cleanup helpers must be present in the embedded script.
 	cm := &corev1.ConfigMap{}
 	if err := c.Get(ctx, types.NamespacedName{Name: name + "-config", Namespace: testNamespace}, cm); err != nil {
 		t.Fatalf("get ConfigMap: %v", err)

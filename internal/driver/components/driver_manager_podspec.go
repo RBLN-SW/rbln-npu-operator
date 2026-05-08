@@ -218,10 +218,6 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 				MountPath: "/host/dev",
 			},
 			{
-				// /sys is required by ensureVfioUnbound's sysfs writes
-				// (/sys/bus/pci/devices/<bdf>/driver_override and the driver
-				// unbind file) when reconcile-driver-state cleans up leftover
-				// vfio-pci bindings before the rbln driver loads.
 				Name:      hostSysVolumeName,
 				MountPath: hostSysPath,
 			},

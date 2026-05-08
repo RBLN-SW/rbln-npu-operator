@@ -48,10 +48,6 @@ func verifyVFIOBinding(devPath string) error {
 	return nil
 }
 
-// currentDriver returns the basename of the driver symlink for the device,
-// or empty string when the device has no driver bound. Returned errors only
-// surface unexpected failures (permission, IO); a missing symlink is reported
-// as the empty string.
 func currentDriver(devPath string) (string, error) {
 	target, err := os.Readlink(filepath.Join(devPath, "driver"))
 	if err != nil {

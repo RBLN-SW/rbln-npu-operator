@@ -85,9 +85,6 @@ func (h *vfioManagerPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBL
 	return h.deleteServiceAccount(ctx)
 }
 
-// reconcileVFIOManagerRBAC creates a Role + RoleBinding granting the
-// driver-uninstall init container the API access needed to evict
-// operator-owned pods from the node.
 func (h *vfioManagerPatcher) reconcileVFIOManagerRBAC(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace}}
 	if _, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
@@ -526,12 +523,6 @@ func (h *vfioManagerPatcher) buildDriverUninstallInitContainer() *corev1.Contain
 		WithEnvs(append([]corev1.EnvVar{
 			{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"}}},
 			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}}},
-			// Eviction is gated off so the init container does not cordon/drain
-			// its own host. The driver-manager still pauses operator-owned deploy
-			// labels (rbln-daemon, device-plugin, etc.) so the rbln driver releases
-			// devices before vfio-pci binding takes over. Self-eviction of the
-			// vfio-manager pod itself is avoided by the rbln-k8s-driver-manager
-			// excluding rblnVFIOManagerDeployLabel from its eviction list.
 			{Name: "ENABLE_NPU_POD_EVICTION", Value: "false"},
 			{Name: "ENABLE_AUTO_DRAIN", Value: "false"},
 			{Name: "DRAIN_USE_FORCE", Value: "false"},
@@ -544,9 +535,6 @@ func (h *vfioManagerPatcher) buildDriverUninstallInitContainer() *corev1.Contain
 			RunAsUser:  ptr(int64(0)),
 		}).
 		WithVolumeMounts([]corev1.VolumeMount{
-			// /sys is required by ensureVfioUnbound's sysfs writes
-			// (/sys/bus/pci/devices/<bdf>/driver_override and the driver
-			// unbind file). Without this mount the writes return ENOENT.
 			{Name: "host-sys", MountPath: "/sys"},
 			{
 				Name:             "host-root",

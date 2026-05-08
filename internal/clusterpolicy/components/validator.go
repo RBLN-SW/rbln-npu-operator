@@ -297,10 +297,6 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 
 	initContainers := []*corev1.Container{driverInit, toolkitInit}
 	if h.workloadType == consts.RBLNWorkloadConfigContainer {
-		// Asserts that no Rebellions device is left bound to vfio-pci before
-		// driver-validation runs — surfaces a botched vm-passthrough → container
-		// transition (e.g., a VMI not drained before workloadType was flipped)
-		// as a hard pod-readiness failure.
 		initContainers = append([]*corev1.Container{
 			buildRBLNBindingValidationInitContainer(*validatorSpec),
 		}, initContainers...)

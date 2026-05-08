@@ -12,7 +12,7 @@ func TestAssertRBLNBound(t *testing.T) {
 		reason         string
 		devices        []fakeDevice
 		wantClean      []string
-		wantDirty      map[string]string // bdf → currentDriver
+		wantDirty      map[string]string
 		expectedDriver string
 	}{
 		"NoRebellionsDevicesPresent": {
@@ -43,7 +43,7 @@ func TestAssertRBLNBound(t *testing.T) {
 			reason: "a device with no driver symlink (drivers_probe failed) is dirty with empty driver",
 			devices: []fakeDevice{
 				{bdf: "0000:01:00.0", vendor: "0x1eff", class: "0x120000", driver: "rebellions"},
-				{bdf: "0000:02:00.0", vendor: "0x1eff", class: "0x120000"}, // no driver
+				{bdf: "0000:02:00.0", vendor: "0x1eff", class: "0x120000"},
 			},
 			wantClean: []string{"0000:01:00.0"},
 			wantDirty: map[string]string{"0000:02:00.0": ""},
@@ -54,7 +54,7 @@ func TestAssertRBLNBound(t *testing.T) {
 				{bdf: "0000:01:00.0", vendor: "0x1eff", class: "0x120000", driver: "rebellions"},
 				{bdf: "0000:02:00.0", vendor: "0x1eff", class: "0x120000", driver: "vfio-pci"},
 				{bdf: "0000:03:00.0", vendor: "0x1eff", class: "0x120000", driver: "rebellions"},
-				{bdf: "0000:04:00.0", vendor: "0x1eff", class: "0x120000"}, // unbound
+				{bdf: "0000:04:00.0", vendor: "0x1eff", class: "0x120000"},
 			},
 			wantClean: []string{"0000:01:00.0", "0000:03:00.0"},
 			wantDirty: map[string]string{

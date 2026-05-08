@@ -79,8 +79,6 @@ func (b *basePatcher) IsReady(ctx context.Context) error {
 // Shared init container builders
 // ---------------------------------------------------------------------------
 
-// buildToolkitValidationInitContainer returns the standard "wait for toolkit-ready"
-// init container used by components that depend on the container toolkit.
 func buildToolkitValidationInitContainer(validatorSpec rblnv1beta1.ValidatorSpec) *corev1.Container {
 	return k8sutil.NewContainerBuilder().
 		WithName("toolkit-validation").
@@ -115,11 +113,6 @@ func buildVFIOPCIValidationInitContainer(validatorSpec rblnv1beta1.ValidatorSpec
 		Build()
 }
 
-// buildRBLNBindingValidationInitContainer asserts that no Rebellions NPU is
-// left bound to vfio-pci when entering container workload mode. Used by the
-// operator-validator pod to surface a failed vm-passthrough → container
-// transition (e.g., a VMI that wasn't drained before the workloadType flip)
-// as a hard pod-readiness failure.
 func buildRBLNBindingValidationInitContainer(validatorSpec rblnv1beta1.ValidatorSpec) *corev1.Container {
 	return k8sutil.NewContainerBuilder().
 		WithName("rbln-binding-validation").

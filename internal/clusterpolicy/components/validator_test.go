@@ -33,7 +33,6 @@ func TestValidatorPatch(t *testing.T) {
 	ds := assertDaemonSetBasics(t, c, name, owner.Name)
 	assertNodeSelector(t, ds, "rebellions.ai/npu.deploy.operator-validator")
 
-	// Init containers in container mode: rbln-binding-validation -> driver-validation -> toolkit-validation
 	wantInitNames := []string{"rbln-binding-validation", "driver-validation", "toolkit-validation"}
 	if len(ds.Spec.Template.Spec.InitContainers) != len(wantInitNames) {
 		t.Fatalf("expected %d init containers, got %d", len(wantInitNames), len(ds.Spec.Template.Spec.InitContainers))
@@ -48,7 +47,6 @@ func TestValidatorPatch(t *testing.T) {
 		assertPrivileged(t, ic)
 	}
 
-	// rbln-binding-validation runs assert-rbln and mounts /sys.
 	bindingInit := ds.Spec.Template.Spec.InitContainers[0]
 	if len(bindingInit.Args) != 2 || bindingInit.Args[0] != testVFIOPCIDriver || bindingInit.Args[1] != "assert-rbln" {
 		t.Fatalf("rbln-binding-validation args = %v, want [vfio-pci assert-rbln]", bindingInit.Args)
@@ -107,8 +105,6 @@ func TestValidatorPatch_VMPassthroughOmitsBindingValidation(t *testing.T) {
 
 	ds := assertDaemonSetBasics(t, c, name, owner.Name)
 
-	// vm-passthrough mode: rbln-binding-validation must not be present (the
-	// node is intentionally on vfio-pci; asserting rbln binding would always fail).
 	for _, ic := range ds.Spec.Template.Spec.InitContainers {
 		if ic.Name == "rbln-binding-validation" {
 			t.Fatalf("rbln-binding-validation must not run in vm-passthrough mode")
