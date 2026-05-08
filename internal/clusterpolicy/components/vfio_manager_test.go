@@ -7,6 +7,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/types"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -25,6 +26,11 @@ func TestVFIOManagerPatch(t *testing.T) {
 		Registry: "docker.io",
 		Image:    "rebellions/rbln-vfio-manager",
 		Version:  "latest",
+		DriverManager: rblnv1beta1.VFIODriverManagerSpec{
+			Registry: "docker.io",
+			Image:    "rebellions/rbln-k8s-driver-manager",
+			Version:  "v0.1.0",
+		},
 	}
 
 	name := consts.RBLNBaseName + "-" + consts.RBLNVFIOManagerName
@@ -41,9 +47,38 @@ func TestVFIOManagerPatch(t *testing.T) {
 	ds := assertDaemonSetBasics(t, c, name, owner.Name)
 	assertNodeSelector(t, ds, "rebellions.ai/npu.deploy.vfio-manager")
 
-	// No init containers (VFIO doesn't depend on toolkit)
-	if len(ds.Spec.Template.Spec.InitContainers) != 0 {
-		t.Fatalf("expected 0 init containers, got %d", len(ds.Spec.Template.Spec.InitContainers))
+	// driver-uninstall init container evicts operator-owned pods before bind.
+	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
+		t.Fatalf("expected 1 init container (driver-uninstall), got %d", len(ds.Spec.Template.Spec.InitContainers))
+	}
+	initContainer := ds.Spec.Template.Spec.InitContainers[0]
+	if initContainer.Name != "driver-uninstall" {
+		t.Fatalf("init container name = %q, want driver-uninstall", initContainer.Name)
+	}
+	assertContainerImage(t, initContainer, "rebellions/rbln-k8s-driver-manager", "v0.1.0")
+	assertPrivileged(t, initContainer)
+	if len(initContainer.Command) != 1 || initContainer.Command[0] != "driver-manager" {
+		t.Fatalf("init container command = %v, want [driver-manager]", initContainer.Command)
+	}
+	if len(initContainer.Args) != 1 || initContainer.Args[0] != "uninstall-driver" {
+		t.Fatalf("init container args = %v, want [uninstall-driver]", initContainer.Args)
+	}
+
+	// Role: pods + pods/eviction + daemonsets
+	role := &rbacv1.Role{}
+	assertObjectExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, role)
+	assertHasOwnerRef(t, role, owner.Name)
+	assertRoleHasRule(t, role, "", "pods")
+	assertRoleHasRule(t, role, "", "pods/eviction")
+	assertRoleHasRule(t, role, "apps", "daemonsets")
+
+	// RoleBinding bound to vfio-manager SA
+	rb := &rbacv1.RoleBinding{}
+	assertObjectExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, rb)
+	assertHasOwnerRef(t, rb, owner.Name)
+	if rb.RoleRef.Name != name || rb.Subjects[0].Name != name {
+		t.Fatalf("RoleBinding misconfigured: roleRef=%q subject=%q want %q",
+			rb.RoleRef.Name, rb.Subjects[0].Name, name)
 	}
 
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
@@ -107,5 +142,7 @@ func TestVFIOManagerCleanUp(t *testing.T) {
 
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &appsv1.DaemonSet{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name + "-config", Namespace: testNamespace}, &corev1.ConfigMap{})
+	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &rbacv1.RoleBinding{})
+	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &rbacv1.Role{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
 }

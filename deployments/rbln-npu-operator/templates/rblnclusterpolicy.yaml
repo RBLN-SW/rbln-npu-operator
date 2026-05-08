@@ -148,6 +148,15 @@ spec:
     image: {{ .Values.vfioManager.image.repository | quote }}
     imagePullPolicy: {{ .Values.vfioManager.image.pullPolicy | quote }}
     version: {{ .Values.vfioManager.image.tag | quote }}
+    driverManager:
+      registry: {{ .Values.vfioManager.driverManager.image.registry | quote }}
+      image: {{ .Values.vfioManager.driverManager.image.repository | quote }}
+      version: {{ .Values.vfioManager.driverManager.image.tag | quote }}
+      imagePullPolicy: {{ .Values.vfioManager.driverManager.image.pullPolicy | quote }}
+      {{- with .Values.vfioManager.driverManager.env }}
+      env:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
 
   validator:
     registry: {{ .Values.validator.image.registry | quote }}

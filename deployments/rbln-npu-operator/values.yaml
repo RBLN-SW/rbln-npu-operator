@@ -258,6 +258,13 @@ vfioManager:
     repository: rebellions/rbln-vfio-manager
     tag: latest
     pullPolicy: IfNotPresent
+  driverManager:
+    image:
+      registry: docker.io
+      repository: rebellions/rbln-k8s-driver-manager
+      tag: latest
+      pullPolicy: IfNotPresent
+    env: []
 
 # Validator configuration
 validator:
