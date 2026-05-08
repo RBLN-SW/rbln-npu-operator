@@ -53,20 +53,14 @@ generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
 .PHONY: fmt
-fmt: ensure-gofumpt ## Run go fmt against code.
+fmt: gofumpt ## Run go fmt against code.
 	@echo "Running go fmt..."
-	gofumpt -l . && [ -z "$$(gofumpt -l .)" ] || (echo "Formatting issues found"; exit 1)
+	$(GOFUMPT) -l . && [ -z "$$($(GOFUMPT) -l .)" ] || (echo "Formatting issues found"; exit 1)
 	@echo "Go fmt completed."
 
 .PHONY: fmt-fix
-fmt-fix:
-	gofumpt -l -w .
-
-.PHONY: ensure-gofumpt
-ensure-gofumpt: ## Install gofumpt if not present
-	@echo "Ensuring gofumpt is installed..."
-	@command -v gofumpt >/dev/null || go install mvdan.cc/gofumpt@latest
-	@echo "gofumpt installation complete."
+fmt-fix: gofumpt
+	$(GOFUMPT) -l -w .
 
 .PHONY: vet
 vet: ## Run go vet against code.
@@ -170,6 +164,7 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+GOFUMPT ?= $(LOCALBIN)/gofumpt
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -192,6 +187,11 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 	@echo "Ensuring golangci-lint is available..."
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 	@echo "golangci-lint setup complete."
+
+.PHONY: gofumpt
+gofumpt: $(GOFUMPT) ## Download gofumpt locally if necessary.
+$(GOFUMPT): $(LOCALBIN)
+	$(call go-install-tool,$(GOFUMPT),mvdan.cc/gofumpt,$(GOFUMPT_VERSION))
 
 define go-install-tool
 @[ -f "$(1)-$(3)-go$(GOLANG_VERSION)" ] || { \
