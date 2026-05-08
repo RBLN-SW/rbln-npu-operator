@@ -142,6 +142,26 @@ func assertPrivileged(t *testing.T, c corev1.Container) {
 	}
 }
 
+func assertContainerHasVolumeMount(t *testing.T, c corev1.Container, volumeName string) {
+	t.Helper()
+	for _, vm := range c.VolumeMounts {
+		if vm.Name == volumeName {
+			return
+		}
+	}
+	t.Fatalf("container %q: missing volume mount %q", c.Name, volumeName)
+}
+
+func assertPodHasVolume(t *testing.T, podSpec corev1.PodSpec, volumeName string) {
+	t.Helper()
+	for _, v := range podSpec.Volumes {
+		if v.Name == volumeName {
+			return
+		}
+	}
+	t.Fatalf("pod spec: missing volume %q", volumeName)
+}
+
 func assertObjectNotExists(t *testing.T, c client.Client, key types.NamespacedName, obj client.Object) {
 	t.Helper()
 	err := c.Get(context.Background(), key, obj)

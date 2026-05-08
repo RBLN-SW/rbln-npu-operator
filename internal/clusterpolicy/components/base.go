@@ -98,6 +98,23 @@ func buildToolkitValidationInitContainer(validatorSpec rblnv1beta1.ValidatorSpec
 		Build()
 }
 
+func buildVFIOPCIValidationInitContainer(validatorSpec rblnv1beta1.ValidatorSpec) *corev1.Container {
+	return k8sutil.NewContainerBuilder().
+		WithName("vfio-pci-validation").
+		WithImage(k8sutil.ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, validatorSpec.ImagePullPolicy).
+		WithCommands([]string{"rbln-validator"}).
+		WithArgs([]string{"vfio-pci"}).
+		WithSecurityContext(&corev1.SecurityContext{
+			Privileged: ptr(true),
+			RunAsUser:  ptr(int64(0)),
+		}).
+		WithVolumeMounts([]corev1.VolumeMount{
+			{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
+			{Name: "host-sys", MountPath: "/sys"},
+		}).
+		Build()
+}
+
 // ---------------------------------------------------------------------------
 // Shared reconcile helpers
 // ---------------------------------------------------------------------------

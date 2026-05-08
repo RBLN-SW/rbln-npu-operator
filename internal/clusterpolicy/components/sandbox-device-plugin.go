@@ -121,6 +121,7 @@ func (h *sandboxDevicePluginPatcher) handleConfigMap(ctx context.Context, cp *rb
 
 func (h *sandboxDevicePluginPatcher) buildVolumes() []corev1.Volume {
 	return []corev1.Volume{
+		hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 		hostPathVolume("devicesock", "/var/lib/kubelet/device-plugins", corev1.HostPathDirectory),
 		hostPathVolume("plugins-registry", "/var/lib/kubelet/plugins_registry", corev1.HostPathDirectory),
 		hostPathVolume("log", "/var/log", corev1.HostPathDirectory),
@@ -138,7 +139,9 @@ func (h *sandboxDevicePluginPatcher) buildVolumes() []corev1.Volume {
 	}
 }
 
-func (h *sandboxDevicePluginPatcher) buildPodSpec() *corev1.PodSpec {
+func (h *sandboxDevicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
+	initContainer := buildVFIOPCIValidationInitContainer(owner.Spec.Validator)
+
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.sandbox-device-plugin": "true"}).
@@ -146,6 +149,7 @@ func (h *sandboxDevicePluginPatcher) buildPodSpec() *corev1.PodSpec {
 		WithTolerations(h.desiredSpec.Tolerations).
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithVolumes(h.buildVolumes()).
+		WithInitContainers([]*corev1.Container{initContainer}).
 		WithContainers([]*corev1.Container{
 			k8sutil.NewContainerBuilder().
 				WithName(h.name).
@@ -170,7 +174,7 @@ func (h *sandboxDevicePluginPatcher) buildPodSpec() *corev1.PodSpec {
 }
 
 func (h *sandboxDevicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	podSpec := h.buildPodSpec()
+	podSpec := h.buildPodSpec(owner)
 
 	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
 	ds := builder.Build()
