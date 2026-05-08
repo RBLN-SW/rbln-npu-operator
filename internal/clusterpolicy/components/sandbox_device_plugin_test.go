@@ -65,7 +65,7 @@ func TestSandboxDevicePluginPatch(t *testing.T) {
 	if len(initContainer.Command) != 1 || initContainer.Command[0] != "rbln-validator" {
 		t.Fatalf("init container command = %v, want [rbln-validator]", initContainer.Command)
 	}
-	if len(initContainer.Args) != 1 || initContainer.Args[0] != "vfio-pci" {
+	if len(initContainer.Args) != 1 || initContainer.Args[0] != testVFIOPCIDriver {
 		t.Fatalf("init container args = %v, want [vfio-pci]", initContainer.Args)
 	}
 	assertContainerHasVolumeMount(t, initContainer, consts.ValidationsVolumeName)
@@ -84,7 +84,7 @@ func TestSandboxDevicePluginPatch(t *testing.T) {
 	if len(cfg.ResourceList) != 1 {
 		t.Fatalf("expected 1 resource, got %d", len(cfg.ResourceList))
 	}
-	if cfg.ResourceList[0].Selectors.Drivers[0] != "vfio-pci" {
+	if cfg.ResourceList[0].Selectors.Drivers[0] != testVFIOPCIDriver {
 		t.Fatalf("driver = %q, want vfio-pci", cfg.ResourceList[0].Selectors.Drivers[0])
 	}
 }

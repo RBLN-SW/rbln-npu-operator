@@ -37,8 +37,9 @@ const (
 
 type validatorPatcher struct {
 	basePatcher
-	desiredSpec *rblnv1beta1.ValidatorSpec
-	podDefaults *rblnv1beta1.PodDefaultsSpec
+	desiredSpec  *rblnv1beta1.ValidatorSpec
+	podDefaults  *rblnv1beta1.PodDefaultsSpec
+	workloadType string
 }
 
 func NewValidatorPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
@@ -52,8 +53,9 @@ func NewValidatorPatcher(client client.Client, log logr.Logger, namespace string
 			openshiftVersion: openshiftVersion,
 			enabled:          true,
 		},
-		desiredSpec: &cpSpec.Validator,
-		podDefaults: cpSpec.PodDefaults,
+		desiredSpec:  &cpSpec.Validator,
+		podDefaults:  cpSpec.PodDefaults,
+		workloadType: cpSpec.WorkloadType,
 	}
 }
 
@@ -293,6 +295,17 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 		priorityClassName = h.podDefaults.PriorityClassName
 	}
 
+	initContainers := []*corev1.Container{driverInit, toolkitInit}
+	if h.workloadType == consts.RBLNWorkloadConfigContainer {
+		// Asserts that no Rebellions device is left bound to vfio-pci before
+		// driver-validation runs — surfaces a botched vm-passthrough → container
+		// transition (e.g., a VMI not drained before workloadType was flipped)
+		// as a hard pod-readiness failure.
+		initContainers = append([]*corev1.Container{
+			buildRBLNBindingValidationInitContainer(*validatorSpec),
+		}, initContainers...)
+	}
+
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.operator-validator": "true"}).
@@ -306,12 +319,13 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 			hostPathVolume(validatorHostRootVolumeName, validatorHostRootPath, corev1.HostPathDirectory),
 			hostPathVolume(validatorCDIRootVolumeName, validatorCDIRootPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume(validatorHostDevVolumeName, validatorHostDevPath, corev1.HostPathDirectory),
+			hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
 			{
 				Name:         validatorChrootTmpVolumeName,
 				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 			},
 		}).
-		WithInitContainers([]*corev1.Container{driverInit, toolkitInit}).
+		WithInitContainers(initContainers).
 		WithContainers([]*corev1.Container{mainContainerBuilder.Build()}).
 		Build()
 }

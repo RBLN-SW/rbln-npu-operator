@@ -53,6 +53,8 @@ func newFakeClient(t *testing.T, scheme *runtime.Scheme, objs ...client.Object) 
 		Build()
 }
 
+const testVFIOPCIDriver = "vfio-pci"
+
 func newTestOwner() *rblnv1beta1.RBLNClusterPolicy {
 	return &rblnv1beta1.RBLNClusterPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -60,6 +62,7 @@ func newTestOwner() *rblnv1beta1.RBLNClusterPolicy {
 			UID:  "test-uid-12345",
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
+			WorkloadType: consts.RBLNWorkloadConfigContainer,
 			Validator: rblnv1beta1.ValidatorSpec{
 				Registry: "docker.io",
 				Image:    "rebellions/rbln-validator",
