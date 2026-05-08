@@ -29,6 +29,10 @@ const (
 	validatorHostDriverPath       = "/run/rbln/driver"
 	validatorCDIRootVolumeName    = "cdi-root"
 	validatorCDIRootPath          = "/var/run/cdi"
+
+	validatorHostDevVolumeName   = "host-dev"
+	validatorHostDevPath         = "/dev"
+	validatorChrootTmpVolumeName = "chroot-tmp"
 )
 
 type validatorPatcher struct {
@@ -229,6 +233,8 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 				MountPath:        consts.ValidationsMountPath,
 				MountPropagation: ptr(corev1.MountPropagationBidirectional),
 			},
+			{Name: validatorHostDevVolumeName, MountPath: "/host/dev"},
+			{Name: validatorChrootTmpVolumeName, MountPath: "/host/tmp"},
 		}).
 		Build()
 
@@ -293,11 +299,17 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 		WithTolerations(tolerations).
 		WithImagePullSecrets(validatorSpec.ImagePullSecrets).
 		WithPriorityClassName(priorityClassName).
+		WithHostPID(true).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume(validatorHostDriverVolumeName, validatorHostDriverPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume(validatorHostRootVolumeName, validatorHostRootPath, corev1.HostPathDirectory),
 			hostPathVolume(validatorCDIRootVolumeName, validatorCDIRootPath, corev1.HostPathDirectoryOrCreate),
+			hostPathVolume(validatorHostDevVolumeName, validatorHostDevPath, corev1.HostPathDirectory),
+			{
+				Name:         validatorChrootTmpVolumeName,
+				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+			},
 		}).
 		WithInitContainers([]*corev1.Container{driverInit, toolkitInit}).
 		WithContainers([]*corev1.Container{mainContainerBuilder.Build()}).

@@ -17,7 +17,9 @@ func validateHostDriver() error {
 	ctx, cancel := context.WithTimeout(context.Background(), hostDriverProbeTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "chroot", hostRootMountPath, hostSmiBinary, "--version")
+	cmd := exec.CommandContext(ctx,
+		"nsenter", "--target", "1", "--mount", "--uts", "--ipc",
+		"--", "env", "TMPDIR=/tmp", hostSmiBinary, "--version")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		slog.Info("rbln-smi execution failed, host driver not detected",
