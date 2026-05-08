@@ -90,6 +90,7 @@ Usage: $0 COMMAND [OPTIONS]
 Commands:
   bind        [-a|--all] [-d|--device-id <PCI_ADDR>]
   unbind      [-a|--all] [-d|--device-id <PCI_ADDR>]
+  cleanup     [-a|--all] [-d|--device-id <PCI_ADDR>]
   check_bind  [-a|--all] [-d|--device-id <PCI_ADDR>]
   help        [-h|--help]
 EOF
@@ -278,12 +279,91 @@ check_bind_all() {
     fi
 }
 
+wait_for_driver_rebind() {
+	local npu=$1
+	local expected_driver=$2
+	local timeout=$3
+	local elapsed=0
+
+	while [ $elapsed -lt $timeout ]; do
+		if [ -e "/sys/bus/pci/devices/$npu/driver" ]; then
+			local current
+			current=$(basename "$(readlink -f "/sys/bus/pci/devices/$npu/driver")")
+			if [ "$current" = "$expected_driver" ]; then
+				echo "device $npu rebound to $expected_driver after ${elapsed}s"
+				return 0
+			fi
+		fi
+		sleep 1
+		elapsed=$((elapsed + 1))
+	done
+	echo "WARNING: device $npu did not rebind to $expected_driver within ${timeout}s" >&2
+	return 1
+}
+
+probe_device() {
+	local npu=$1
+	echo "probing device $npu"
+	echo "$npu" > /sys/bus/pci/drivers_probe
+}
+
+cleanup_device() {
+	local npu=$1
+
+	if ! is_target_npu_device $npu; then
+		return 0
+	fi
+
+	if [ -e "/sys/bus/pci/devices/$npu/driver" ]; then
+		local current
+		current=$(basename "$(readlink -f "/sys/bus/pci/devices/$npu/driver")")
+		if [ "$current" != "vfio-pci" ]; then
+			# Already bound to something other than vfio-pci; nothing to clean up.
+			return 0
+		fi
+	fi
+
+	echo "cleaning up device $npu"
+	unbind_from_driver $npu
+	probe_device $npu
+	if ! wait_for_driver_rebind $npu rebellions 60; then
+		return 1
+	fi
+	return 0
+}
+
+cleanup_all() {
+	local failed=0
+	for dev in /sys/bus/pci/devices/*; do
+		read vendor < $dev/vendor
+		if [ "$vendor" = "0x1eff" ]; then
+			local dev_id=$(basename $dev)
+			cleanup_device $dev_id || failed=$((failed + 1))
+		fi
+	done
+	if [ $failed -gt 0 ]; then
+		echo "WARNING: $failed device(s) failed to rebind to rebellions" >&2
+		return 1
+	fi
+	return 0
+}
+
 handle_bind() {
 	chroot /host modprobe vfio-pci
 	if [ "$DEVICE_ID" != "" ]; then
 		bind_device $DEVICE_ID
 	elif [ "$ALL_DEVICES" = "true" ]; then
 		bind_all
+	else
+		usage
+	fi
+}
+
+handle_cleanup() {
+	if [ "$DEVICE_ID" != "" ]; then
+		cleanup_device $DEVICE_ID
+	elif [ "$ALL_DEVICES" = "true" ]; then
+		cleanup_all
 	else
 		usage
 	fi
@@ -355,6 +435,7 @@ case "$command" in
   help)        usage ;;
   bind)        handle_bind ;;
   unbind)      handle_unbind ;;
+  cleanup)     handle_cleanup ;;
   check_bind)  handle_check_bind ;;
   *)
     echo "Unknown command: $command" >&2
@@ -380,7 +461,7 @@ func (h *vfioManagerPatcher) buildPodSpec() *corev1.PodSpec {
 		WithTolerations(h.desiredSpec.Tolerations).
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithPriorityClassName(podDefaultsPriorityClassName(h.podDefaults)).
-		WithTerminationGracePeriodSeconds(30).
+		WithTerminationGracePeriodSeconds(180).
 		WithVolumes([]corev1.Volume{
 			{
 				Name: h.name,
@@ -412,7 +493,7 @@ func (h *vfioManagerPatcher) buildPodSpec() *corev1.PodSpec {
 				WithLifeCycle(&corev1.Lifecycle{
 					PreStop: &corev1.LifecycleHandler{
 						Exec: &corev1.ExecAction{
-							Command: []string{"/bin/sh", "-c", "/bin/vfio-manage.sh unbind --all"},
+							Command: []string{"/bin/sh", "-c", "/bin/vfio-manage.sh cleanup --all"},
 						},
 					},
 				}).

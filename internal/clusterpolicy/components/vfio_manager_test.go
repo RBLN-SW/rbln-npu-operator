@@ -2,6 +2,7 @@ package components
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -55,9 +56,29 @@ func TestVFIOManagerPatch(t *testing.T) {
 	if mainContainer.Lifecycle == nil || mainContainer.Lifecycle.PreStop == nil {
 		t.Fatal("expected PreStop lifecycle hook")
 	}
+	preStopCmd := strings.Join(mainContainer.Lifecycle.PreStop.Exec.Command, " ")
+	if !strings.Contains(preStopCmd, "cleanup --all") {
+		t.Fatalf("expected PreStop to invoke cleanup --all, got %q", preStopCmd)
+	}
+
+	if ds.Spec.Template.Spec.TerminationGracePeriodSeconds == nil || *ds.Spec.Template.Spec.TerminationGracePeriodSeconds != 180 {
+		t.Fatalf("expected TerminationGracePeriodSeconds=180, got %v", ds.Spec.Template.Spec.TerminationGracePeriodSeconds)
+	}
 
 	// ConfigMap (vfio-manage.sh)
 	assertConfigMapHasKey(t, c, name+"-config", testNamespace, owner.Name, "vfio-manage.sh")
+
+	// Cleanup helpers must be present in the embedded script.
+	cm := &corev1.ConfigMap{}
+	if err := c.Get(ctx, types.NamespacedName{Name: name + "-config", Namespace: testNamespace}, cm); err != nil {
+		t.Fatalf("get ConfigMap: %v", err)
+	}
+	script := cm.Data["vfio-manage.sh"]
+	for _, want := range []string{"wait_for_driver_rebind", "probe_device", "cleanup_device", "cleanup_all", "handle_cleanup", "drivers_probe"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("vfio-manage.sh missing %q", want)
+		}
+	}
 }
 
 func TestVFIOManagerCleanUp(t *testing.T) {
