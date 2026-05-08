@@ -60,8 +60,18 @@ func TestVFIOManagerPatch(t *testing.T) {
 	if len(initContainer.Command) != 1 || initContainer.Command[0] != "driver-manager" {
 		t.Fatalf("init container command = %v, want [driver-manager]", initContainer.Command)
 	}
-	if len(initContainer.Args) != 1 || initContainer.Args[0] != "uninstall-driver" {
-		t.Fatalf("init container args = %v, want [uninstall-driver]", initContainer.Args)
+	if len(initContainer.Args) != 1 || initContainer.Args[0] != "reconcile-driver-state" {
+		t.Fatalf("init container args = %v, want [reconcile-driver-state]", initContainer.Args)
+	}
+	// Verify the init container has /sys + /host mounted so rbln-k8s-driver-manager's
+	// ensureVfioUnbound can do sysfs writes against the host.
+	assertContainerHasVolumeMount(t, initContainer, "host-sys")
+	assertContainerHasVolumeMount(t, initContainer, "host-root")
+	// Self-eviction guard: ENABLE_NPU_POD_EVICTION must be off in this context
+	// because the vfio-manager pod is the parent of this init container.
+	if envValue(initContainer.Env, "ENABLE_NPU_POD_EVICTION") != "false" {
+		t.Fatalf("ENABLE_NPU_POD_EVICTION = %q, want false (would cordon+drain own host)",
+			envValue(initContainer.Env, "ENABLE_NPU_POD_EVICTION"))
 	}
 
 	// Role: pods + pods/eviction + daemonsets

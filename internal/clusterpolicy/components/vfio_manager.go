@@ -522,14 +522,38 @@ func (h *vfioManagerPatcher) buildDriverUninstallInitContainer() *corev1.Contain
 		WithName("driver-uninstall").
 		WithImage(k8sutil.ComposeImageReference(dm.Registry, dm.Image), dm.Version, dm.ImagePullPolicy).
 		WithCommands([]string{"driver-manager"}).
-		WithArgs([]string{"uninstall-driver"}).
+		WithArgs([]string{"reconcile-driver-state"}).
 		WithEnvs(append([]corev1.EnvVar{
-			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}}},
 			{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"}}},
+			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}}},
+			// Eviction is gated off so the init container does not cordon/drain
+			// its own host. The driver-manager still pauses operator-owned deploy
+			// labels (rbln-daemon, device-plugin, etc.) so the rbln driver releases
+			// devices before vfio-pci binding takes over. Self-eviction of the
+			// vfio-manager pod itself is avoided by the rbln-k8s-driver-manager
+			// excluding rblnVFIOManagerDeployLabel from its eviction list.
+			{Name: "ENABLE_NPU_POD_EVICTION", Value: "false"},
+			{Name: "ENABLE_AUTO_DRAIN", Value: "false"},
+			{Name: "DRAIN_USE_FORCE", Value: "false"},
+			{Name: "DRAIN_POD_SELECTOR_LABEL", Value: ""},
+			{Name: "DRAIN_TIMEOUT_SECONDS", Value: "0s"},
+			{Name: "DRAIN_DELETE_EMPTYDIR_DATA", Value: "false"},
 		}, dm.Env...)).
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged: ptr(true),
 			RunAsUser:  ptr(int64(0)),
+		}).
+		WithVolumeMounts([]corev1.VolumeMount{
+			// /sys is required by ensureVfioUnbound's sysfs writes
+			// (/sys/bus/pci/devices/<bdf>/driver_override and the driver
+			// unbind file). Without this mount the writes return ENOENT.
+			{Name: "host-sys", MountPath: "/sys"},
+			{
+				Name:             "host-root",
+				MountPath:        "/host",
+				ReadOnly:         true,
+				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
+			},
 		}).
 		Build()
 }

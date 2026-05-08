@@ -145,6 +145,15 @@ func assertPrivileged(t *testing.T, c corev1.Container) {
 	}
 }
 
+func envValue(envs []corev1.EnvVar, name string) string {
+	for _, e := range envs {
+		if e.Name == name {
+			return e.Value
+		}
+	}
+	return ""
+}
+
 func assertContainerHasVolumeMount(t *testing.T, c corev1.Container, volumeName string) {
 	t.Helper()
 	for _, vm := range c.VolumeMounts {
