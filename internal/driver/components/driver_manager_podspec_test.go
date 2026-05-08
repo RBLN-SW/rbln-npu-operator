@@ -199,6 +199,26 @@ func TestBuildDriverManagerInitContainer(t *testing.T) {
 		t.Fatalf("host-driver mountPropagation = %v, want Bidirectional",
 			hostDriverMount.MountPropagation)
 	}
+
+	// Regression guard: rbln-k8s-driver-manager's ensureVfioUnbound writes to
+	// /sys/bus/pci/devices/<bdf>/driver_override and to the bound driver's
+	// unbind file. Without /sys mounted into the init container those writes
+	// fail with ENOENT and devices left bound to vfio-pci from a previous
+	// vm-passthrough session would still be on vfio-pci when the rbln driver
+	// loads, defeating the whole bidirectional-lifecycle flow.
+	var hostSysMount *corev1.VolumeMount
+	for i := range c.VolumeMounts {
+		if c.VolumeMounts[i].Name == hostSysVolumeName {
+			hostSysMount = &c.VolumeMounts[i]
+			break
+		}
+	}
+	if hostSysMount == nil {
+		t.Fatalf("init container missing %q volume mount", hostSysVolumeName)
+	}
+	if hostSysMount.MountPath != hostSysPath {
+		t.Fatalf("host-sys mountPath = %q, want %q", hostSysMount.MountPath, hostSysPath)
+	}
 }
 
 func TestHandleConfigMap(t *testing.T) {

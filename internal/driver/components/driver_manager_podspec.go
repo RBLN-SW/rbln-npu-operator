@@ -138,6 +138,12 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool) (*corev1.PodSpe
 			}},
 		},
 		{
+			Name: hostSysVolumeName,
+			VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
+				Path: hostSysPath, Type: ptr(corev1.HostPathDirectory),
+			}},
+		},
+		{
 			Name:         chrootTmpVolumeName,
 			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		},
@@ -210,6 +216,14 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 			{
 				Name:      hostDevVolumeName,
 				MountPath: "/host/dev",
+			},
+			{
+				// /sys is required by ensureVfioUnbound's sysfs writes
+				// (/sys/bus/pci/devices/<bdf>/driver_override and the driver
+				// unbind file) when reconcile-driver-state cleans up leftover
+				// vfio-pci bindings before the rbln driver loads.
+				Name:      hostSysVolumeName,
+				MountPath: hostSysPath,
 			},
 			{
 				Name:      chrootTmpVolumeName,
