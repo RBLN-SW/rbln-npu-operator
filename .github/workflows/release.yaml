@@ -136,7 +136,7 @@ jobs:
         run: make bundle VERSION="${TAG}" IMAGE="${OPERATOR_DIGEST}"
       - name: Patch bundle annotations
         run: |
-          yq -i '.annotations."com.redhat.openshift.versions" = "v4.16-v4.20"' \
+          yq -i '.annotations."com.redhat.openshift.versions" = "v4.16-v4.22"' \
             bundle/metadata/annotations.yaml
       - name: Patch CSV containerImage
         env:
@@ -152,6 +152,8 @@ jobs:
           GH_TOKEN: ${{ secrets.CERTIFIED_OPERATORS_PAT }}
           FORK: ${{ secrets.CERTIFIED_OPERATORS_FORK }}
         run: |
+          set -euo pipefail
+
           VERSION="${TAG#v}"
           BRANCH="pr/rbln-npu-operator/${VERSION}"
 
@@ -159,12 +161,22 @@ jobs:
           gh repo clone "${FORK}" /tmp/certified-operators
           cd /tmp/certified-operators
 
+          # Refuse to overwrite an existing fork branch (fail-fast on rerun)
+          if git ls-remote --exit-code origin "refs/heads/${BRANCH}" >/dev/null 2>&1; then
+            echo "ERROR: branch ${BRANCH} already exists on fork — clean it up before retrying." >&2
+            exit 1
+          fi
+
           # Sync fork with upstream (gh clone automatically sets upstream remote for forks)
           git fetch upstream main
           git checkout -b "${BRANCH}" upstream/main
 
           # Copy bundle files
           DEST="operators/rbln-npu-operator/${VERSION}"
+          if [ -d "${DEST}" ]; then
+            echo "ERROR: ${DEST} already exists upstream — refusing to overwrite. Bump tag and retry." >&2
+            exit 1
+          fi
           mkdir -p "${DEST}/manifests" "${DEST}/metadata" "${DEST}/tests"
           cp "$GITHUB_WORKSPACE/bundle/manifests/rbln-npu-operator.clusterserviceversion.yaml" "${DEST}/manifests/"
           cp "$GITHUB_WORKSPACE/bundle/manifests/rebellions.ai_rblnclusterpolicies.yaml" "${DEST}/manifests/"
@@ -172,12 +184,90 @@ jobs:
           cp "$GITHUB_WORKSPACE/bundle/metadata/annotations.yaml" "${DEST}/metadata/"
           cp -r "$GITHUB_WORKSPACE/bundle/tests/scorecard" "${DEST}/tests/"
 
-          # Update ci.yaml
-          cat > operators/rbln-npu-operator/ci.yaml << 'EOF'
-          cert_project_id: 685d049721914f92599b0e27
-          merge: false
-          updateGraph: semver-mode
-          EOF
+          OCP_RANGE=$(yq '.annotations."com.redhat.openshift.versions"' "${DEST}/metadata/annotations.yaml")
+          if [[ ! "${OCP_RANGE}" =~ ^v4\.[0-9]+-v4\.[0-9]+$ ]]; then
+            echo "ERROR: invalid OCP range '${OCP_RANGE}' (expected vMAJ.MIN-vMAJ.MIN)" >&2
+            exit 1
+          fi
+          OCP_LO="${OCP_RANGE%-*}"
+          OCP_HI="${OCP_RANGE#*-}"
+          OCP_LO_MINOR="${OCP_LO#v4.}"
+          OCP_HI_MINOR="${OCP_HI#v4.}"
+          OCP_MINORS=()
+          for m in $(seq "${OCP_LO_MINOR}" "${OCP_HI_MINOR}"); do
+            OCP_MINORS+=("v4.${m}")
+          done
+          echo "OCP_MINORS=${OCP_MINORS[*]}"
+
+          {
+            echo '---'
+            echo 'cert_project_id: 685d049721914f92599b0e27'
+            echo 'merge: true'
+            echo 'fbc:'
+            echo '  enabled: true'
+            echo '  catalog_mapping:'
+            for ocp in "${OCP_MINORS[@]}"; do
+              echo "    - catalog_names: [${ocp}]"
+              echo "      template_name: ${ocp}.yaml"
+              echo "      type: olm.template.basic"
+            done
+          } > operators/rbln-npu-operator/ci.yaml
+
+          mkdir -p operators/rbln-npu-operator/catalog-templates
+          declare -A PREV_PER_OCP
+          NEW_TEMPLATES=()
+          for ocp in "${OCP_MINORS[@]}"; do
+            TPL="operators/rbln-npu-operator/catalog-templates/${ocp}.yaml"
+            if [ -f "$TPL" ]; then
+              HEAD=$(yq '.entries[] | select(.schema=="olm.channel" and .name=="stable") | .entries[].name' "$TPL" \
+                     | grep '^rbln-npu-operator\.v' | sort -V | tail -1 || true)
+              if [ -n "$HEAD" ] && [ "$HEAD" != "null" ]; then
+                PREV_PER_OCP[$ocp]="$HEAD"
+              fi
+              echo "PREV_PER_OCP[$ocp]=${PREV_PER_OCP[$ocp]:-<existing template, no entries>}"
+            else
+              cat > "$TPL" <<SKELETON
+          ---
+          schema: olm.template.basic
+          entries:
+          - schema: olm.package
+            name: rbln-npu-operator
+            defaultChannel: stable
+          - schema: olm.channel
+            name: candidate
+            package: rbln-npu-operator
+            entries: []
+          - schema: olm.channel
+            name: fast
+            package: rbln-npu-operator
+            entries: []
+          - schema: olm.channel
+            name: stable
+            package: rbln-npu-operator
+            entries: []
+          SKELETON
+              NEW_TEMPLATES+=("$TPL")
+              echo "Created skeleton template ${TPL} (this OCP is new)"
+            fi
+          done
+
+          # Clean-break policy: the first FBC PR does not bridge from pre-FBC
+          # bundles (0.0.1..0.4.0) via `replaces`. The new FBC catalog tracks
+          # v0.4.x onwards only; subsequent releases auto-chain via PREV_PER_OCP.
+          {
+            echo '---'
+            echo 'catalog_templates:'
+            for ocp in "${OCP_MINORS[@]}"; do
+              prev="${PREV_PER_OCP[$ocp]:-}"
+              echo "  - template_name: ${ocp}.yaml"
+              echo "    channels: [stable]"
+              if [ -n "$prev" ]; then
+                echo "    replaces: ${prev}"
+              fi
+              echo "  - template_name: ${ocp}.yaml"
+              echo "    channels: [candidate, fast]"
+            done
+          } > "${DEST}/release-config.yaml"
 
           # Configure git
           gh auth setup-git
@@ -186,6 +276,9 @@ jobs:
 
           # Commit and push to fork
           git add "${DEST}" operators/rbln-npu-operator/ci.yaml
+          if [ "${#NEW_TEMPLATES[@]}" -gt 0 ]; then
+            git add "${NEW_TEMPLATES[@]}"
+          fi
           git commit -m "operator rbln-npu-operator (${VERSION})"
           git push origin "${BRANCH}"
 
