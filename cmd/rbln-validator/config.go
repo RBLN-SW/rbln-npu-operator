@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	drivervalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/driver"
+	vfiovalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/vfiopci"
 )
 
 const (
@@ -56,6 +57,13 @@ func (o *rootConfig) toolkitConfig() *toolkitConfig {
 	return &toolkitConfig{
 		outputDir:            o.outputDir,
 		sleepIntervalSeconds: o.sleepIntervalSeconds,
+	}
+}
+
+func (o *rootConfig) vfioPCIConfig() vfiovalidator.Config {
+	return vfiovalidator.Config{
+		OutputDir:            o.outputDir,
+		SleepIntervalSeconds: o.sleepIntervalSeconds,
 	}
 }
 
