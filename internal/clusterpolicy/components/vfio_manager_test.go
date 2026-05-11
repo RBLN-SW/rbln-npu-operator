@@ -106,12 +106,12 @@ func TestVFIOManagerPatch(t *testing.T) {
 		t.Fatal("expected PreStop lifecycle hook")
 	}
 	preStopCmd := strings.Join(mainContainer.Lifecycle.PreStop.Exec.Command, " ")
-	if !strings.Contains(preStopCmd, "cleanup --all") {
-		t.Fatalf("expected PreStop to invoke cleanup --all, got %q", preStopCmd)
+	if !strings.Contains(preStopCmd, "unbind --all") {
+		t.Fatalf("expected PreStop to invoke unbind --all, got %q", preStopCmd)
 	}
 
-	if ds.Spec.Template.Spec.TerminationGracePeriodSeconds == nil || *ds.Spec.Template.Spec.TerminationGracePeriodSeconds != 180 {
-		t.Fatalf("expected TerminationGracePeriodSeconds=180, got %v", ds.Spec.Template.Spec.TerminationGracePeriodSeconds)
+	if ds.Spec.Template.Spec.TerminationGracePeriodSeconds == nil || *ds.Spec.Template.Spec.TerminationGracePeriodSeconds != 30 {
+		t.Fatalf("expected TerminationGracePeriodSeconds=30, got %v", ds.Spec.Template.Spec.TerminationGracePeriodSeconds)
 	}
 
 	// ConfigMap (vfio-manage.sh)
@@ -122,9 +122,14 @@ func TestVFIOManagerPatch(t *testing.T) {
 		t.Fatalf("get ConfigMap: %v", err)
 	}
 	script := cm.Data["vfio-manage.sh"]
-	for _, want := range []string{"wait_for_driver_rebind", "probe_device", "cleanup_device", "cleanup_all", "handle_cleanup", "drivers_probe"} {
+	for _, want := range []string{"unbind_from_driver", "unbind_all", "bind_all", "handle_bind", "handle_unbind"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("vfio-manage.sh missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{"wait_for_driver_rebind", "drivers_probe", "cleanup_device", "cleanup_all", "handle_cleanup"} {
+		if strings.Contains(script, unwanted) {
+			t.Errorf("vfio-manage.sh should not contain %q (PreStop is fire-and-forget)", unwanted)
 		}
 	}
 }
