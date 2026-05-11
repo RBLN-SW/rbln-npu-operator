@@ -51,6 +51,9 @@ func TestSandboxDevicePluginPatch(t *testing.T) {
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
 	assertContainerImage(t, mainContainer, "rebellions/k8s-device-plugin", "latest")
 	assertPrivileged(t, mainContainer)
+	if len(mainContainer.Args) != 1 || mainContainer.Args[0] != "--use-cdi=false" {
+		t.Fatalf("main container args = %v, want [--use-cdi=false]", mainContainer.Args)
+	}
 
 	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(ds.Spec.Template.Spec.InitContainers))

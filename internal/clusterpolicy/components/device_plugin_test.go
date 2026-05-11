@@ -44,6 +44,9 @@ func TestDevicePluginPatch(t *testing.T) {
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
 	assertContainerImage(t, mainContainer, "rebellions/k8s-device-plugin", "latest")
 	assertPrivileged(t, mainContainer)
+	if len(mainContainer.Args) != 0 {
+		t.Fatalf("container-mode device-plugin must not override args, got %v", mainContainer.Args)
+	}
 
 	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(ds.Spec.Template.Spec.InitContainers))

@@ -154,6 +154,7 @@ func (h *sandboxDevicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 			k8sutil.NewContainerBuilder().
 				WithName(h.name).
 				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+				WithArgs([]string{"--use-cdi=false"}).
 				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 				WithVolumeMounts([]corev1.VolumeMount{
 					{Name: "devicesock", MountPath: "/var/lib/kubelet/device-plugins"},
