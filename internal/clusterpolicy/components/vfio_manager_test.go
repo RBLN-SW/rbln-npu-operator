@@ -76,6 +76,17 @@ func TestVFIOManagerPatch(t *testing.T) {
 	assertRoleHasRule(t, role, "", "pods/eviction")
 	assertRoleHasRule(t, role, "apps", "daemonsets")
 
+	cr := &rbacv1.ClusterRole{}
+	assertObjectExists(t, c, types.NamespacedName{Name: name}, cr)
+	assertClusterRoleHasRule(t, cr, "", "nodes")
+
+	crb := &rbacv1.ClusterRoleBinding{}
+	assertObjectExists(t, c, types.NamespacedName{Name: name}, crb)
+	if crb.RoleRef.Name != name || crb.Subjects[0].Name != name {
+		t.Fatalf("ClusterRoleBinding misconfigured: roleRef=%q subject=%q want %q",
+			crb.RoleRef.Name, crb.Subjects[0].Name, name)
+	}
+
 	rb := &rbacv1.RoleBinding{}
 	assertObjectExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, rb)
 	assertHasOwnerRef(t, rb, owner.Name)
@@ -146,5 +157,7 @@ func TestVFIOManagerCleanUp(t *testing.T) {
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name + "-config", Namespace: testNamespace}, &corev1.ConfigMap{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &rbacv1.RoleBinding{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &rbacv1.Role{})
+	assertObjectNotExists(t, c, types.NamespacedName{Name: name}, &rbacv1.ClusterRoleBinding{})
+	assertObjectNotExists(t, c, types.NamespacedName{Name: name}, &rbacv1.ClusterRole{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
 }

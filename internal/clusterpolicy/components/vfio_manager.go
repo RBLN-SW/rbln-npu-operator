@@ -50,6 +50,12 @@ func (h *vfioManagerPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNC
 	if err := h.reconcileVFIOManagerRBAC(ctx, owner); err != nil {
 		return err
 	}
+	if err := h.handleClusterRole(ctx, owner); err != nil {
+		return err
+	}
+	if err := h.handleClusterRoleBinding(ctx, owner); err != nil {
+		return err
+	}
 	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
 		return err
 	}
@@ -79,10 +85,61 @@ func (h *vfioManagerPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBL
 	}); err != nil {
 		return err
 	}
+	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name},
+	}); err != nil {
+		return err
+	}
+	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name},
+	}); err != nil {
+		return err
+	}
 	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
 		return err
 	}
 	return h.deleteServiceAccount(ctx)
+}
+
+func (h *vfioManagerPatcher) handleClusterRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	role := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: h.name}}
+	_, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
+		role.Rules = []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"nodes"},
+				Verbs:     []string{"get", "list", "watch", "patch", "update"},
+			},
+		}
+		return ctrl.SetControllerReference(owner, role, h.scheme)
+	})
+	if err != nil {
+		h.log.Error(err, "Failed to reconcile VFIOManager ClusterRole", "name", h.name)
+		return err
+	}
+	return nil
+}
+
+func (h *vfioManagerPatcher) handleClusterRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	crb := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: h.name}}
+	_, err := controllerutil.CreateOrPatch(ctx, h.client, crb, func() error {
+		crb.RoleRef = rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     h.name,
+		}
+		crb.Subjects = []rbacv1.Subject{{
+			Kind:      "ServiceAccount",
+			Name:      h.name,
+			Namespace: h.namespace,
+		}}
+		return ctrl.SetControllerReference(owner, crb, h.scheme)
+	})
+	if err != nil {
+		h.log.Error(err, "Failed to reconcile VFIOManager ClusterRoleBinding", "name", h.name)
+		return err
+	}
+	return nil
 }
 
 func (h *vfioManagerPatcher) reconcileVFIOManagerRBAC(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
