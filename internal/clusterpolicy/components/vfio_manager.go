@@ -573,7 +573,7 @@ esac`,
 func (h *vfioManagerPatcher) buildDriverUninstallInitContainer() *corev1.Container {
 	dm := h.desiredSpec.DriverManager
 	return k8sutil.NewContainerBuilder().
-		WithName("driver-uninstall").
+		WithName("k8s-driver-manager").
 		WithImage(k8sutil.ComposeImageReference(dm.Registry, dm.Image), dm.Version, dm.ImagePullPolicy).
 		WithCommands([]string{"driver-manager"}).
 		WithArgs([]string{"reconcile-driver-state"}).

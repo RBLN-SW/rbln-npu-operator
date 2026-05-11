@@ -48,11 +48,11 @@ func TestVFIOManagerPatch(t *testing.T) {
 	assertNodeSelector(t, ds, "rebellions.ai/npu.deploy.vfio-manager")
 
 	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container (driver-uninstall), got %d", len(ds.Spec.Template.Spec.InitContainers))
+		t.Fatalf("expected 1 init container (k8s-driver-manager), got %d", len(ds.Spec.Template.Spec.InitContainers))
 	}
 	initContainer := ds.Spec.Template.Spec.InitContainers[0]
-	if initContainer.Name != "driver-uninstall" {
-		t.Fatalf("init container name = %q, want driver-uninstall", initContainer.Name)
+	if initContainer.Name != "k8s-driver-manager" {
+		t.Fatalf("init container name = %q, want k8s-driver-manager", initContainer.Name)
 	}
 	assertContainerImage(t, initContainer, "rebellions/rbln-k8s-driver-manager", "v0.1.0")
 	assertPrivileged(t, initContainer)
