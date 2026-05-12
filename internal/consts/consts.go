@@ -25,6 +25,7 @@ const (
 	RBLNWorkloadConfigUnknown       = "unknown"
 	RBLNPresentLabelKey             = "rebellions.ai/npu.present"
 	RBLNDeploySkipLabelKey          = "rebellions.ai/npu.deploy.skip"
+	RBLNDeployDriverLabelKey        = "rebellions.ai/npu.deploy.driver"
 	NFDLabelPrefix                  = "feature.node.kubernetes.io/"
 )
 

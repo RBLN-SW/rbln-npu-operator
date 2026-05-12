@@ -22,7 +22,7 @@ var rblnDeviceLabels = map[string]string{
 
 var rblnComponentLabels = map[string]map[string]string{
 	consts.RBLNWorkloadConfigContainer: {
-		"rebellions.ai/npu.deploy.driver":                labelValueTrue,
+		consts.RBLNDeployDriverLabelKey:                  labelValueTrue,
 		"rebellions.ai/npu.deploy.device-plugin":         labelValueTrue,
 		"rebellions.ai/npu.deploy.dra-kubelet-plugin":    labelValueTrue,
 		"rebellions.ai/npu.deploy.metrics-exporter":      labelValueTrue,
