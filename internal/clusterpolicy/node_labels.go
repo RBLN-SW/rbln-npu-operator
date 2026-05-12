@@ -175,6 +175,10 @@ func hasRBLNPresentLabel(labels map[string]string) bool {
 	return labels[consts.RBLNPresentLabelKey] == labelValueTrue
 }
 
+func hasDriverDeployLabel(labels map[string]string) bool {
+	return labels[consts.RBLNDeployDriverLabelKey] == labelValueTrue
+}
+
 func hasRBLNDeploySkipLabel(labels map[string]string) bool {
 	return labels[consts.RBLNDeploySkipLabelKey] == labelValueTrue
 }
