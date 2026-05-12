@@ -51,11 +51,28 @@ func TestSandboxDevicePluginPatch(t *testing.T) {
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
 	assertContainerImage(t, mainContainer, "rebellions/k8s-device-plugin", "latest")
 	assertPrivileged(t, mainContainer)
-
-	// No init containers (sandbox plugin doesn't wait for toolkit)
-	if len(ds.Spec.Template.Spec.InitContainers) != 0 {
-		t.Fatalf("expected 0 init containers, got %d", len(ds.Spec.Template.Spec.InitContainers))
+	if len(mainContainer.Args) != 1 || mainContainer.Args[0] != "--use-cdi=false" {
+		t.Fatalf("main container args = %v, want [--use-cdi=false]", mainContainer.Args)
 	}
+
+	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
+		t.Fatalf("expected 1 init container, got %d", len(ds.Spec.Template.Spec.InitContainers))
+	}
+	initContainer := ds.Spec.Template.Spec.InitContainers[0]
+	if initContainer.Name != "vfio-pci-validation" {
+		t.Fatalf("init container name = %q, want vfio-pci-validation", initContainer.Name)
+	}
+	assertContainerImage(t, initContainer, "rebellions/rbln-validator", "v1.0")
+	assertPrivileged(t, initContainer)
+	if len(initContainer.Command) != 1 || initContainer.Command[0] != "rbln-validator" {
+		t.Fatalf("init container command = %v, want [rbln-validator]", initContainer.Command)
+	}
+	if len(initContainer.Args) != 1 || initContainer.Args[0] != testVFIOPCIDriver {
+		t.Fatalf("init container args = %v, want [vfio-pci]", initContainer.Args)
+	}
+	assertContainerHasVolumeMount(t, initContainer, consts.ValidationsVolumeName)
+	assertContainerHasVolumeMount(t, initContainer, "host-sys")
+	assertPodHasVolume(t, ds.Spec.Template.Spec, consts.ValidationsVolumeName)
 
 	// ConfigMap (config.json with vfio-pci driver)
 	cm := &corev1.ConfigMap{}
@@ -69,7 +86,7 @@ func TestSandboxDevicePluginPatch(t *testing.T) {
 	if len(cfg.ResourceList) != 1 {
 		t.Fatalf("expected 1 resource, got %d", len(cfg.ResourceList))
 	}
-	if cfg.ResourceList[0].Selectors.Drivers[0] != "vfio-pci" {
+	if cfg.ResourceList[0].Selectors.Drivers[0] != testVFIOPCIDriver {
 		t.Fatalf("driver = %q, want vfio-pci", cfg.ResourceList[0].Selectors.Drivers[0])
 	}
 }

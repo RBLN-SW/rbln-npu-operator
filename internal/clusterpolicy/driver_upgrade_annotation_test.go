@@ -19,13 +19,23 @@ func TestShouldEnableDriverAutoUpgrade(t *testing.T) {
 			policy: &rblnv1beta1.RBLNClusterPolicy{},
 			want:   false,
 		},
-		"returns true when auto-upgrade is enabled and sandbox device plugin is disabled": {
+		"returns true when auto-upgrade is enabled": {
 			policy: &rblnv1beta1.RBLNClusterPolicy{
 				Spec: rblnv1beta1.RBLNClusterPolicySpec{
 					Driver: rblnv1beta1.DriverSpec{
 						UpgradePolicy: &rblnv1beta1.DriverUpgradePolicySpec{AutoUpgrade: true},
 					},
-					SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
+				},
+			},
+			want: true,
+		},
+		"returns true when auto-upgrade is enabled even if sandbox device plugin is enabled": {
+			policy: &rblnv1beta1.RBLNClusterPolicy{
+				Spec: rblnv1beta1.RBLNClusterPolicySpec{
+					Driver: rblnv1beta1.DriverSpec{
+						UpgradePolicy: &rblnv1beta1.DriverUpgradePolicySpec{AutoUpgrade: true},
+					},
+					SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: true},
 				},
 			},
 			want: true,
@@ -36,18 +46,6 @@ func TestShouldEnableDriverAutoUpgrade(t *testing.T) {
 					Driver: rblnv1beta1.DriverSpec{
 						UpgradePolicy: &rblnv1beta1.DriverUpgradePolicySpec{AutoUpgrade: false},
 					},
-					SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
-				},
-			},
-			want: false,
-		},
-		"returns false when sandbox device plugin is enabled": {
-			policy: &rblnv1beta1.RBLNClusterPolicy{
-				Spec: rblnv1beta1.RBLNClusterPolicySpec{
-					Driver: rblnv1beta1.DriverSpec{
-						UpgradePolicy: &rblnv1beta1.DriverUpgradePolicySpec{AutoUpgrade: true},
-					},
-					SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: true},
 				},
 			},
 			want: false,
@@ -71,13 +69,14 @@ func TestReconcileAutoUpgradeAnnotationInPlace(t *testing.T) {
 		wantAnnotation   string
 		wantAnnotationOk bool
 	}{
-		"adds the auto-upgrade annotation when enabled and node is RBLN present": {
+		"adds the auto-upgrade annotation when enabled and node has driver deploy label": {
 			shouldEnable: true,
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-enabled",
 					Labels: map[string]string{
-						consts.RBLNPresentLabelKey: labelValueTrue,
+						consts.RBLNPresentLabelKey:      labelValueTrue,
+						consts.RBLNDeployDriverLabelKey: labelValueTrue,
 					},
 				},
 			},
@@ -91,7 +90,8 @@ func TestReconcileAutoUpgradeAnnotationInPlace(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-disabled",
 					Labels: map[string]string{
-						consts.RBLNPresentLabelKey: labelValueTrue,
+						consts.RBLNPresentLabelKey:      labelValueTrue,
+						consts.RBLNDeployDriverLabelKey: labelValueTrue,
 					},
 					Annotations: map[string]string{
 						driverAutoUpgradeAnnotationKey: labelValueTrue,
@@ -107,8 +107,9 @@ func TestReconcileAutoUpgradeAnnotationInPlace(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-skip",
 					Labels: map[string]string{
-						consts.RBLNPresentLabelKey:    labelValueTrue,
-						consts.RBLNDeploySkipLabelKey: labelValueTrue,
+						consts.RBLNPresentLabelKey:      labelValueTrue,
+						consts.RBLNDeployDriverLabelKey: labelValueTrue,
+						consts.RBLNDeploySkipLabelKey:   labelValueTrue,
 					},
 					Annotations: map[string]string{
 						driverAutoUpgradeAnnotationKey: labelValueTrue,
@@ -141,7 +142,8 @@ func TestReconcileAutoUpgradeAnnotationInPlace(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-already-set",
 					Labels: map[string]string{
-						consts.RBLNPresentLabelKey: labelValueTrue,
+						consts.RBLNPresentLabelKey:      labelValueTrue,
+						consts.RBLNDeployDriverLabelKey: labelValueTrue,
 					},
 					Annotations: map[string]string{
 						driverAutoUpgradeAnnotationKey: labelValueTrue,
@@ -151,6 +153,37 @@ func TestReconcileAutoUpgradeAnnotationInPlace(t *testing.T) {
 			wantChanged:      false,
 			wantAnnotation:   labelValueTrue,
 			wantAnnotationOk: true,
+		},
+		"does not set annotation on vm-passthrough node without driver deploy label": {
+			shouldEnable: true,
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node-vmp",
+					Labels: map[string]string{
+						consts.RBLNPresentLabelKey:              labelValueTrue,
+						"rebellions.ai/npu.deploy.vfio-manager": labelValueTrue,
+					},
+				},
+			},
+			wantChanged:      false,
+			wantAnnotationOk: false,
+		},
+		"removes stale annotation on vm-passthrough node": {
+			shouldEnable: true,
+			node: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node-vmp-stale",
+					Labels: map[string]string{
+						consts.RBLNPresentLabelKey:              labelValueTrue,
+						"rebellions.ai/npu.deploy.vfio-manager": labelValueTrue,
+					},
+					Annotations: map[string]string{
+						driverAutoUpgradeAnnotationKey: labelValueTrue,
+					},
+				},
+			},
+			wantChanged:      true,
+			wantAnnotationOk: false,
 		},
 	}
 

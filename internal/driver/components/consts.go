@@ -27,6 +27,8 @@ const (
 	hostRootPath                              = "/"
 	hostDevVolumeName                         = "host-dev"
 	hostDevPath                               = "/dev"
+	hostSysVolumeName                         = "host-sys"
+	hostSysPath                               = "/sys"
 	chrootTmpVolumeName                       = "chroot-tmp"
 )
 

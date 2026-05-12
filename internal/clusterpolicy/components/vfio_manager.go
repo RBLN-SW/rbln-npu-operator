@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -46,6 +47,15 @@ func (h *vfioManagerPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNC
 	if err := h.reconcileServiceAccount(ctx, owner); err != nil {
 		return err
 	}
+	if err := h.reconcileVFIOManagerRBAC(ctx, owner); err != nil {
+		return err
+	}
+	if err := h.handleClusterRole(ctx, owner); err != nil {
+		return err
+	}
+	if err := h.handleClusterRoleBinding(ctx, owner); err != nil {
+		return err
+	}
 	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
 		return err
 	}
@@ -65,10 +75,117 @@ func (h *vfioManagerPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBL
 	}); err != nil {
 		return err
 	}
+	if err := h.deleteIfExists(ctx, &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
+	}); err != nil {
+		return err
+	}
+	if err := h.deleteIfExists(ctx, &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
+	}); err != nil {
+		return err
+	}
+	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name},
+	}); err != nil {
+		return err
+	}
+	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name},
+	}); err != nil {
+		return err
+	}
 	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
 		return err
 	}
 	return h.deleteServiceAccount(ctx)
+}
+
+func (h *vfioManagerPatcher) handleClusterRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	role := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: h.name}}
+	_, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
+		role.Rules = []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"nodes"},
+				Verbs:     []string{"get", "list", "watch", "patch", "update"},
+			},
+		}
+		return ctrl.SetControllerReference(owner, role, h.scheme)
+	})
+	if err != nil {
+		h.log.Error(err, "Failed to reconcile VFIOManager ClusterRole", "name", h.name)
+		return err
+	}
+	return nil
+}
+
+func (h *vfioManagerPatcher) handleClusterRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	crb := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: h.name}}
+	_, err := controllerutil.CreateOrPatch(ctx, h.client, crb, func() error {
+		crb.RoleRef = rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     h.name,
+		}
+		crb.Subjects = []rbacv1.Subject{{
+			Kind:      "ServiceAccount",
+			Name:      h.name,
+			Namespace: h.namespace,
+		}}
+		return ctrl.SetControllerReference(owner, crb, h.scheme)
+	})
+	if err != nil {
+		h.log.Error(err, "Failed to reconcile VFIOManager ClusterRoleBinding", "name", h.name)
+		return err
+	}
+	return nil
+}
+
+func (h *vfioManagerPatcher) reconcileVFIOManagerRBAC(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace}}
+	if _, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
+		role.Rules = []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods/eviction"},
+				Verbs:     []string{"create"},
+			},
+			{
+				APIGroups: []string{"apps"},
+				Resources: []string{"daemonsets"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+		}
+		return ctrl.SetControllerReference(owner, role, h.scheme)
+	}); err != nil {
+		h.log.Error(err, "Failed to reconcile VFIOManager Role", "name", h.name)
+		return err
+	}
+
+	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace}}
+	if _, err := controllerutil.CreateOrPatch(ctx, h.client, rb, func() error {
+		rb.RoleRef = rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "Role",
+			Name:     h.name,
+		}
+		rb.Subjects = []rbacv1.Subject{{
+			Kind:      "ServiceAccount",
+			Name:      h.name,
+			Namespace: h.namespace,
+		}}
+		return ctrl.SetControllerReference(owner, rb, h.scheme)
+	}); err != nil {
+		h.log.Error(err, "Failed to reconcile VFIOManager RoleBinding", "name", h.name)
+		return err
+	}
+	return nil
 }
 
 func (h *vfioManagerPatcher) handleConfigMap(ctx context.Context, cp *rblnv1beta1.RBLNClusterPolicy) error {
@@ -372,6 +489,39 @@ esac`,
 	return nil
 }
 
+func (h *vfioManagerPatcher) buildDriverUninstallInitContainer() *corev1.Container {
+	dm := h.desiredSpec.DriverManager
+	return k8sutil.NewContainerBuilder().
+		WithName("k8s-driver-manager").
+		WithImage(k8sutil.ComposeImageReference(dm.Registry, dm.Image), dm.Version, dm.ImagePullPolicy).
+		WithCommands([]string{"driver-manager"}).
+		WithArgs([]string{"reconcile-driver-state"}).
+		WithEnvs(append([]corev1.EnvVar{
+			{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"}}},
+			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}}},
+			{Name: "ENABLE_NPU_POD_EVICTION", Value: "false"},
+			{Name: "ENABLE_AUTO_DRAIN", Value: "false"},
+			{Name: "DRAIN_USE_FORCE", Value: "false"},
+			{Name: "DRAIN_POD_SELECTOR_LABEL", Value: ""},
+			{Name: "DRAIN_TIMEOUT_SECONDS", Value: "0s"},
+			{Name: "DRAIN_DELETE_EMPTYDIR_DATA", Value: "false"},
+		}, dm.Env...)).
+		WithSecurityContext(&corev1.SecurityContext{
+			Privileged: ptr(true),
+			RunAsUser:  ptr(int64(0)),
+		}).
+		WithVolumeMounts([]corev1.VolumeMount{
+			{Name: "host-sys", MountPath: "/sys"},
+			{
+				Name:             "host-root",
+				MountPath:        "/host",
+				ReadOnly:         true,
+				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
+			},
+		}).
+		Build()
+}
+
 func (h *vfioManagerPatcher) buildPodSpec() *corev1.PodSpec {
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).
@@ -392,6 +542,7 @@ func (h *vfioManagerPatcher) buildPodSpec() *corev1.PodSpec {
 			hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
 			hostPathVolume("host-root", "/", corev1.HostPathDirectory),
 		}).
+		WithInitContainers([]*corev1.Container{h.buildDriverUninstallInitContainer()}).
 		WithContainers([]*corev1.Container{
 			k8sutil.NewContainerBuilder().
 				WithName(h.name).

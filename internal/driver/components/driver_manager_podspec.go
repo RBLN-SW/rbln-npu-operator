@@ -138,6 +138,12 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool) (*corev1.PodSpe
 			}},
 		},
 		{
+			Name: hostSysVolumeName,
+			VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
+				Path: hostSysPath, Type: ptr(corev1.HostPathDirectory),
+			}},
+		},
+		{
 			Name:         chrootTmpVolumeName,
 			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		},
@@ -210,6 +216,10 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 			{
 				Name:      hostDevVolumeName,
 				MountPath: "/host/dev",
+			},
+			{
+				Name:      hostSysVolumeName,
+				MountPath: hostSysPath,
 			},
 			{
 				Name:      chrootTmpVolumeName,

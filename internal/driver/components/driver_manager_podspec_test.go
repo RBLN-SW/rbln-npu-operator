@@ -199,6 +199,20 @@ func TestBuildDriverManagerInitContainer(t *testing.T) {
 		t.Fatalf("host-driver mountPropagation = %v, want Bidirectional",
 			hostDriverMount.MountPropagation)
 	}
+
+	var hostSysMount *corev1.VolumeMount
+	for i := range c.VolumeMounts {
+		if c.VolumeMounts[i].Name == hostSysVolumeName {
+			hostSysMount = &c.VolumeMounts[i]
+			break
+		}
+	}
+	if hostSysMount == nil {
+		t.Fatalf("init container missing %q volume mount", hostSysVolumeName)
+	}
+	if hostSysMount.MountPath != hostSysPath {
+		t.Fatalf("host-sys mountPath = %q, want %q", hostSysMount.MountPath, hostSysPath)
+	}
 }
 
 func TestHandleConfigMap(t *testing.T) {

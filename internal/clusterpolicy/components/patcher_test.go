@@ -53,6 +53,8 @@ func newFakeClient(t *testing.T, scheme *runtime.Scheme, objs ...client.Object) 
 		Build()
 }
 
+const testVFIOPCIDriver = "vfio-pci"
+
 func newTestOwner() *rblnv1beta1.RBLNClusterPolicy {
 	return &rblnv1beta1.RBLNClusterPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -60,6 +62,7 @@ func newTestOwner() *rblnv1beta1.RBLNClusterPolicy {
 			UID:  "test-uid-12345",
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
+			WorkloadType: consts.RBLNWorkloadConfigContainer,
 			Validator: rblnv1beta1.ValidatorSpec{
 				Registry: "docker.io",
 				Image:    "rebellions/rbln-validator",
@@ -140,6 +143,35 @@ func assertPrivileged(t *testing.T, c corev1.Container) {
 	if c.SecurityContext == nil || c.SecurityContext.Privileged == nil || !*c.SecurityContext.Privileged {
 		t.Fatalf("container %q: expected privileged=true", c.Name)
 	}
+}
+
+func envValue(envs []corev1.EnvVar, name string) string {
+	for _, e := range envs {
+		if e.Name == name {
+			return e.Value
+		}
+	}
+	return ""
+}
+
+func assertContainerHasVolumeMount(t *testing.T, c corev1.Container, volumeName string) {
+	t.Helper()
+	for _, vm := range c.VolumeMounts {
+		if vm.Name == volumeName {
+			return
+		}
+	}
+	t.Fatalf("container %q: missing volume mount %q", c.Name, volumeName)
+}
+
+func assertPodHasVolume(t *testing.T, podSpec corev1.PodSpec, volumeName string) {
+	t.Helper()
+	for _, v := range podSpec.Volumes {
+		if v.Name == volumeName {
+			return
+		}
+	}
+	t.Fatalf("pod spec: missing volume %q", volumeName)
 }
 
 func assertObjectNotExists(t *testing.T, c client.Client, key types.NamespacedName, obj client.Object) {

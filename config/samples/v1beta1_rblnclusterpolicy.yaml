@@ -56,7 +56,7 @@ spec:
     enabled: true
     registry: docker.io
     image: rebellions/rbln-metrics-exporter
-    version: v0.2.4
+    version: v0.2.5
     imagePullPolicy: IfNotPresent
   npuFeatureDiscovery:
     enabled: true
@@ -68,7 +68,7 @@ spec:
     enabled: true
     registry: docker.io
     image: rebellions/rbln-container-toolkit
-    version: v0.1.1
+    version: v0.1.2
     imagePullPolicy: IfNotPresent
   rblnDaemon:
     enabled: false
@@ -83,7 +83,7 @@ spec:
     enabled: false
     registry: docker.io
     image: rebellions/k8s-device-plugin
-    version: v0.3.7
+    version: v0.3.8
     imagePullPolicy: IfNotPresent
     resourceList:
     - resourceName: ATOM_PT
@@ -104,6 +104,11 @@ spec:
     image: rebellions/rbln-vfio-manager
     version: latest
     imagePullPolicy: IfNotPresent
+    driverManager:
+      registry: docker.io
+      image: rebellions/rbln-k8s-driver-manager
+      version: v0.1.4
+      imagePullPolicy: IfNotPresent
   validator:
     registry: docker.io
     image: rebellions/rbln-npu-operator-validator

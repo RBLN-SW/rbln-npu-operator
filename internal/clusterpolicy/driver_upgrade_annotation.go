@@ -12,8 +12,7 @@ const (
 
 func shouldEnableDriverAutoUpgrade(policy *rblnv1beta1.RBLNClusterPolicy) bool {
 	return policy.Spec.Driver.UpgradePolicy != nil &&
-		policy.Spec.Driver.UpgradePolicy.AutoUpgrade &&
-		!policy.Spec.SandboxDevicePlugin.IsEnabled()
+		policy.Spec.Driver.UpgradePolicy.AutoUpgrade
 }
 
 // reconcileAutoUpgradeAnnotationInPlace adjusts the driver auto-upgrade
@@ -24,7 +23,7 @@ func reconcileAutoUpgradeAnnotationInPlace(node *corev1.Node, shouldEnable bool)
 		return false
 	}
 
-	if hasRBLNDeploySkipLabel(node.GetLabels()) {
+	if hasRBLNDeploySkipLabel(node.GetLabels()) || !hasDriverDeployLabel(node.GetLabels()) {
 		shouldEnable = false
 	}
 

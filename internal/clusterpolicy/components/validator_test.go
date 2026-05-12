@@ -33,20 +33,27 @@ func TestValidatorPatch(t *testing.T) {
 	ds := assertDaemonSetBasics(t, c, name, owner.Name)
 	assertNodeSelector(t, ds, "rebellions.ai/npu.deploy.operator-validator")
 
-	// Init containers: driver-validation + toolkit-validation
-	if len(ds.Spec.Template.Spec.InitContainers) != 2 {
-		t.Fatalf("expected 2 init containers (driver + toolkit), got %d", len(ds.Spec.Template.Spec.InitContainers))
+	wantInitNames := []string{"rbln-binding-validation", "driver-validation", "toolkit-validation"}
+	if len(ds.Spec.Template.Spec.InitContainers) != len(wantInitNames) {
+		t.Fatalf("expected %d init containers, got %d", len(wantInitNames), len(ds.Spec.Template.Spec.InitContainers))
 	}
-	if ds.Spec.Template.Spec.InitContainers[0].Name != "driver-validation" {
-		t.Fatalf("first init container = %q, want driver-validation", ds.Spec.Template.Spec.InitContainers[0].Name)
-	}
-	if ds.Spec.Template.Spec.InitContainers[1].Name != "toolkit-validation" {
-		t.Fatalf("second init container = %q, want toolkit-validation", ds.Spec.Template.Spec.InitContainers[1].Name)
+	for i, want := range wantInitNames {
+		if ds.Spec.Template.Spec.InitContainers[i].Name != want {
+			t.Fatalf("init container[%d] = %q, want %q", i, ds.Spec.Template.Spec.InitContainers[i].Name, want)
+		}
 	}
 	for _, ic := range ds.Spec.Template.Spec.InitContainers {
 		assertContainerImage(t, ic, "rebellions/rbln-validator", "v1.0")
 		assertPrivileged(t, ic)
 	}
+
+	bindingInit := ds.Spec.Template.Spec.InitContainers[0]
+	if len(bindingInit.Args) != 2 || bindingInit.Args[0] != testVFIOPCIDriver || bindingInit.Args[1] != "assert-rbln" {
+		t.Fatalf("rbln-binding-validation args = %v, want [vfio-pci assert-rbln]", bindingInit.Args)
+	}
+	assertContainerHasVolumeMount(t, bindingInit, "host-sys")
+	assertContainerHasVolumeMount(t, bindingInit, consts.ValidationsVolumeName)
+	assertPodHasVolume(t, ds.Spec.Template.Spec, "host-sys")
 
 	// Main container: PreStop lifecycle
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
@@ -79,6 +86,32 @@ func TestValidatorPatch(t *testing.T) {
 	assertObjectExists(t, c, types.NamespacedName{Name: name}, crb)
 	if crb.RoleRef.Name != name {
 		t.Fatalf("ClusterRoleBinding RoleRef.Name = %q, want %q", crb.RoleRef.Name, name)
+	}
+}
+
+func TestValidatorPatch_VMPassthroughOmitsBindingValidation(t *testing.T) {
+	scheme := newTestScheme(t)
+	c := newFakeClient(t, scheme)
+	ctx := context.Background()
+
+	owner := newTestOwner()
+	owner.Spec.WorkloadType = consts.RBLNWorkloadConfigVMPassthrough
+
+	name := consts.RBLNBaseName + "-" + consts.RBLNValidatorName
+	p := NewValidatorPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
+	if err := p.Patch(ctx, owner); err != nil {
+		t.Fatalf("Patch() error: %v", err)
+	}
+
+	ds := assertDaemonSetBasics(t, c, name, owner.Name)
+
+	for _, ic := range ds.Spec.Template.Spec.InitContainers {
+		if ic.Name == "rbln-binding-validation" {
+			t.Fatalf("rbln-binding-validation must not run in vm-passthrough mode")
+		}
+	}
+	if len(ds.Spec.Template.Spec.InitContainers) != 2 {
+		t.Fatalf("expected 2 init containers in vm-passthrough mode, got %d", len(ds.Spec.Template.Spec.InitContainers))
 	}
 }
 
