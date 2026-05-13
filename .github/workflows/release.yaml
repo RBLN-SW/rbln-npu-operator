@@ -266,6 +266,9 @@ jobs:
               fi
               echo "  - template_name: ${ocp}.yaml"
               echo "    channels: [candidate, fast]"
+              if [ -n "$prev" ]; then
+                echo "    replaces: ${prev}"
+              fi
             done
           } > "${DEST}/release-config.yaml"
 
