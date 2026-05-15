@@ -54,8 +54,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            - name: DEVICE_PLUGIN_USE_GENERIC_RESOURCE_NAME
-              value: {{ .Values.devicePlugin.useGenericResourceName | quote }}
           image: {{ default "docker.io" .Values.operator.image.registry }}/{{ .Values.operator.image.repository }}:{{ .Values.operator.image.tag | default .Chart.AppVersion }}
           imagePullPolicy: {{ .Values.operator.image.pullPolicy }}
           ports:

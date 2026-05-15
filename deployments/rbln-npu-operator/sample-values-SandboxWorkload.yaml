@@ -1,6 +1,6 @@
-# Default values for rbln-npu-operator.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
+# Sample values for the VM/sandbox (vm-passthrough) workload deployment of rbln-npu-operator.
+# Apply with: helm install rbln-npu-operator . -f sample-values-SandboxWorkload.yaml
+# Values omitted here inherit from values.yaml.
 
 # Workload type: "container" (default) or "vm-passthrough".
 workloadType: vm-passthrough
@@ -14,6 +14,11 @@ podDefaults:
   labels: {}
   annotations: {}
   tolerations: []
+  # Example: allow scheduling on control-plane nodes
+  # tolerations:
+  # - key: node-role.kubernetes.io/control-plane
+  #   operator: Exists
+  #   effect: NoSchedule
   priorityClassName: ""
 
 # Operator configuration
@@ -22,7 +27,7 @@ operator:
   image:
     registry: docker.io
     repository: rebellions/rbln-npu-operator
-    tag: latest
+    tag: ""  # Defaults to Chart.AppVersion
     pullPolicy: IfNotPresent
   # Resource configuration
   replicas: 1
@@ -103,13 +108,13 @@ driver:
     repository: rebellions/rbln-driver
     tag: "3.0.0"
     pullPolicy: IfNotPresent
+  imagePullSecrets:
+  - drivercred
   # Example:
-  # imagePullSecrets:
-  # - my-registry-secret
-  imagePullSecrets: []
+  # imagePullSecrets: []
   # Example:
   # nodeSelector:
-  #   rebellions.ai/npu.present: "true"
+  #   rebellions.ai/old: "true"
   nodeSelector: {}
   # Example:
   # tolerations:
@@ -142,7 +147,7 @@ driver:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.1.2
+      tag: v0.2.0
       pullPolicy: IfNotPresent
   #  imagePullSecrets:
   #  - my-registry-secret
@@ -154,19 +159,24 @@ devicePlugin:
   image:
     registry: docker.io
     repository: rebellions/k8s-device-plugin
-    tag: latest
+    tag: v0.4.0
     pullPolicy: IfNotPresent
-  resourceList:
-  - productCardNames:
-    - RBLN-CA12
-    - RBLN-CA22
-    - RBLN-CA25
-    resourceName: ATOM
-    resourcePrefix: rebellions.ai
-  - productCardNames:
-    - RBLN-CR03
-    resourceName: REBEL
-    resourcePrefix: rebellions.ai
+  # Advertise the generic resource name (rebellions.ai/npu) in addition to product-specific ones.
+  # the controller forwards it to the device plugin container as USE_GENERIC_RESOURCE_NAME.
+  useGenericResourceName: true
+
+# NPU DRA kubelet plugin configuration
+draKubeletPlugin:
+  enabled: false
+  image:
+    registry: docker.io
+    repository: rebellions/k8s-dra-driver-npu
+    tag: v0.1.2
+    pullPolicy: IfNotPresent
+  driverName: npu.rebellions.ai
+  kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
+  kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
+  healthcheckPort: 51515
 
 # NPU Metrics Exporter configuration
 metricsExporter:
@@ -174,7 +184,7 @@ metricsExporter:
   image:
     registry: docker.io
     repository: rebellions/rbln-metrics-exporter
-    tag: latest
+    tag: v0.2.5
     pullPolicy: IfNotPresent
 
 # RBLN Daemon configuration
@@ -185,10 +195,10 @@ rblnDaemon:
     repository: rebellions/rbln-daemon
     tag: "3.0.0"
     pullPolicy: IfNotPresent
+  imagePullSecrets:
+  - drivercred
   hostPort: 50051
-  imagePullSecrets: []
   resources: {}
-
   env: []
 
 # NPU Feature Discovery configuration
@@ -197,7 +207,7 @@ npuFeatureDiscovery:
   image:
     registry: docker.io
     repository: rebellions/rbln-npu-feature-discovery
-    tag: latest
+    tag: v0.2.1
     pullPolicy: IfNotPresent
 
 # Container Toolkit configuration
@@ -206,11 +216,10 @@ containerToolkit:
   image:
     registry: docker.io
     repository: rebellions/rbln-container-toolkit
-    tag: latest
+    tag: v0.1.2
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
-
   env: []
 
 # Sandbox Device Plugin for VM workloads
@@ -219,13 +228,13 @@ sandboxDevicePlugin:
   image:
     registry: docker.io
     repository: rebellions/k8s-device-plugin
-    tag: latest
+    tag: v0.3.8
     pullPolicy: IfNotPresent
 
   # Resource discovery for sandbox workloads
   resourceList:
   - productCardNames:
-    - RBLN-CA12
+    - RBLN-CA22
     resourceName: ATOM_PT
     resourcePrefix: rebellions.ai
   - productCardNames:
@@ -245,17 +254,23 @@ vfioManager:
     repository: rebellions/rbln-vfio-manager
     tag: latest
     pullPolicy: IfNotPresent
+  driverManager:
+    image:
+      registry: docker.io
+      repository: rebellions/rbln-k8s-driver-manager
+      tag: v0.2.0
+      pullPolicy: IfNotPresent
+    env: []
 
 # Validator configuration
 validator:
   image:
     registry: docker.io
     repository: rebellions/rbln-npu-operator-validator
-    tag: latest
+    tag: ""  # Defaults to Chart.AppVersion
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
-
   env: []
   toolkit:
     env: []

@@ -42,6 +42,7 @@ spec:
     image: rebellions/k8s-device-plugin
     version: v0.4.0
     imagePullPolicy: IfNotPresent
+    useGenericResourceName: true
   draKubeletPlugin:
     enabled: false
     registry: docker.io
@@ -107,7 +108,7 @@ spec:
     driverManager:
       registry: docker.io
       image: rebellions/rbln-k8s-driver-manager
-      version: v0.1.4
+      version: v0.2.0
       imagePullPolicy: IfNotPresent
   validator:
     registry: docker.io

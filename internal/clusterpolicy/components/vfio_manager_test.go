@@ -59,14 +59,22 @@ func TestVFIOManagerPatch(t *testing.T) {
 	if len(initContainer.Command) != 1 || initContainer.Command[0] != "driver-manager" {
 		t.Fatalf("init container command = %v, want [driver-manager]", initContainer.Command)
 	}
-	if len(initContainer.Args) != 1 || initContainer.Args[0] != "reconcile-driver-state" {
-		t.Fatalf("init container args = %v, want [reconcile-driver-state]", initContainer.Args)
+	if len(initContainer.Args) != 1 || initContainer.Args[0] != "reconcile-vfio-state" {
+		t.Fatalf("init container args = %v, want [reconcile-vfio-state]", initContainer.Args)
+	}
+	if initContainer.Args[0] == "reconcile-driver-state" {
+		t.Fatalf("vfio-manager init container must not call reconcile-driver-state " +
+			"(host-driver short-circuit incompatible with vm-passthrough nodes)")
 	}
 	assertContainerHasVolumeMount(t, initContainer, "host-sys")
 	assertContainerHasVolumeMount(t, initContainer, "host-root")
 	if envValue(initContainer.Env, "ENABLE_NPU_POD_EVICTION") != "false" {
 		t.Fatalf("ENABLE_NPU_POD_EVICTION = %q, want false (would cordon+drain own host)",
 			envValue(initContainer.Env, "ENABLE_NPU_POD_EVICTION"))
+	}
+	if envValue(initContainer.Env, "PROC_ROOT") != "/host/proc" {
+		t.Fatalf("PROC_ROOT = %q, want /host/proc (fd-scanner needs host procfs view)",
+			envValue(initContainer.Env, "PROC_ROOT"))
 	}
 
 	role := &rbacv1.Role{}
@@ -102,13 +110,6 @@ func TestVFIOManagerPatch(t *testing.T) {
 	if mainContainer.SecurityContext.SELinuxOptions == nil || mainContainer.SecurityContext.SELinuxOptions.Level != "s0" {
 		t.Fatal("expected SELinuxOptions.Level=s0")
 	}
-	if mainContainer.Lifecycle == nil || mainContainer.Lifecycle.PreStop == nil {
-		t.Fatal("expected PreStop lifecycle hook")
-	}
-	preStopCmd := strings.Join(mainContainer.Lifecycle.PreStop.Exec.Command, " ")
-	if !strings.Contains(preStopCmd, "unbind --all") {
-		t.Fatalf("expected PreStop to invoke unbind --all, got %q", preStopCmd)
-	}
 
 	if ds.Spec.Template.Spec.TerminationGracePeriodSeconds == nil || *ds.Spec.Template.Spec.TerminationGracePeriodSeconds != 30 {
 		t.Fatalf("expected TerminationGracePeriodSeconds=30, got %v", ds.Spec.Template.Spec.TerminationGracePeriodSeconds)
@@ -122,14 +123,20 @@ func TestVFIOManagerPatch(t *testing.T) {
 		t.Fatalf("get ConfigMap: %v", err)
 	}
 	script := cm.Data["vfio-manage.sh"]
-	for _, want := range []string{"unbind_from_driver", "unbind_all", "bind_all", "handle_bind", "handle_unbind"} {
+	for _, want := range []string{
+		"bind_all", "bind_pci_device", "handle_bind",
+		"is_bound_to_vfio", "unbind_from_other_driver",
+	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("vfio-manage.sh missing %q", want)
 		}
 	}
-	for _, unwanted := range []string{"wait_for_driver_rebind", "drivers_probe", "cleanup_device", "cleanup_all", "handle_cleanup"} {
+	for _, unwanted := range []string{
+		"handle_unbind", "unbind_all", "unbind_device", "unbind_from_driver", "vfio_in_use",
+		"wait_for_driver_rebind", "drivers_probe", "cleanup_device", "cleanup_all", "handle_cleanup",
+	} {
 		if strings.Contains(script, unwanted) {
-			t.Errorf("vfio-manage.sh should not contain %q (PreStop is fire-and-forget)", unwanted)
+			t.Errorf("vfio-manage.sh should not contain %q (bind-only design)", unwanted)
 		}
 	}
 }
