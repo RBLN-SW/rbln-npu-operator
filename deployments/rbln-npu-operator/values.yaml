@@ -150,7 +150,7 @@ driver:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.1.4
+      tag: v0.2.0
       pullPolicy: IfNotPresent
   #  imagePullSecrets:
   #  - my-registry-secret
@@ -164,9 +164,8 @@ devicePlugin:
     repository: rebellions/k8s-device-plugin
     tag: v0.4.0
     pullPolicy: IfNotPresent
-  # Advertise the generic resource name (rebellions.ai/npu) in addition to
-  # product-specific ones. Forwarded to the device plugin as the
-  # USE_GENERIC_RESOURCE_NAME env var.
+  # Advertise the generic resource name (rebellions.ai/npu) in addition to product-specific ones.
+  # the controller forwards it to the device plugin container as USE_GENERIC_RESOURCE_NAME.
   useGenericResourceName: true
 
 # NPU DRA kubelet plugin configuration
@@ -238,7 +237,7 @@ sandboxDevicePlugin:
   # Resource discovery for sandbox workloads
   resourceList:
   - productCardNames:
-    - RBLN-CA12
+    - RBLN-CA22
     resourceName: ATOM_PT
     resourcePrefix: rebellions.ai
   - productCardNames:
@@ -262,7 +261,7 @@ vfioManager:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.1.4
+      tag: v0.2.0
       pullPolicy: IfNotPresent
     env: []
 

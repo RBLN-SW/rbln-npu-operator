@@ -2340,6 +2340,13 @@ spec:
                           type: string
                       type: object
                     type: array
+                  useGenericResourceName:
+                    default: true
+                    description: |-
+                      UseGenericResourceName advertises the generic resource name (rebellions.ai/npu) in
+                      addition to product-specific ones. Forwarded to the device plugin container as the
+                      USE_GENERIC_RESOURCE_NAME environment variable.
+                    type: boolean
                   version:
                     default: latest
                     description: RBLN Device Plugin image tag

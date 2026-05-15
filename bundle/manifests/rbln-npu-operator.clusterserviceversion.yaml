@@ -23,7 +23,7 @@ metadata:
               "image": "rebellions/rbln-k8s-driver-manager",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v0.1.4"
+              "version": "v0.2.0"
             },
             "priorityClassName": "system-node-critical",
             "registry": "repo.rebellions.ai",
@@ -62,6 +62,7 @@ metadata:
               "image": "rebellions/k8s-device-plugin",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
+              "useGenericResourceName": true,
               "version": "v0.4.0"
             },
             "draKubeletPlugin": {
@@ -169,7 +170,7 @@ metadata:
                 "image": "rebellions/rbln-k8s-driver-manager",
                 "imagePullPolicy": "IfNotPresent",
                 "registry": "docker.io",
-                "version": "v0.1.4"
+                "version": "v0.2.0"
               },
               "enabled": false,
               "image": "rebellions/rbln-vfio-manager",
@@ -183,7 +184,7 @@ metadata:
       ]
     capabilities: Basic Install
     containerImage: docker.io/rebellions/rbln-npu-operator:latest
-    createdAt: "2026-05-12T08:10:14Z"
+    createdAt: "2026-05-15T00:35:04Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -355,6 +356,14 @@ spec:
         path: devicePlugin.tolerations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
+      - description: |-
+          UseGenericResourceName advertises the generic resource name (rebellions.ai/npu) in
+          addition to product-specific ones. Forwarded to the device plugin container as the
+          USE_GENERIC_RESOURCE_NAME environment variable.
+        displayName: Use Generic Resource Name
+        path: devicePlugin.useGenericResourceName
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
       - description: RBLN Device Plugin image tag
         displayName: Version
         path: devicePlugin.version

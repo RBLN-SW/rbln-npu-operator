@@ -26,6 +26,14 @@ type RBLNDevicePluginSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Version",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Version string `json:"version,omitempty"`
 
+	// UseGenericResourceName advertises the generic resource name (rebellions.ai/npu) in
+	// addition to product-specific ones. Forwarded to the device plugin container as the
+	// USE_GENERIC_RESOURCE_NAME environment variable.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=true
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Use Generic Resource Name",xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
+	UseGenericResourceName bool `json:"useGenericResourceName"`
+
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`

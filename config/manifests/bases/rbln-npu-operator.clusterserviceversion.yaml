@@ -176,6 +176,14 @@ spec:
         path: devicePlugin.tolerations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
+      - description: |-
+          UseGenericResourceName advertises the generic resource name (rebellions.ai/npu) in
+          addition to product-specific ones. Forwarded to the device plugin container as the
+          USE_GENERIC_RESOURCE_NAME environment variable.
+        displayName: Use Generic Resource Name
+        path: devicePlugin.useGenericResourceName
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
       - description: RBLN Device Plugin image tag
         displayName: Version
         path: devicePlugin.version
