@@ -206,26 +206,10 @@ Usage: $0 COMMAND [OPTIONS]
 
 Commands:
   bind        [-a|--all] [-d|--device-id <PCI_ADDR>]
-  unbind      [-a|--all] [-d|--device-id <PCI_ADDR>]
   check_bind  [-a|--all] [-d|--device-id <PCI_ADDR>]
   help        [-h|--help]
 EOF
 	exit 0
-}
-
-unbind_from_driver() {
-	local npu=$1
-	local existing_driver_name
-	local existing_driver
-
-	[ -e "/sys/bus/pci/devices/$npu/driver" ] || return 0
-
-	existing_driver=$(readlink -f "/sys/bus/pci/devices/$npu/driver")
-	existing_driver_name=$(basename "$existing_driver")
-
-	echo "unbinding device $npu from driver $existing_driver_name"
-	echo "$npu" > "$existing_driver/unbind"
-	echo > /sys/bus/pci/devices/$npu/driver_override
 }
 
 # unbind device from non vfio-pci driver
@@ -275,27 +259,6 @@ is_bound_to_vfio() {
 
 	[ "$existing_driver_name" == "vfio-pci" ] && return 0
 	return 1
-}
-
-unbind_device() {
-	local npu=$1
-
-	if ! is_target_npu_device $npu; then
-		return 0
-	fi
-
-	echo "unbinding device $npu"
-	unbind_from_driver $npu
-}
-
-unbind_all() {
-	for dev in /sys/bus/pci/devices/*; do
-		read vendor < $dev/vendor
-		if [ "$vendor" = "0x1eff" ]; then
-			local dev_id=$(basename $dev)
-			unbind_device $dev_id
-		fi
-	done
 }
 
 bind_pci_device() {
@@ -406,16 +369,6 @@ handle_bind() {
 	fi
 }
 
-handle_unbind() {
-	if [ "$DEVICE_ID" != "" ]; then
-		unbind_device $DEVICE_ID
-	elif [ "$ALL_DEVICES" = "true" ]; then
-		unbind_all
-	else
-		usage
-	fi
-}
-
 handle_check_bind() {
     if [ "$DEVICE_ID" != "" ]; then
         check_bind_device $DEVICE_ID
@@ -471,7 +424,6 @@ done
 case "$command" in
   help)        usage ;;
   bind)        handle_bind ;;
-  unbind)      handle_unbind ;;
   check_bind)  handle_check_bind ;;
   *)
     echo "Unknown command: $command" >&2
@@ -495,7 +447,7 @@ func (h *vfioManagerPatcher) buildDriverUninstallInitContainer() *corev1.Contain
 		WithName("k8s-driver-manager").
 		WithImage(k8sutil.ComposeImageReference(dm.Registry, dm.Image), dm.Version, dm.ImagePullPolicy).
 		WithCommands([]string{"driver-manager"}).
-		WithArgs([]string{"reconcile-driver-state"}).
+		WithArgs([]string{"reconcile-vfio-state"}).
 		WithEnvs(append([]corev1.EnvVar{
 			{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"}}},
 			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}}},
@@ -505,6 +457,7 @@ func (h *vfioManagerPatcher) buildDriverUninstallInitContainer() *corev1.Contain
 			{Name: "DRAIN_POD_SELECTOR_LABEL", Value: ""},
 			{Name: "DRAIN_TIMEOUT_SECONDS", Value: "0s"},
 			{Name: "DRAIN_DELETE_EMPTYDIR_DATA", Value: "false"},
+			{Name: "PROC_ROOT", Value: "/host/proc"},
 		}, dm.Env...)).
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged: ptr(true),
@@ -559,13 +512,6 @@ func (h *vfioManagerPatcher) buildPodSpec() *corev1.PodSpec {
 					RunAsUser:      ptr(int64(0)),
 					Privileged:     ptr(true),
 					SELinuxOptions: &corev1.SELinuxOptions{Level: "s0"},
-				}).
-				WithLifeCycle(&corev1.Lifecycle{
-					PreStop: &corev1.LifecycleHandler{
-						Exec: &corev1.ExecAction{
-							Command: []string{"/bin/sh", "-c", "/bin/vfio-manage.sh unbind --all"},
-						},
-					},
 				}).
 				Build(),
 		}).

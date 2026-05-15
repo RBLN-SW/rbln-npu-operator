@@ -33,7 +33,7 @@ spec:
   manager:
     registry: docker.io
     image: rebellions/rbln-k8s-driver-manager
-    version: v0.1.4
+    version: v0.2.0
     imagePullPolicy: IfNotPresent
     # imagePullSecrets:
     # - my-registry-secret

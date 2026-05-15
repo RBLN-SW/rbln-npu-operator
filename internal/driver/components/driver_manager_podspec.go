@@ -192,6 +192,7 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
 			}},
+			{Name: "PROC_ROOT", Value: "/host/proc"},
 		}).
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged:     ptr(true),

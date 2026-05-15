@@ -165,14 +165,17 @@ func TestBuildDriverManagerInitContainer(t *testing.T) {
 		t.Fatal("expected privileged security context")
 	}
 
-	envNames := make(map[string]bool)
+	envByName := make(map[string]string)
 	for _, env := range c.Env {
-		envNames[env.Name] = true
+		envByName[env.Name] = env.Value
 	}
 	for _, required := range []string{"NODE_NAME", "ENABLE_NPU_POD_EVICTION", "OPERATOR_NAMESPACE"} {
-		if !envNames[required] {
+		if _, ok := envByName[required]; !ok {
 			t.Fatalf("missing required env var %q", required)
 		}
+	}
+	if got := envByName["PROC_ROOT"]; got != "/host/proc" {
+		t.Fatalf("PROC_ROOT = %q, want /host/proc (fd-scanner needs host procfs view)", got)
 	}
 
 	// Regression guard: k8s-driver-manager's unmountRootfs() looks up the
