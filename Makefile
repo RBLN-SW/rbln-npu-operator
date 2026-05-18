@@ -10,6 +10,7 @@ DEVICE_PLUGIN_VERSION ?= latest
 METRICS_EXPORTER_VERSION ?= latest
 NPU_DISCOVERY_VERSION ?= latest
 VFIO_MANAGER_VERSION ?= latest
+NODE_REBOOT_VERSION ?= latest
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -269,6 +270,14 @@ IMAGE_NAME ?= $(REGISTRY)/rbln-npu-operator
 IMAGE_TAG ?= $(VERSION)
 IMAGE := $(IMAGE_NAME):$(IMAGE_TAG)
 
+VFIO_MANAGER_IMAGE_NAME ?= $(REGISTRY)/rbln-vfio-manager
+VFIO_MANAGER_IMAGE_TAG ?= $(VFIO_MANAGER_VERSION)
+VFIO_MANAGER_IMAGE := $(VFIO_MANAGER_IMAGE_NAME):$(VFIO_MANAGER_IMAGE_TAG)
+
+NODE_REBOOT_IMAGE_NAME ?= $(REGISTRY)/rbln-node-reboot
+NODE_REBOOT_IMAGE_TAG ?= $(NODE_REBOOT_VERSION)
+NODE_REBOOT_IMAGE := $(NODE_REBOOT_IMAGE_NAME):$(NODE_REBOOT_IMAGE_TAG)
+
 .PHONY: build-image
 build-image: ## Build the NPU operator image.
 	DOCKER_BUILDKIT=1 \
@@ -279,6 +288,26 @@ build-image: ## Build the NPU operator image.
 		--build-arg VERSION="$(VERSION)" \
 		--build-arg GOLANG_VERSION="$(GOLANG_VERSION)" \
 		--file $(DOCKERFILE) $(CURDIR)
+
+.PHONY: build-vfio-manager-image
+build-vfio-manager-image: ## Build the RBLN VFIO manager image.
+	DOCKER_BUILDKIT=1 \
+		$(CONTAINER_TOOL) $(BUILDX) build --pull \
+		$(DOCKER_BUILD_OPTIONS) \
+		$(DOCKER_BUILD_PLATFORM_OPTIONS) \
+		--tag $(VFIO_MANAGER_IMAGE) \
+		--build-arg VERSION="$(VFIO_MANAGER_VERSION)" \
+		--file $(CURDIR)/images/vfio-manager/Dockerfile $(CURDIR)
+
+.PHONY: build-node-reboot-image
+build-node-reboot-image: ## Build the RBLN node reboot image.
+	DOCKER_BUILDKIT=1 \
+		$(CONTAINER_TOOL) $(BUILDX) build --pull \
+		$(DOCKER_BUILD_OPTIONS) \
+		$(DOCKER_BUILD_PLATFORM_OPTIONS) \
+		--tag $(NODE_REBOOT_IMAGE) \
+		--build-arg VERSION="$(NODE_REBOOT_VERSION)" \
+		--file $(CURDIR)/images/node-reboot/Dockerfile $(CURDIR)
 
 ##@ Helm Chart
 
