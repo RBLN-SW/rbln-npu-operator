@@ -76,6 +76,18 @@ func TestVFIOManagerPatch(t *testing.T) {
 		t.Fatalf("PROC_ROOT = %q, want /host/proc (fd-scanner needs host procfs view)",
 			envValue(initContainer.Env, "PROC_ROOT"))
 	}
+	// Downward-API env vars must set APIVersion explicitly. The kube-apiserver
+	// defaults it to "v1" on persist, so omitting it triggers a perpetual
+	// reconcile/patch loop (operator submits "", server stores "v1", diff, repeat).
+	for _, name := range []string{"NODE_NAME", "OPERATOR_NAMESPACE"} {
+		fr := envFieldRef(initContainer.Env, name)
+		if fr == nil {
+			t.Fatalf("init container env %q missing FieldRef", name)
+		}
+		if fr.APIVersion != "v1" {
+			t.Fatalf("init container env %q FieldRef.APIVersion = %q, want v1 (prevents reconcile thrash)", name, fr.APIVersion)
+		}
+	}
 
 	role := &rbacv1.Role{}
 	assertObjectExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, role)

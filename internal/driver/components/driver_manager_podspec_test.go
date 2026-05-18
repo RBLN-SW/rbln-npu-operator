@@ -178,6 +178,25 @@ func TestBuildDriverManagerInitContainer(t *testing.T) {
 		t.Fatalf("PROC_ROOT = %q, want /host/proc (fd-scanner needs host procfs view)", got)
 	}
 
+	// Downward-API env vars must set APIVersion explicitly. The kube-apiserver
+	// defaults it to "v1" on persist, so omitting it triggers a perpetual
+	// reconcile/patch loop (operator submits "", server stores "v1", diff, repeat).
+	fieldRefByName := make(map[string]*corev1.ObjectFieldSelector)
+	for i := range c.Env {
+		if c.Env[i].ValueFrom != nil {
+			fieldRefByName[c.Env[i].Name] = c.Env[i].ValueFrom.FieldRef
+		}
+	}
+	for _, name := range []string{"NODE_NAME", "OPERATOR_NAMESPACE"} {
+		fr := fieldRefByName[name]
+		if fr == nil {
+			t.Fatalf("init container env %q missing FieldRef", name)
+		}
+		if fr.APIVersion != "v1" {
+			t.Fatalf("init container env %q FieldRef.APIVersion = %q, want v1 (prevents reconcile thrash)", name, fr.APIVersion)
+		}
+	}
+
 	// Regression guard: k8s-driver-manager's unmountRootfs() looks up the
 	// driver staging tree via os.Stat(driverRoot) where driverRoot equals
 	// hostDriverPath. Without a Bidirectional mount at that exact path the

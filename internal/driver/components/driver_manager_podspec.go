@@ -181,7 +181,7 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 		WithArgs([]string{driverManagerSyncDriverLabel}).
 		WithEnvs([]corev1.EnvVar{
 			{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{
-				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
+				FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "spec.nodeName"},
 			}},
 			{Name: "ENABLE_NPU_POD_EVICTION", Value: "true"},
 			{Name: "ENABLE_AUTO_DRAIN", Value: "false"},
@@ -190,7 +190,7 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 			{Name: "DRAIN_TIMEOUT_SECONDS", Value: "0s"},
 			{Name: "DRAIN_DELETE_EMPTYDIR_DATA", Value: "false"},
 			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{
-				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
+				FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "metadata.namespace"},
 			}},
 			{Name: "PROC_ROOT", Value: "/host/proc"},
 		}).
