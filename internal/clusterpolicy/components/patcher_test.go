@@ -154,6 +154,15 @@ func envValue(envs []corev1.EnvVar, name string) string {
 	return ""
 }
 
+func envFieldRef(envs []corev1.EnvVar, name string) *corev1.ObjectFieldSelector {
+	for _, e := range envs {
+		if e.Name == name && e.ValueFrom != nil {
+			return e.ValueFrom.FieldRef
+		}
+	}
+	return nil
+}
+
 func assertContainerHasVolumeMount(t *testing.T, c corev1.Container, volumeName string) {
 	t.Helper()
 	for _, vm := range c.VolumeMounts {

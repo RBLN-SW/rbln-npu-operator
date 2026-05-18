@@ -28,9 +28,9 @@ podDefaults:
 operator:
   # Operator image configuration
   image:
-    registry: harbor.k8s.rebellions.in
+    registry: docker.io
     repository: rebellions/rbln-npu-operator
-    tag: v0.4.3  # Defaults to Chart.AppVersion
+    tag: ""  # Defaults to Chart.AppVersion
     pullPolicy: IfNotPresent
   # Resource configuration
   replicas: 1
@@ -81,7 +81,7 @@ operator:
 
 # Driver configuration
 driver:
-  enabled: true
+  enabled: false
   # Driver upgrade policy rendered under spec.driver.upgradePolicy.
   # If autoUpgrade is false, the remaining options are ignored.
   upgradePolicy:
@@ -192,7 +192,7 @@ metricsExporter:
 
 # RBLN Daemon configuration
 rblnDaemon:
-  enabled: true
+  enabled: false
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-daemon
@@ -270,9 +270,9 @@ vfioManager:
 # Validator configuration
 validator:
   image:
-    registry: harbor.k8s.rebellions.in
+    registry: docker.io
     repository: rebellions/rbln-npu-operator-validator
-    tag: v0.4.3  # Defaults to Chart.AppVersion
+    tag: ""  # Defaults to Chart.AppVersion
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}

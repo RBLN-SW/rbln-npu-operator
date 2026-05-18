@@ -449,8 +449,8 @@ func (h *vfioManagerPatcher) buildDriverUninstallInitContainer() *corev1.Contain
 		WithCommands([]string{"driver-manager"}).
 		WithArgs([]string{"reconcile-vfio-state"}).
 		WithEnvs(append([]corev1.EnvVar{
-			{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"}}},
-			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}}},
+			{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "spec.nodeName"}}},
+			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "metadata.namespace"}}},
 			{Name: "ENABLE_NPU_POD_EVICTION", Value: "false"},
 			{Name: "ENABLE_AUTO_DRAIN", Value: "false"},
 			{Name: "DRAIN_USE_FORCE", Value: "false"},
