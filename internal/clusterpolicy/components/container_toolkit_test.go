@@ -3,10 +3,12 @@ package components
 import (
 	"context"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -291,6 +293,68 @@ func TestContainerToolkitConfigPathOverride(t *testing.T) {
 			}
 			if !foundEnv {
 				t.Fatal("expected env RBLN_CTK_DAEMON_CONFIG_PATH not found")
+			}
+		})
+	}
+}
+
+func TestContainerToolkitRefreshInterval(t *testing.T) {
+	tests := map[string]struct {
+		refreshInterval *metav1.Duration
+		envOverride     []corev1.EnvVar
+		want            string
+	}{
+		"nil uses 5s default": {
+			want: "5s",
+		},
+		"explicit 5m": {
+			refreshInterval: &metav1.Duration{Duration: 5 * time.Minute},
+			want:            "5m0s",
+		},
+		"explicit 0s disables refresh": {
+			refreshInterval: &metav1.Duration{Duration: 0},
+			want:            "0s",
+		},
+		"spec.Env overrides typed field": {
+			refreshInterval: &metav1.Duration{Duration: 10 * time.Second},
+			envOverride: []corev1.EnvVar{
+				{Name: "RBLN_CTK_DAEMON_REFRESH_INTERVAL", Value: "30s"},
+			},
+			want: "30s",
+		},
+		"spec.Env-only without typed field": {
+			envOverride: []corev1.EnvVar{
+				{Name: "RBLN_CTK_DAEMON_REFRESH_INTERVAL", Value: "45s"},
+			},
+			want: "45s",
+		},
+	}
+
+	dsName := consts.RBLNBaseName + "-" + consts.RBLNContainerToolkitName
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			scheme := newTestScheme(t)
+			c := newFakeClient(t, scheme)
+
+			owner := newTestOwner()
+			owner.Spec.ContainerToolkit.RefreshInterval = tc.refreshInterval
+			owner.Spec.ContainerToolkit.Env = tc.envOverride
+
+			p := NewContainerToolkitPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "", consts.Containerd)
+			if err := p.Patch(context.Background(), owner); err != nil {
+				t.Fatalf("Patch() error: %v", err)
+			}
+
+			ds := &appsv1.DaemonSet{}
+			assertObjectExists(t, c, types.NamespacedName{Name: dsName, Namespace: testNamespace}, ds)
+
+			got, ok := envVarValue(ds.Spec.Template.Spec.Containers[0].Env, "RBLN_CTK_DAEMON_REFRESH_INTERVAL")
+			if !ok {
+				t.Fatal("expected env RBLN_CTK_DAEMON_REFRESH_INTERVAL not found")
+			}
+			if got != tc.want {
+				t.Fatalf("env RBLN_CTK_DAEMON_REFRESH_INTERVAL = %q, want %q", got, tc.want)
 			}
 		})
 	}

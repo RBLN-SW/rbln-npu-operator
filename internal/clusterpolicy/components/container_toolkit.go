@@ -4,6 +4,7 @@ import (
 	"context"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -40,6 +41,8 @@ const (
 	containerdConfigPath                = "/etc/containerd/config.toml"
 	dockerConfigPath                    = "/etc/docker/daemon.json"
 	crioConfigPath                      = "/etc/crio/crio.conf.d/99-rbln.conf"
+
+	containerToolkitDefaultRefreshInterval = 5 * time.Second
 )
 
 type containerToolkitPatcher struct {
@@ -284,7 +287,13 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 	socketPath := h.resolveSocketPath()
 	runtimeMounts, runtimeVolumes := h.buildRuntimeMountsAndVolumes(socketPath)
 
-	runtimeEnv := []corev1.EnvVar{}
+	refreshInterval := containerToolkitDefaultRefreshInterval
+	if toolkitSpec.RefreshInterval != nil {
+		refreshInterval = toolkitSpec.RefreshInterval.Duration
+	}
+	runtimeEnv := []corev1.EnvVar{
+		{Name: "RBLN_CTK_DAEMON_REFRESH_INTERVAL", Value: refreshInterval.String()},
+	}
 	switch h.containerRuntime {
 	case consts.Containerd:
 		runtimeEnv = append(runtimeEnv,

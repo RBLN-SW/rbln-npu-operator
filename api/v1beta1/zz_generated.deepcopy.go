@@ -351,6 +351,11 @@ func (in *RBLNComponentStatus) DeepCopy() *RBLNComponentStatus {
 func (in *RBLNContainerToolkitSpec) DeepCopyInto(out *RBLNContainerToolkitSpec) {
 	*out = *in
 	in.PodSpec.DeepCopyInto(&out.PodSpec)
+	if in.RefreshInterval != nil {
+		in, out := &in.RefreshInterval, &out.RefreshInterval
+		*out = new(metav1.Duration)
+		**out = **in
+	}
 	if in.Env != nil {
 		in, out := &in.Env, &out.Env
 		*out = make([]v1.EnvVar, len(*in))

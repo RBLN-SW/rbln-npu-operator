@@ -28,9 +28,9 @@ podDefaults:
 operator:
   # Operator image configuration
   image:
-    registry: docker.io
+    registry: harbor.k8s.rebellions.in
     repository: rebellions/rbln-npu-operator
-    tag: ""  # Defaults to Chart.AppVersion
+    tag: v0.4.3  # Defaults to Chart.AppVersion
     pullPolicy: IfNotPresent
   # Resource configuration
   replicas: 1
@@ -81,7 +81,7 @@ operator:
 
 # Driver configuration
 driver:
-  enabled: false
+  enabled: true
   # Driver upgrade policy rendered under spec.driver.upgradePolicy.
   # If autoUpgrade is false, the remaining options are ignored.
   upgradePolicy:
@@ -192,7 +192,7 @@ metricsExporter:
 
 # RBLN Daemon configuration
 rblnDaemon:
-  enabled: false
+  enabled: true
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-daemon
@@ -219,10 +219,12 @@ containerToolkit:
   image:
     registry: docker.io
     repository: rebellions/rbln-container-toolkit
-    tag: v0.1.2
+    tag: v0.2.0
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
+  # rbln-ctk-daemon refresh interval (Go duration string, e.g. "5s", "1m"). "0s" disables auto-refresh.
+  refreshInterval: 5s
   env: []
 
 # Sandbox Device Plugin for VM workloads
@@ -268,9 +270,9 @@ vfioManager:
 # Validator configuration
 validator:
   image:
-    registry: docker.io
+    registry: harbor.k8s.rebellions.in
     repository: rebellions/rbln-npu-operator-validator
-    tag: ""  # Defaults to Chart.AppVersion
+    tag: v0.4.3  # Defaults to Chart.AppVersion
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}

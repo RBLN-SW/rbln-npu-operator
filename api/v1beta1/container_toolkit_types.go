@@ -1,6 +1,9 @@
 package v1beta1
 
-import corev1 "k8s.io/api/core/v1"
+import (
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // RBLNContainerToolkitSpec defines the desired state of RBLN container toolkit
 type RBLNContainerToolkitSpec struct {
@@ -31,6 +34,14 @@ type RBLNContainerToolkitSpec struct {
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
+
+	// RefreshInterval controls how often rbln-ctk-daemon refreshes its state.
+	// Accepts Go duration format ("5s", "1m", "1h30m"). "0s" disables auto-refresh.
+	// Injected as RBLN_CTK_DAEMON_REFRESH_INTERVAL on the container.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:="5s"
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Refresh Interval",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
+	RefreshInterval *metav1.Duration `json:"refreshInterval,omitempty"`
 
 	// Optional: List of environment variables
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Environment Variables",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text"
