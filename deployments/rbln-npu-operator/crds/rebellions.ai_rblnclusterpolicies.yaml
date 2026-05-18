@@ -1163,6 +1163,13 @@ spec:
                       type: string
                     description: Labels specifies the labels for the DaemonSet pods
                     type: object
+                  refreshInterval:
+                    default: 5s
+                    description: |-
+                      RefreshInterval controls how often rbln-ctk-daemon refreshes its state.
+                      Accepts Go duration format ("5s", "1m", "1h30m"). "0s" disables auto-refresh.
+                      Injected as RBLN_CTK_DAEMON_REFRESH_INTERVAL on the container.
+                    type: string
                   registry:
                     default: docker.io
                     description: Registry override for the RBLN Container Toolkit

@@ -119,6 +119,9 @@ spec:
     image: {{ .Values.containerToolkit.image.repository | quote }}
     imagePullPolicy: {{ .Values.containerToolkit.image.pullPolicy | quote }}
     version: {{ .Values.containerToolkit.image.tag | quote }}
+    {{- if .Values.containerToolkit.refreshInterval }}
+    refreshInterval: {{ .Values.containerToolkit.refreshInterval | quote }}
+    {{- end }}
     {{- if .Values.containerToolkit.imagePullSecrets }}
     imagePullSecrets:
       {{- toYaml .Values.containerToolkit.imagePullSecrets | nindent 6 }}
