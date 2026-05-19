@@ -37,9 +37,12 @@ const (
 
 type validatorPatcher struct {
 	basePatcher
-	desiredSpec  *rblnv1beta1.ValidatorSpec
-	podDefaults  *rblnv1beta1.PodDefaultsSpec
-	workloadType string
+	desiredSpec *rblnv1beta1.ValidatorSpec
+	podDefaults *rblnv1beta1.PodDefaultsSpec
+	// policyWorkloadType is the CR-level spec.workloadType (used to select
+	// init containers); distinct from basePatcher.workloadType which is the
+	// per-component workload group (always container for the validator).
+	policyWorkloadType string
 }
 
 func NewValidatorPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
@@ -52,10 +55,11 @@ func NewValidatorPatcher(client client.Client, log logr.Logger, namespace string
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          true,
+			workloadType:     consts.RBLNWorkloadConfigContainer,
 		},
-		desiredSpec:  &cpSpec.Validator,
-		podDefaults:  cpSpec.PodDefaults,
-		workloadType: cpSpec.WorkloadType,
+		desiredSpec:        &cpSpec.Validator,
+		podDefaults:        cpSpec.PodDefaults,
+		policyWorkloadType: cpSpec.WorkloadType,
 	}
 }
 
@@ -296,7 +300,7 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 	}
 
 	initContainers := []*corev1.Container{driverInit, toolkitInit}
-	if h.workloadType == consts.RBLNWorkloadConfigContainer {
+	if h.policyWorkloadType == consts.RBLNWorkloadConfigContainer {
 		initContainers = append([]*corev1.Container{
 			buildRBLNBindingValidationInitContainer(*validatorSpec),
 		}, initContainers...)

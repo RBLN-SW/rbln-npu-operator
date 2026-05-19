@@ -15,12 +15,14 @@ import (
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 )
 
-// DriverPatcher manages the lifecycle of a single driver component.
+// DriverPatcher implementations that do not manage DaemonSets return
+// (nil, nil) from PoolStatuses so the service can iterate uniformly.
 type DriverPatcher interface {
 	IsEnabled() bool
 	Patch(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error
 	CleanUp(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error
 	IsReady(ctx context.Context) error
+	PoolStatuses(ctx context.Context) ([]rebellionsaiv1alpha1.RBLNDriverPoolStatus, error)
 	ComponentName() string
 	ComponentNamespace() string
 }
@@ -33,7 +35,11 @@ type DriverPatcher interface {
 // ownerReferences to each RBLNDriver instance via controllerutil.SetOwnerReference.
 // Kubernetes GC only deletes them once all owners are gone.
 type basePatcher struct {
-	client           client.Client
+	client client.Client
+	// apiReader bypasses the informer cache for status reads issued in the
+	// same reconcile pass as a Delete; the cached client would otherwise
+	// return the just-deleted object until the watch event propagates.
+	apiReader        client.Reader
 	log              logr.Logger
 	scheme           *runtime.Scheme
 	name             string // component name (e.g. "rbln-driver")

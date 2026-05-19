@@ -7,6 +7,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 func TestIsReady(t *testing.T) {
@@ -17,14 +20,21 @@ func TestIsReady(t *testing.T) {
 	ctx := context.Background()
 
 	tests := map[string]struct {
-		ds      *appsv1.DaemonSet
-		wantErr bool
+		ds        *appsv1.DaemonSet
+		nodeCount int32
+		wantState rblnv1beta1.ComponentState
 	}{
-		"DaemonSet not found": {
-			ds:      nil,
-			wantErr: true,
+		"DaemonSet not found, nodes present → notReady": {
+			ds:        nil,
+			nodeCount: 1,
+			wantState: rblnv1beta1.ComponentStateNotReady,
 		},
-		"DesiredNumberScheduled is zero": {
+		"DaemonSet not found, no nodes for workload → notReady (Patch must have run first)": {
+			ds:        nil,
+			nodeCount: 0,
+			wantState: rblnv1beta1.ComponentStateNotReady,
+		},
+		"DesiredNumberScheduled is zero, nodes present → notReady (label mismatch)": {
 			ds: &appsv1.DaemonSet{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 				Status: appsv1.DaemonSetStatus{
@@ -32,9 +42,21 @@ func TestIsReady(t *testing.T) {
 					NumberReady:            0,
 				},
 			},
-			wantErr: true,
+			nodeCount: 1,
+			wantState: rblnv1beta1.ComponentStateNotReady,
 		},
-		"NumberReady < DesiredNumberScheduled": {
+		"DesiredNumberScheduled is zero, no nodes for workload → ready (idle)": {
+			ds: &appsv1.DaemonSet{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Status: appsv1.DaemonSetStatus{
+					DesiredNumberScheduled: 0,
+					NumberReady:            0,
+				},
+			},
+			nodeCount: 0,
+			wantState: rblnv1beta1.ComponentStateReady,
+		},
+		"NumberReady < DesiredNumberScheduled → notReady (progressing)": {
 			ds: &appsv1.DaemonSet{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 				Status: appsv1.DaemonSetStatus{
@@ -43,9 +65,10 @@ func TestIsReady(t *testing.T) {
 					NumberUnavailable:      2,
 				},
 			},
-			wantErr: true,
+			nodeCount: 3,
+			wantState: rblnv1beta1.ComponentStateNotReady,
 		},
-		"all pods ready": {
+		"all pods ready → ready": {
 			ds: &appsv1.DaemonSet{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 				Status: appsv1.DaemonSetStatus{
@@ -54,7 +77,8 @@ func TestIsReady(t *testing.T) {
 					NumberUnavailable:      0,
 				},
 			},
-			wantErr: false,
+			nodeCount: 3,
+			wantState: rblnv1beta1.ComponentStateReady,
 		},
 	}
 
@@ -69,17 +93,15 @@ func TestIsReady(t *testing.T) {
 			}
 
 			bp := &basePatcher{
-				client:    c,
-				name:      name,
-				namespace: namespace,
+				client:       c,
+				name:         name,
+				namespace:    namespace,
+				workloadType: consts.RBLNWorkloadConfigContainer,
 			}
 
-			err := bp.IsReady(ctx)
-			if tc.wantErr && err == nil {
-				t.Fatal("expected error, got nil")
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			got := bp.IsReady(ctx, tc.nodeCount)
+			if got.State != tc.wantState {
+				t.Fatalf("state: got %q, want %q (msg=%q)", got.State, tc.wantState, got.Message)
 			}
 		})
 	}

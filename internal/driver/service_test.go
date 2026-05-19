@@ -18,6 +18,8 @@ type fakeDriverPatcher struct {
 	patchErr   error
 	cleanupErr error
 	readyErr   error
+	pools      []rebellionsaiv1alpha1.RBLNDriverPoolStatus
+	poolsErr   error
 	patchCalls int
 	cleanCalls int
 }
@@ -37,8 +39,11 @@ func (f *fakeDriverPatcher) CleanUp(_ context.Context, _ *rebellionsaiv1alpha1.R
 }
 
 func (f *fakeDriverPatcher) IsReady(_ context.Context) error { return f.readyErr }
-func (f *fakeDriverPatcher) ComponentName() string           { return f.name }
-func (f *fakeDriverPatcher) ComponentNamespace() string      { return f.namespace }
+func (f *fakeDriverPatcher) PoolStatuses(_ context.Context) ([]rebellionsaiv1alpha1.RBLNDriverPoolStatus, error) {
+	return f.pools, f.poolsErr
+}
+func (f *fakeDriverPatcher) ComponentName() string      { return f.name }
+func (f *fakeDriverPatcher) ComponentNamespace() string { return f.namespace }
 
 func TestPatchComponents(t *testing.T) {
 	errPatch := errors.New("patch boom")
@@ -122,6 +127,32 @@ func TestPatchComponents(t *testing.T) {
 				t.Errorf("%s: clean call counts -want, +got:\n%s", tc.reason, diff)
 			}
 		})
+	}
+}
+
+// TestAssembleStatus_NonNilEmpty pins the contract that AssembleStatus
+// returns a non-nil empty slice when no pools exist. applyDriverSummary
+// treats nil as "preserve previous status", so a regression where the
+// pools accumulator stayed nil after appending zero entries would silently
+// keep stale node-pool data on the CR.
+func TestAssembleStatus_NonNilEmpty(t *testing.T) {
+	patchers := []*fakeDriverPatcher{
+		{name: "driver-manager", enabled: true, pools: []rebellionsaiv1alpha1.RBLNDriverPoolStatus{}},
+	}
+	service := &DriverService{patcher: toDriverPatchers(patchers)}
+
+	pools, desired, ready, err := service.AssembleStatus(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pools == nil {
+		t.Fatal("pools must be non-nil empty slice, got nil")
+	}
+	if len(pools) != 0 {
+		t.Fatalf("pools must be empty, got %d entries", len(pools))
+	}
+	if desired != 0 || ready != 0 {
+		t.Fatalf("desired/ready must be zero, got desired=%d ready=%d", desired, ready)
 	}
 }
 

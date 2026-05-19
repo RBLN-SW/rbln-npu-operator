@@ -21,14 +21,22 @@ import (
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
+type ReadinessReport struct {
+	State   rblnv1beta1.ComponentState
+	Desired int32
+	Ready   int32
+	Message string
+}
+
 // Patcher manages the lifecycle of a single operator component.
 type Patcher interface {
 	IsEnabled() bool
 	Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error
 	CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error
-	IsReady(ctx context.Context) error
+	IsReady(ctx context.Context, nodeCountForType int32) ReadinessReport
 	ComponentName() string
 	ComponentNamespace() string
+	WorkloadType() string
 }
 
 // basePatcher holds the dependencies and identity shared by every component patcher.
@@ -41,6 +49,7 @@ type basePatcher struct {
 	namespace        string
 	openshiftVersion string
 	enabled          bool
+	workloadType     string
 }
 
 // ---------------------------------------------------------------------------
@@ -50,29 +59,52 @@ type basePatcher struct {
 func (b *basePatcher) IsEnabled() bool            { return b.enabled }
 func (b *basePatcher) ComponentName() string      { return b.name }
 func (b *basePatcher) ComponentNamespace() string { return b.namespace }
+func (b *basePatcher) WorkloadType() string       { return b.workloadType }
 
-// IsReady checks whether the DaemonSet owned by this component has all pods ready.
-func (b *basePatcher) IsReady(ctx context.Context) error {
+// IsReady is called by AssembleStatus only after PatchComponents has run for
+// every enabled component, so the DaemonSet is expected to exist. A NotFound
+// here therefore signals an unexpected deletion or stale cache.
+func (b *basePatcher) IsReady(ctx context.Context, nodeCountForType int32) ReadinessReport {
 	var ds appsv1.DaemonSet
 	if err := b.client.Get(ctx, types.NamespacedName{Name: b.name, Namespace: b.namespace}, &ds); err != nil {
-		return fmt.Errorf("DaemonSet %s/%s not found: %w", b.namespace, b.name, err)
+		return ReadinessReport{
+			State:   rblnv1beta1.ComponentStateNotReady,
+			Message: fmt.Sprintf("DaemonSet %s/%s not found: %v", b.namespace, b.name, err),
+		}
 	}
 
-	ready := ds.Status.DesiredNumberScheduled > 0 &&
-		ds.Status.NumberReady == ds.Status.DesiredNumberScheduled &&
-		ds.Status.NumberUnavailable == 0
+	desired := ds.Status.DesiredNumberScheduled
+	ready := ds.Status.NumberReady
 
-	if !ready {
-		return fmt.Errorf("DaemonSet %s/%s is progressing: %d of %d pods are Ready (%d unavailable)",
-			b.namespace,
-			b.name,
-			ds.Status.NumberReady,
-			ds.Status.DesiredNumberScheduled,
-			ds.Status.NumberUnavailable,
-		)
+	if nodeCountForType == 0 {
+		return ReadinessReport{State: rblnv1beta1.ComponentStateReady, Desired: desired, Ready: ready}
 	}
 
-	return nil
+	if desired == 0 {
+		return ReadinessReport{
+			State:   rblnv1beta1.ComponentStateNotReady,
+			Desired: desired,
+			Ready:   ready,
+			Message: fmt.Sprintf(
+				"DaemonSet %s/%s has 0 desired pods despite %d %s node(s) — label or selector mismatch",
+				b.namespace, b.name, nodeCountForType, b.workloadType,
+			),
+		}
+	}
+
+	if ready != desired || ds.Status.NumberUnavailable > 0 {
+		return ReadinessReport{
+			State:   rblnv1beta1.ComponentStateNotReady,
+			Desired: desired,
+			Ready:   ready,
+			Message: fmt.Sprintf(
+				"DaemonSet %s/%s is progressing: %d of %d pods are Ready (%d unavailable)",
+				b.namespace, b.name, ready, desired, ds.Status.NumberUnavailable,
+			),
+		}
+	}
+
+	return ReadinessReport{State: rblnv1beta1.ComponentStateReady, Desired: desired, Ready: ready}
 }
 
 // ---------------------------------------------------------------------------

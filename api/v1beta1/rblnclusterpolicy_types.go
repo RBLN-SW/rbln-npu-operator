@@ -81,6 +81,8 @@ type RBLNClusterPolicySpec struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.state`
+// +kubebuilder:printcolumn:name="Container",type=string,JSONPath=`.status.workloads[?(@.type=='container')].state`
+// +kubebuilder:printcolumn:name="VM-Passthrough",type=string,JSONPath=`.status.workloads[?(@.type=='vm-passthrough')].state`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +operator-sdk:csv:customresourcedefinitions:resources={{DaemonSet,v1,apps},{ConfigMap,v1,""},{Service,v1,""},{ServiceAccount,v1,""},{ClusterRole,v1,rbac.authorization.k8s.io},{ClusterRoleBinding,v1,rbac.authorization.k8s.io}}
 

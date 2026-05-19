@@ -88,34 +88,107 @@ func (s *ClusterPolicyService) PatchComponents(ctx context.Context) error {
 	return nil
 }
 
-// AssembleComponentStatus returns the readiness state of each enabled component.
-// Status writing is the caller's responsibility.
-func (s *ClusterPolicyService) AssembleComponentStatus(ctx context.Context) []rblnv1beta1.RBLNComponentStatus {
-	statuses := make([]rblnv1beta1.RBLNComponentStatus, 0, len(s.components))
+type workloadAggregate struct {
+	componentCount int32
+	readyCount     int32
+}
+
+// AssembleStatus computes the status snapshot; the caller writes it to the CR.
+func (s *ClusterPolicyService) AssembleStatus(
+	ctx context.Context,
+	census NodeCensus,
+) ([]rblnv1beta1.RBLNComponentStatus, []rblnv1beta1.RBLNWorkloadStatus) {
+	componentStatuses := make([]rblnv1beta1.RBLNComponentStatus, 0, len(s.components))
+
+	aggregates := map[string]*workloadAggregate{
+		consts.RBLNWorkloadConfigContainer:     {},
+		consts.RBLNWorkloadConfigVMPassthrough: {},
+	}
 
 	for _, c := range s.components {
 		if !c.IsEnabled() {
 			continue
 		}
 
-		status := rblnv1beta1.RBLNComponentStatus{
-			Name:      c.ComponentName(),
-			Namespace: c.ComponentNamespace(),
+		wlType := c.WorkloadType()
+		nodeCount := census.CountFor(wlType)
+		report := c.IsReady(ctx, nodeCount)
+
+		componentStatuses = append(componentStatuses, rblnv1beta1.RBLNComponentStatus{
+			Name:         c.ComponentName(),
+			Namespace:    c.ComponentNamespace(),
+			WorkloadType: wlType,
+			State:        report.State,
+			Desired:      report.Desired,
+			Ready:        report.Ready,
+			Message:      report.Message,
+		})
+
+		if a, ok := aggregates[wlType]; ok {
+			a.componentCount++
+			if report.State == rblnv1beta1.ComponentStateReady {
+				a.readyCount++
+			}
 		}
 
-		if err := c.IsReady(ctx); err != nil {
-			status.State = rblnv1beta1.ComponentStateNotReady
-			status.Message = err.Error()
+		if report.State != rblnv1beta1.ComponentStateReady {
 			s.log.V(consts.LogLevelDebug).Info("component not ready",
 				"component", c.ComponentName(),
-				"reason", err.Error(),
+				"workload", wlType,
+				"message", report.Message,
 			)
-		} else {
-			status.State = rblnv1beta1.ComponentStateReady
 		}
-
-		statuses = append(statuses, status)
 	}
 
-	return statuses
+	workloadStatuses := buildWorkloadStatuses(census, aggregates)
+	return componentStatuses, workloadStatuses
+}
+
+// buildWorkloadStatuses derives an RBLNWorkloadStatus for each known workload
+// type. The output order is stable (container first, vm-passthrough second)
+// and contains exactly two entries.
+func buildWorkloadStatuses(
+	census NodeCensus,
+	aggregates map[string]*workloadAggregate,
+) []rblnv1beta1.RBLNWorkloadStatus {
+	order := []string{consts.RBLNWorkloadConfigContainer, consts.RBLNWorkloadConfigVMPassthrough}
+	out := make([]rblnv1beta1.RBLNWorkloadStatus, 0, len(order))
+
+	for _, wlType := range order {
+		nodeCount := census.CountFor(wlType)
+		a := aggregates[wlType]
+		ws := rblnv1beta1.RBLNWorkloadStatus{
+			Type:           wlType,
+			NodeCount:      nodeCount,
+			ComponentCount: a.componentCount,
+			ReadyCount:     a.readyCount,
+		}
+
+		switch {
+		case nodeCount == 0:
+			ws.State = rblnv1beta1.WorkloadStateEmpty
+			if a.componentCount > 0 {
+				ws.Message = fmt.Sprintf(
+					"%d component(s) configured but no %s nodes present",
+					a.componentCount, wlType,
+				)
+			}
+		case a.componentCount == 0:
+			ws.State = rblnv1beta1.WorkloadStateUncovered
+			ws.Message = fmt.Sprintf(
+				"%d %s node(s) labeled but no enabled components configured",
+				nodeCount, wlType,
+			)
+		case a.readyCount < a.componentCount:
+			ws.State = rblnv1beta1.WorkloadStateProgressing
+			ws.Message = fmt.Sprintf(
+				"%d/%d components ready on %d %s node(s)",
+				a.readyCount, a.componentCount, nodeCount, wlType,
+			)
+		default:
+			ws.State = rblnv1beta1.WorkloadStateReady
+		}
+		out = append(out, ws)
+	}
+	return out
 }

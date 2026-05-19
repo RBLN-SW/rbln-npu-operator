@@ -36,6 +36,7 @@ import (
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
@@ -110,7 +111,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-sandbox-device-plugin", containerNS, 5*time.Second)
 
 			By("marking the policy not ready until pods are running")
-			expectReadyCondition(ctx, nn, consts.RBLNConditionReasonSomeNotReady)
+			expectReadyCondition(ctx, nn, consts.RBLNConditionReasonWorkloadProgressing)
 		})
 
 		It("Should clean up DevicePlugin artifacts when the component is disabled", func() {
@@ -162,7 +163,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-npu-feature-discovery", vmNS, 5*time.Second)
 
 			By("marking the policy not ready until pods are running")
-			expectReadyCondition(ctx, nn, consts.RBLNConditionReasonSomeNotReady)
+			expectReadyCondition(ctx, nn, consts.RBLNConditionReasonWorkloadProgressing)
 		})
 	})
 
@@ -339,6 +340,7 @@ func newTestClusterPolicyReconciler(openShiftVersion string) *RBLNClusterPolicyR
 		ClusterInfo: &clusterinfo.Info{
 			OpenShiftVersion: openShiftVersion,
 		},
+		Conditions: conditions.NewUpdater(k8sClient),
 	}
 }
 

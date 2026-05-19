@@ -9,6 +9,7 @@ require (
 	github.com/onsi/gomega v1.38.2
 	github.com/openshift/api v0.0.0-20260218112846-22c744831738
 	github.com/openshift/client-go v0.0.0-20260219131751-7e63ce155298
+	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/cobra v1.10.0
 	go.uber.org/zap v1.27.0
 	helm.sh/helm/v3 v3.15.4
@@ -106,7 +107,6 @@ require (
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect

@@ -18,6 +18,12 @@ spec:
     - jsonPath: .status.state
       name: Status
       type: string
+    - jsonPath: .status.readyNodes
+      name: Ready
+      type: integer
+    - jsonPath: .status.desiredNodes
+      name: Desired
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -441,11 +447,58 @@ spec:
                   - type
                   type: object
                 type: array
+              desiredNodes:
+                description: DesiredNodes is the sum of DesiredNumberScheduled across
+                  all per-pool DaemonSets.
+                format: int32
+                type: integer
+              namespace:
+                description: Namespace is the namespace where the operator manages
+                  its operands.
+                type: string
+              nodePools:
+                description: NodePools reports per-pool DaemonSet readiness; one entry
+                  per discovered OS/kernel pool.
+                items:
+                  description: RBLNDriverPoolStatus reports the per-pool DaemonSet
+                    readiness.
+                  properties:
+                    desired:
+                      description: Desired is the DaemonSet's spec.DesiredNumberScheduled.
+                      format: int32
+                      type: integer
+                    name:
+                      description: Name is the pool identifier (typically "<osID><osVersion>-<sanitizedKernel>").
+                      type: string
+                    ready:
+                      description: Ready is the DaemonSet's spec.NumberReady.
+                      format: int32
+                      type: integer
+                    state:
+                      description: DriverPoolState is the per-pool DaemonSet aggregate
+                        state.
+                      enum:
+                      - ready
+                      - progressing
+                      type: string
+                  required:
+                  - desired
+                  - name
+                  - ready
+                  - state
+                  type: object
+                type: array
+              readyNodes:
+                description: ReadyNodes is the sum of NumberReady across all per-pool
+                  DaemonSets.
+                format: int32
+                type: integer
               state:
                 description: State indicates status of RBLNDriver instance
                 enum:
                 - ready
                 - notReady
+                - ignored
                 type: string
             type: object
         type: object

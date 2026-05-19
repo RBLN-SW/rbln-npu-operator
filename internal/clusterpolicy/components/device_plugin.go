@@ -41,6 +41,7 @@ func NewDevicePluginPatcher(client client.Client, log logr.Logger, namespace str
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),
+			workloadType:     consts.RBLNWorkloadConfigContainer,
 		},
 		desiredSpec: &synced,
 	}

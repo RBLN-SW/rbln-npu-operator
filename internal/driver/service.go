@@ -30,6 +30,7 @@ type DriverService struct {
 func NewDriverService(
 	ctx context.Context,
 	client client.Client,
+	apiReader client.Reader,
 	log logr.Logger,
 	scheme *runtime.Scheme,
 	driver *rebellionsaiv1alpha1.RBLNDriver,
@@ -54,7 +55,7 @@ func NewDriverService(
 	}
 	s.namespace = namespace
 
-	dmp, err := components.NewDriverManagerPatcher(client, log, s.namespace, driver, scheme, s.openshiftVersion)
+	dmp, err := components.NewDriverManagerPatcher(client, apiReader, log, s.namespace, driver, scheme, s.openshiftVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -62,6 +63,9 @@ func NewDriverService(
 
 	return s, nil
 }
+
+// Namespace returns the namespace the service deploys operands into.
+func (s *DriverService) Namespace() string { return s.namespace }
 
 // IsReady returns nil when every enabled component reports ready, or the
 // first non-ready error it encounters.
@@ -75,6 +79,33 @@ func (s *DriverService) IsReady(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// AssembleStatus returns per-pool DaemonSet readiness and the aggregate
+// desired/ready node counts across all enabled patchers. Status writing is
+// the caller's responsibility.
+func (s *DriverService) AssembleStatus(ctx context.Context) ([]rebellionsaiv1alpha1.RBLNDriverPoolStatus, int32, int32, error) {
+	// Start with an empty, non-nil slice so a "no pools" outcome propagates
+	// as []{} rather than nil. applyDriverSummary uses nil as the sentinel
+	// for "preserve previous values" on early-exit paths; a nil here would
+	// silently keep stale node-pool data after cleanup.
+	pools := make([]rebellionsaiv1alpha1.RBLNDriverPoolStatus, 0)
+	var totalDesired, totalReady int32
+	for _, p := range s.patcher {
+		if !p.IsEnabled() {
+			continue
+		}
+		entries, err := p.PoolStatuses(ctx)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		for _, e := range entries {
+			totalDesired += e.Desired
+			totalReady += e.Ready
+		}
+		pools = append(pools, entries...)
+	}
+	return pools, totalDesired, totalReady, nil
 }
 
 // PatchComponents applies or removes each managed component according to
