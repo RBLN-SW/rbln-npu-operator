@@ -259,12 +259,12 @@ func TestReconcileNodes(t *testing.T) {
 			k8sClient := newNodeLabelsFakeClient(t, tc.node)
 			service := newTestClusterPolicyService(k8sClient, tc.workloadType)
 
-			count, err := service.ReconcileNodes(context.Background(), []corev1.Node{*tc.node})
+			census, err := service.ReconcileNodes(context.Background(), []corev1.Node{*tc.node})
 			if err != nil {
 				t.Fatalf("ReconcileNodes() unexpected error: %v", err)
 			}
-			if count != tc.want.count {
-				t.Fatalf("ReconcileNodes() count = %d, want %d", count, tc.want.count)
+			if int(census.TotalNPU) != tc.want.count {
+				t.Fatalf("ReconcileNodes() count = %d, want %d", census.TotalNPU, tc.want.count)
 			}
 
 			var updated corev1.Node

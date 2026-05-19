@@ -34,6 +34,7 @@ func NewVFIOManagerPatcher(client client.Client, log logr.Logger, namespace stri
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),
+			workloadType:     consts.RBLNWorkloadConfigVMPassthrough,
 		},
 		desiredSpec: &synced,
 		podDefaults: cpSpec.PodDefaults,

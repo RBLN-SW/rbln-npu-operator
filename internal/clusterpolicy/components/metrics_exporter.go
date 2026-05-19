@@ -33,6 +33,7 @@ func NewMetricsExporterPatcher(client client.Client, log logr.Logger, namespace 
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),
+			workloadType:     consts.RBLNWorkloadConfigContainer,
 		},
 		desiredSpec: &synced,
 	}

@@ -31,6 +31,7 @@ func NewNPUFeatureDiscoveryPatcher(client client.Client, log logr.Logger, namesp
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),
+			workloadType:     consts.RBLNWorkloadConfigContainer,
 		},
 		desiredSpec: &synced,
 	}

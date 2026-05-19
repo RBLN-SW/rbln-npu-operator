@@ -25,6 +25,7 @@ type driverManagerPatcher struct {
 
 func NewDriverManagerPatcher(
 	client client.Client,
+	apiReader client.Reader,
 	log logr.Logger,
 	namespace string,
 	driver *rebellionsaiv1alpha1.RBLNDriver,
@@ -37,6 +38,7 @@ func NewDriverManagerPatcher(
 	return &driverManagerPatcher{
 		basePatcher: basePatcher{
 			client:           client,
+			apiReader:        apiReader,
 			log:              log,
 			scheme:           scheme,
 			name:             driverManagerName,
@@ -94,34 +96,57 @@ func (h *driverManagerPatcher) Patch(ctx context.Context, owner *rebellionsaiv1a
 }
 
 func (h *driverManagerPatcher) IsReady(ctx context.Context) error {
+	pools, err := h.PoolStatuses(ctx)
+	if err != nil {
+		return err
+	}
+	for _, p := range pools {
+		if p.State != rebellionsaiv1alpha1.DriverPoolStateReady {
+			return fmt.Errorf("driver pool %q is progressing: %d/%d pods ready",
+				p.Name, p.Ready, p.Desired)
+		}
+	}
+	return nil
+}
+
+// PoolStatuses returns an empty slice when no candidate nodes carry the
+// driver-deploy label or NFD has not labeled them yet; callers interpret
+// that as "nothing to do" rather than a failure.
+//
+// Uses apiReader (uncached) so a Delete issued earlier in the same
+// reconcile by cleanUpStaleDaemonSets is observed here, not the
+// still-cached pre-delete view.
+func (h *driverManagerPatcher) PoolStatuses(ctx context.Context) ([]rebellionsaiv1alpha1.RBLNDriverPoolStatus, error) {
 	dsList := &appsv1.DaemonSetList{}
-	if err := h.client.List(ctx, dsList,
+	if err := h.apiReader.List(ctx, dsList,
 		client.InNamespace(h.namespace),
 		client.MatchingLabels(map[string]string{
 			driverManagerAppLabelKey:      h.name,
 			driverManagerInstanceLabelKey: h.instanceName,
 		}),
 	); err != nil {
-		return fmt.Errorf("list driver DaemonSets: %w", err)
+		return nil, fmt.Errorf("list driver DaemonSets: %w", err)
 	}
 
-	if len(dsList.Items) == 0 {
-		return nil
-	}
-
+	pools := make([]rebellionsaiv1alpha1.RBLNDriverPoolStatus, 0, len(dsList.Items))
 	for i := range dsList.Items {
 		ds := &dsList.Items[i]
-		ready := ds.Status.DesiredNumberScheduled > 0 &&
-			ds.Status.NumberReady == ds.Status.DesiredNumberScheduled &&
-			ds.Status.NumberUnavailable == 0
-		if !ready {
-			return fmt.Errorf("DaemonSet %s/%s is progressing: %d of %d pods are Ready (%d unavailable)",
-				ds.Namespace, ds.Name,
-				ds.Status.NumberReady, ds.Status.DesiredNumberScheduled, ds.Status.NumberUnavailable)
-		}
-	}
+		desired := ds.Status.DesiredNumberScheduled
+		ready := ds.Status.NumberReady
 
-	return nil
+		state := rebellionsaiv1alpha1.DriverPoolStateReady
+		if desired == 0 || ready != desired || ds.Status.NumberUnavailable > 0 {
+			state = rebellionsaiv1alpha1.DriverPoolStateProgressing
+		}
+
+		pools = append(pools, rebellionsaiv1alpha1.RBLNDriverPoolStatus{
+			Name:    ds.Name,
+			Desired: desired,
+			Ready:   ready,
+			State:   state,
+		})
+	}
+	return pools, nil
 }
 
 func (h *driverManagerPatcher) CleanUp(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {

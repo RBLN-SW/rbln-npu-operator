@@ -25,7 +25,9 @@ import (
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterpolicy"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/metrics"
 )
 
 const (
@@ -40,6 +42,7 @@ type RBLNClusterPolicyReconciler struct {
 	Scheme          *runtime.Scheme
 	SingletonCRName string
 	ClusterInfo     *clusterinfo.Info
+	Conditions      *conditions.Updater
 }
 
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusterversions;proxies,verbs=get;list;watch
@@ -57,6 +60,7 @@ type RBLNClusterPolicyReconciler struct {
 
 func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.Log.Info("Reconciling RBLNClusterPolicy", "name", req.Name)
+	metrics.ReconcileTotal.WithLabelValues("clusterpolicy").Inc()
 
 	instance, err := r.fetchClusterPolicy(ctx, req)
 	if err != nil || instance == nil {
@@ -73,7 +77,7 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	if err := instance.Spec.Validate(); err != nil {
 		r.Log.Error(err, "RBLNClusterPolicy spec is invalid")
-		if statusErr := r.setNotReadyStatus(ctx, instance, consts.RBLNConditionReasonInvalidSpec, err.Error()); statusErr != nil {
+		if statusErr := r.Conditions.SetPolicyNotReady(ctx, instance, consts.RBLNConditionReasonInvalidSpec, err.Error()); statusErr != nil {
 			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{}, nil
@@ -92,7 +96,7 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	if !nfdInstalled {
 		r.Log.V(consts.LogLevelWarning).Info("NodeFeatureDiscovery labels not found", "requeue_after", nfdCheckInterval)
-		if err := r.setNotReadyStatus(ctx, instance, consts.RBLNConditionReasonNFDNotFound, "NodeFeatureDiscovery labels not found"); err != nil {
+		if err := r.Conditions.SetPolicyNotReady(ctx, instance, consts.RBLNConditionReasonNFDNotFound, "NodeFeatureDiscovery labels not found"); err != nil {
 			r.Log.V(consts.LogLevelDebug).Error(err, "failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{RequeueAfter: nfdCheckInterval}, nil
@@ -108,15 +112,15 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		r.ClusterInfo.ContainerRuntime,
 	)
 
-	rblnNodes, err := service.ReconcileNodes(ctx, candidates)
+	census, err := service.ReconcileNodes(ctx, candidates)
 	if err != nil {
 		r.Log.Error(err, "")
 		return ctrl.Result{}, err
 	}
 
-	if rblnNodes == 0 {
+	if census.TotalNPU == 0 {
 		r.Log.Info("No Rebellions NPU discovered; skipping reconcile")
-		if err := r.setNotReadyStatus(ctx, instance, consts.RBLNConditionReasonNoRBLNNodes, "No Rebellions NPU discovered"); err != nil {
+		if err := r.Conditions.SetPolicyNotReady(ctx, instance, consts.RBLNConditionReasonNoRBLNNodes, "No Rebellions NPU discovered"); err != nil {
 			r.Log.V(consts.LogLevelDebug).Error(err, "failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{}, nil
@@ -127,8 +131,8 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	componentStatuses := service.AssembleComponentStatus(ctx)
-	allReady, err := r.reconcileStatus(ctx, instance, componentStatuses)
+	componentStatuses, workloadStatuses := service.AssembleStatus(ctx, census)
+	allReady, err := r.reconcileStatus(ctx, instance, namespace, componentStatuses, workloadStatuses)
 	if err != nil {
 		r.Log.Error(err, "Failed to reconcile status in RBLNClusterPolicy Scope")
 		return ctrl.Result{}, err
@@ -168,7 +172,7 @@ func (r *RBLNClusterPolicyReconciler) handleSingletonPolicy(
 ) (bool, error) {
 	if r.SingletonCRName != "" && r.SingletonCRName != instance.Name {
 		r.Log.V(consts.LogLevelDebug).Info("Set RBLNClusterPolicy status as ignored")
-		if err := r.setNotReadyStatus(ctx, instance, consts.RBLNConditionReasonPolicyIgnored, "Another RBLNClusterPolicy is already active; this policy is ignored"); err != nil {
+		if err := r.Conditions.SetPolicyIgnored(ctx, instance, "Another RBLNClusterPolicy is already active; this policy is ignored"); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -182,85 +186,105 @@ func (r *RBLNClusterPolicyReconciler) handleSingletonPolicy(
 	return false, nil
 }
 
-func (r *RBLNClusterPolicyReconciler) setNotReadyStatus(
-	ctx context.Context,
-	instance *rblnv1beta1.RBLNClusterPolicy,
-	reason, message string,
-) error {
-	instance.Status.State = "notReady"
-	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-		Type:               consts.RBLNConditionTypeReady,
-		Status:             metav1.ConditionFalse,
-		ObservedGeneration: instance.Generation,
-		Reason:             reason,
-		Message:            message,
-	})
-	instance.Status.ObservedGeneration = instance.Generation
-	if err := r.Client.Status().Update(ctx, instance); err != nil {
-		r.Log.Error(err, "Failed to update ClusterPolicy status")
-		return err
-	}
-	return nil
-}
-
 func (r *RBLNClusterPolicyReconciler) reconcileStatus(
 	ctx context.Context,
 	policy *rblnv1beta1.RBLNClusterPolicy,
+	namespace string,
 	componentStatuses []rblnv1beta1.RBLNComponentStatus,
+	workloadStatuses []rblnv1beta1.RBLNWorkloadStatus,
 ) (bool, error) {
 	instance := &rblnv1beta1.RBLNClusterPolicy{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(policy), instance); err != nil {
 		return false, fmt.Errorf("get cluster policy for status update: %w", err)
 	}
 
+	instance.Status.Namespace = namespace
 	instance.Status.Components = componentStatuses
+	instance.Status.Workloads = workloadStatuses
 	instance.Status.ObservedGeneration = instance.Generation
 
-	allReady := true
-	for _, c := range componentStatuses {
-		if c.State != rblnv1beta1.ComponentStateReady {
-			allReady = false
-			break
-		}
-	}
+	state, reason, message := summariseWorkloadStatuses(workloadStatuses)
+	instance.Status.State = state
+	exportWorkloadMetrics(workloadStatuses, state)
 
-	if allReady {
-		n := len(componentStatuses)
-		instance.Status.State = "ready"
-		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-			Type:               consts.RBLNConditionTypeReady,
-			Status:             metav1.ConditionTrue,
-			ObservedGeneration: instance.Generation,
-			Reason:             consts.RBLNConditionReasonAllComponentsReady,
-			Message:            fmt.Sprintf("All components are Ready (%d/%d)", n, n),
-		})
-		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-			Type:   consts.RBLNConditionTypeError,
-			Status: metav1.ConditionFalse,
-			Reason: consts.RBLNConditionReasonAllComponentsReady,
-		})
-	} else {
-		notReady := make([]string, 0, len(componentStatuses))
-		for _, c := range componentStatuses {
-			if c.State != rblnv1beta1.ComponentStateReady {
-				notReady = append(notReady, fmt.Sprintf("%s/%s", c.Namespace, c.Name))
-			}
-		}
-		message := fmt.Sprintf("Components not ready: %s", strings.Join(notReady, ", "))
-		instance.Status.State = "notReady"
-		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-			Type:               consts.RBLNConditionTypeReady,
-			Status:             metav1.ConditionFalse,
-			ObservedGeneration: instance.Generation,
-			Reason:             consts.RBLNConditionReasonSomeNotReady,
-			Message:            message,
-		})
+	condStatus := metav1.ConditionTrue
+	if state != consts.RBLNStateReady {
+		condStatus = metav1.ConditionFalse
 	}
+	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+		Type:               consts.RBLNConditionTypeReady,
+		Status:             condStatus,
+		ObservedGeneration: instance.Generation,
+		Reason:             reason,
+		Message:            message,
+	})
 
 	if err := r.Client.Status().Update(ctx, instance); err != nil {
 		return false, fmt.Errorf("update cluster policy status: %w", err)
 	}
-	return allReady, nil
+	return state == consts.RBLNStateReady, nil
+}
+
+func exportWorkloadMetrics(workloads []rblnv1beta1.RBLNWorkloadStatus, topState string) {
+	for _, w := range workloads {
+		metrics.NPUNodes.WithLabelValues(w.Type).Set(float64(w.NodeCount))
+		metrics.WorkloadCoverage.WithLabelValues(w.Type).Set(workloadCoverageValue(w.State))
+	}
+	switch topState {
+	case consts.RBLNStateReady:
+		metrics.ClusterPolicyReconcileStatus.Set(metrics.ReconcileStatusSuccess)
+	default:
+		metrics.ClusterPolicyReconcileStatus.Set(metrics.ReconcileStatusNotReady)
+		metrics.ReconcileFailed.WithLabelValues("clusterpolicy").Inc()
+	}
+}
+
+func workloadCoverageValue(s rblnv1beta1.WorkloadState) float64 {
+	switch s {
+	case rblnv1beta1.WorkloadStateEmpty:
+		return metrics.WorkloadCoverageEmpty
+	case rblnv1beta1.WorkloadStateReady:
+		return metrics.WorkloadCoverageReady
+	case rblnv1beta1.WorkloadStateProgressing:
+		return metrics.WorkloadCoverageProgressing
+	case rblnv1beta1.WorkloadStateUncovered:
+		return metrics.WorkloadCoverageUncovered
+	default:
+		return metrics.WorkloadCoverageEmpty
+	}
+}
+
+// summariseWorkloadStatuses derives the top-level CR state + Ready-condition
+// (reason, message) from per-workload aggregate states. Precedence:
+//
+//	uncovered  → notReady (most actionable — nodes labeled but no DS)
+//	progressing → notReady
+//	all ready or empty → ready
+func summariseWorkloadStatuses(workloads []rblnv1beta1.RBLNWorkloadStatus) (state, reason, message string) {
+	var uncovered, progressing []string
+	for _, w := range workloads {
+		switch w.State {
+		case rblnv1beta1.WorkloadStateUncovered:
+			uncovered = append(uncovered, fmt.Sprintf("%s(%d node)", w.Type, w.NodeCount))
+		case rblnv1beta1.WorkloadStateProgressing:
+			progressing = append(progressing, fmt.Sprintf("%s(%d/%d ready)", w.Type, w.ReadyCount, w.ComponentCount))
+		}
+	}
+
+	switch {
+	case len(uncovered) > 0:
+		return consts.RBLNStateNotReady,
+			consts.RBLNConditionReasonWorkloadUncovered,
+			"Uncovered workload(s): " + strings.Join(uncovered, ", ")
+	case len(progressing) > 0:
+		return consts.RBLNStateNotReady,
+			consts.RBLNConditionReasonWorkloadProgressing,
+			"Progressing workload(s): " + strings.Join(progressing, ", ")
+	default:
+		return consts.RBLNStateReady,
+			consts.RBLNConditionReasonAllWorkloadsReady,
+			"All workloads are ready"
+	}
 }
 
 func (r *RBLNClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {

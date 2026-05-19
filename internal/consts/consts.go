@@ -46,17 +46,28 @@ const (
 	RBLNConditionTypeError = "Error"
 )
 
+// Top-level CR state values (string form persisted in .status.state)
+const (
+	RBLNStateReady    = "ready"
+	RBLNStateNotReady = "notReady"
+	RBLNStateIgnored  = "ignored"
+)
+
 // Condition reasons
 const (
 	RBLNConditionReasonNFDNotFound          = "NodeFeatureDiscoveryNotFound"
 	RBLNConditionReasonNoRBLNNodes          = "NoRBLNNodesDiscovered"
 	RBLNConditionReasonPolicyIgnored        = "PolicyIgnored"
 	RBLNConditionReasonAllComponentsReady   = "AllComponentsReady"
-	RBLNConditionReasonSomeNotReady         = "SomeComponentsNotReady"
+	RBLNConditionReasonAllWorkloadsReady    = "AllWorkloadsReady"
+	RBLNConditionReasonWorkloadUncovered    = "WorkloadUncovered"
+	RBLNConditionReasonWorkloadProgressing  = "WorkloadProgressing"
 	RBLNConditionReasonError                = "Error"
 	RBLNConditionReasonReconcileFailed      = "ReconcileFailed"
 	RBLNConditionReasonMissingClusterPolicy = "MissingClusterPolicy"
 	RBLNConditionReasonInvalidSpec          = "InvalidSpec"
+	RBLNConditionReasonDriverPoolNotReady   = "DriverPoolNotReady"
+	RBLNConditionReasonConflictingSelector  = "ConflictingNodeSelector"
 )
 
 // Base name prefix for all RBLN components

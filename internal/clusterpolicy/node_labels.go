@@ -79,12 +79,32 @@ func deduplicateNodes(nodes []corev1.Node) []corev1.Node {
 	return result
 }
 
-// ReconcileNodes reconciles labels and driver-upgrade annotations for the
-// given candidate nodes in a single pass, issuing at most one Update call
-// per node. It returns the number of deployable RBLN nodes.
-func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []corev1.Node) (int, error) {
+// NodeCensus excludes skip-labeled and non-NPU nodes. TotalNPU may exceed
+// ContainerNodes + VMPassthroughNodes when a node's workload label is
+// missing or unrecognised.
+type NodeCensus struct {
+	TotalNPU           int32
+	ContainerNodes     int32
+	VMPassthroughNodes int32
+}
+
+// CountFor returns 0 for unknown workload types.
+func (c NodeCensus) CountFor(workload string) int32 {
+	switch workload {
+	case consts.RBLNWorkloadConfigContainer:
+		return c.ContainerNodes
+	case consts.RBLNWorkloadConfigVMPassthrough:
+		return c.VMPassthroughNodes
+	default:
+		return 0
+	}
+}
+
+// ReconcileNodes issues at most one Update call per candidate node, batching
+// label and annotation changes into a single PATCH.
+func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []corev1.Node) (NodeCensus, error) {
 	shouldEnableUpgrade := shouldEnableDriverAutoUpgrade(s.policy)
-	rblnNodeCount := 0
+	var census NodeCensus
 
 	for i := range candidates {
 		node := &candidates[i]
@@ -94,17 +114,25 @@ func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []
 
 		if labelsChanged || annotationsChanged {
 			if err := s.client.Update(ctx, node); err != nil {
-				return 0, fmt.Errorf("update node %s: %w", node.Name, err)
+				return NodeCensus{}, fmt.Errorf("update node %s: %w", node.Name, err)
 			}
 		}
 
 		labels := node.GetLabels()
-		if !hasRBLNDeploySkipLabel(labels) && hasRBLNPresentLabel(labels) {
-			rblnNodeCount++
+		if hasRBLNDeploySkipLabel(labels) || !hasRBLNPresentLabel(labels) {
+			continue
+		}
+		census.TotalNPU++
+		workload, _ := getWorkloadConfig(labels, s.policy.Spec.WorkloadType)
+		switch workload {
+		case consts.RBLNWorkloadConfigContainer:
+			census.ContainerNodes++
+		case consts.RBLNWorkloadConfigVMPassthrough:
+			census.VMPassthroughNodes++
 		}
 	}
 
-	return rblnNodeCount, nil
+	return census, nil
 }
 
 // reconcileNodeLabelsInPlace adjusts RBLN labels on the node in-place

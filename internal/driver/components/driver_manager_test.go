@@ -16,7 +16,7 @@ func TestNewDriverManagerPatcher_NilDriver(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
 
-	_, err := NewDriverManagerPatcher(c, logf.Log, testNamespace, nil, scheme, "")
+	_, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, nil, scheme, "")
 	if err == nil {
 		t.Fatal("expected error for nil driver, got nil")
 	}
@@ -39,7 +39,7 @@ func TestDriverManagerPatcher_Patch(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	p, err := NewDriverManagerPatcher(c, logf.Log, testNamespace, owner, scheme, "")
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, "")
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestDriverManagerPatcher_Patch_OpenShift(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	p, err := NewDriverManagerPatcher(c, logf.Log, testNamespace, owner, scheme, "v4.14.0")
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, "v4.14.0")
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestDriverManagerPatcher_Patch_NoMatchingNodesDeletesStaleDaemonSets(t *tes
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	p, err := NewDriverManagerPatcher(c, logf.Log, testNamespace, owner, scheme, "")
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, "")
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestDriverManagerPatcher_CleanUp(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	p, err := NewDriverManagerPatcher(c, logf.Log, testNamespace, owner, scheme, "")
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, "")
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -292,6 +292,7 @@ func TestDriverManagerPatcher_IsReady(t *testing.T) {
 			h := &driverManagerPatcher{
 				basePatcher: basePatcher{
 					client:       c,
+					apiReader:    c,
 					log:          logf.Log,
 					name:         driverManagerName,
 					instanceName: testInstanceName,

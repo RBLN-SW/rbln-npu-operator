@@ -36,6 +36,7 @@ import (
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
@@ -130,7 +131,7 @@ var _ = Describe("RBLNDriver Controller", Ordered, func() {
 		It("sets status to not ready with MissingClusterPolicy reason", func() {
 			result := reconcileDriverWithResult(ctx, reconciler, nn)
 			Expect(result).To(Equal(ctrl.Result{}))
-			expectDriverReadyCondition(ctx, nn, consts.RBLNConditionReasonMissingClusterPolicy)
+			expectDriverNotReadyCondition(ctx, nn, consts.RBLNConditionReasonMissingClusterPolicy)
 		})
 	})
 
@@ -158,7 +159,7 @@ var _ = Describe("RBLNDriver Controller", Ordered, func() {
 
 		It("sets error status on the second driver due to selector conflict", func() {
 			reconcileDriverWithResult(ctx, reconciler, nn2)
-			expectDriverErrorCondition(ctx, nn2, consts.RBLNConditionReasonReconcileFailed)
+			expectDriverNotReadyCondition(ctx, nn2, consts.RBLNConditionReasonConflictingSelector)
 		})
 	})
 
@@ -245,9 +246,11 @@ var _ = Describe("RBLNDriver Controller", Ordered, func() {
 
 func newTestDriverReconciler(openShiftVersion string) *RBLNDriverReconciler {
 	r := &RBLNDriverReconciler{
-		Client: k8sClient,
-		Log:    logf.Log,
-		Scheme: k8sClient.Scheme(),
+		Client:     k8sClient,
+		APIReader:  k8sClient, // envtest client is uncached already
+		Log:        logf.Log,
+		Scheme:     k8sClient.Scheme(),
+		Conditions: conditions.NewUpdater(k8sClient),
 	}
 	if openShiftVersion != "" {
 		r.ClusterInfo = &clusterinfo.Info{
@@ -317,7 +320,7 @@ func reconcileDriverWithResult(
 // Assertion helpers
 // ---------------------------------------------------------------------------
 
-func expectDriverReadyCondition(ctx context.Context, nn types.NamespacedName, reason string) {
+func expectDriverNotReadyCondition(ctx context.Context, nn types.NamespacedName, reason string) {
 	Eventually(func() bool {
 		var driver rebellionsaiv1alpha1.RBLNDriver
 		Expect(k8sClient.Get(ctx, nn, &driver)).To(Succeed())
@@ -329,20 +332,6 @@ func expectDriverReadyCondition(ctx context.Context, nn types.NamespacedName, re
 		return false
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(),
 		"expected Driver Ready condition status=%s reason=%s", metav1.ConditionFalse, reason)
-}
-
-func expectDriverErrorCondition(ctx context.Context, nn types.NamespacedName, reason string) {
-	Eventually(func() bool {
-		var driver rebellionsaiv1alpha1.RBLNDriver
-		Expect(k8sClient.Get(ctx, nn, &driver)).To(Succeed())
-		for _, c := range driver.Status.Conditions {
-			if c.Type == consts.RBLNConditionTypeError && c.Status == metav1.ConditionTrue && c.Reason == reason {
-				return true
-			}
-		}
-		return false
-	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(),
-		"expected Driver Error condition status=%s reason=%s", metav1.ConditionTrue, reason)
 }
 
 func expectClusterResource[T client.Object](ctx context.Context, obj T, name string, timeout time.Duration) {

@@ -10,6 +10,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/controller"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
 )
@@ -39,6 +40,7 @@ func registerClusterPolicyController(mgr ctrl.Manager, clusterInfo *clusterinfo.
 		Log:         ctrl.Log.WithName("controllers").WithName("RBLNClusterPolicy"),
 		Scheme:      mgr.GetScheme(),
 		ClusterInfo: clusterInfo,
+		Conditions:  conditions.NewUpdater(mgr.GetClient()),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup RBLNClusterPolicy: %w", err)
 	}
@@ -82,9 +84,11 @@ func registerUpgradeController(ctx context.Context, mgr ctrl.Manager) error {
 func registerDriverController(mgr ctrl.Manager, clusterInfo *clusterinfo.Info) error {
 	if err := (&controller.RBLNDriverReconciler{
 		Client:      mgr.GetClient(),
+		APIReader:   mgr.GetAPIReader(),
 		Log:         ctrl.Log.WithName("controllers").WithName("RBLNDriver"),
 		Scheme:      mgr.GetScheme(),
 		ClusterInfo: clusterInfo,
+		Conditions:  conditions.NewUpdater(mgr.GetClient()),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup RBLNDriver: %w", err)
 	}

@@ -29,6 +29,15 @@ type DriverState string
 const (
 	DriverStateReady    DriverState = "ready"
 	DriverStateNotReady DriverState = "notReady"
+	DriverStateIgnored  DriverState = "ignored"
+)
+
+// DriverPoolState is the per-pool DaemonSet aggregate state.
+type DriverPoolState string
+
+const (
+	DriverPoolStateReady       DriverPoolState = "ready"
+	DriverPoolStateProgressing DriverPoolState = "progressing"
 )
 
 // RBLNDriverSpec defines the desired state of RBLNDriver
@@ -105,12 +114,36 @@ type RBLNDriverSpec struct {
 	Env []corev1.EnvVar `json:"env,omitempty"`
 }
 
+// RBLNDriverPoolStatus reports the per-pool DaemonSet readiness.
+type RBLNDriverPoolStatus struct {
+	// Name is the pool identifier (typically "<osID><osVersion>-<sanitizedKernel>").
+	Name string `json:"name"`
+	// Desired is the DaemonSet's spec.DesiredNumberScheduled.
+	Desired int32 `json:"desired"`
+	// Ready is the DaemonSet's spec.NumberReady.
+	Ready int32 `json:"ready"`
+	// +kubebuilder:validation:Enum=ready;progressing
+	State DriverPoolState `json:"state"`
+}
+
 // RBLNDriverStatus defines the observed state of RBLNDriver
 type RBLNDriverStatus struct {
-	// +kubebuilder:validation:Enum=ready;notReady
+	// +kubebuilder:validation:Enum=ready;notReady;ignored
 	// +optional
 	// State indicates status of RBLNDriver instance
 	State DriverState `json:"state,omitempty"`
+	// Namespace is the namespace where the operator manages its operands.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+	// DesiredNodes is the sum of DesiredNumberScheduled across all per-pool DaemonSets.
+	// +optional
+	DesiredNodes int32 `json:"desiredNodes"`
+	// ReadyNodes is the sum of NumberReady across all per-pool DaemonSets.
+	// +optional
+	ReadyNodes int32 `json:"readyNodes"`
+	// NodePools reports per-pool DaemonSet readiness; one entry per discovered OS/kernel pool.
+	// +optional
+	NodePools []RBLNDriverPoolStatus `json:"nodePools"`
 	// Conditions is a list of conditions representing the RBLNDriver's current state
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
@@ -119,6 +152,8 @@ type RBLNDriverStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.state`
+// +kubebuilder:printcolumn:name="Ready",type=integer,JSONPath=`.status.readyNodes`
+// +kubebuilder:printcolumn:name="Desired",type=integer,JSONPath=`.status.desiredNodes`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // RBLNDriver is the Schema for the rblndrivers API
