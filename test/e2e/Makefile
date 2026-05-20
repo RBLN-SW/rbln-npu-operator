@@ -11,6 +11,7 @@ PYPI_USERNAME ?=
 PYPI_PASSWORD ?=
 REGISTRY_USER ?= $(E2E_CONTAINER_REGISTRY_USER)
 REGISTRY_PASSWORD ?= $(E2E_CONTAINER_REGISTRY_PASSWORD)
+GINKGO_LABEL_FILTER ?=
 
 .PHONY: e2e-test
 e2e-test:
@@ -22,7 +23,9 @@ e2e-test:
 		echo "[ERR] OPERATOR_VERSION is missing, must be set"; \
 		exit 1; \
 	fi
-	$(GO_CMD) test -v . -args \
+	$(GO_CMD) test -v . \
+		$(if $(strip $(GINKGO_LABEL_FILTER)),-ginkgo.label-filter=$(GINKGO_LABEL_FILTER)) \
+		-args \
 		-kubeconfig=$(KUBECONFIG) \
 		$(if $(strip $(KUBE_CONTEXT)),-context=$(KUBE_CONTEXT)) \
 		-operator-registry=$(OPERATOR_REGISTRY) \

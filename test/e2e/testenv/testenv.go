@@ -7,6 +7,7 @@ import (
 	"github.com/onsi/gomega"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/client-go/dynamic"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -14,9 +15,10 @@ import (
 var RunID = uuid.NewUUID()
 
 type TestEnv struct {
-	clientConfig *rest.Config
-	ClientSet    clientset.Interface
-	ExtClientSet apiextensionsclient.Interface
+	clientConfig  *rest.Config
+	ClientSet     clientset.Interface
+	ExtClientSet  apiextensionsclient.Interface
+	DynamicClient dynamic.Interface
 }
 
 func NewTestEnv() *TestEnv {
@@ -39,6 +41,8 @@ func (te *TestEnv) BeforeEach(ctx context.Context) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	te.ExtClientSet, err = apiextensionsclient.NewForConfig(cfg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	te.DynamicClient, err = dynamic.NewForConfig(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 func (te *TestEnv) AfterEach(ctx context.Context) {
@@ -46,5 +50,6 @@ func (te *TestEnv) AfterEach(ctx context.Context) {
 		te.clientConfig = nil
 		te.ClientSet = nil
 		te.ExtClientSet = nil
+		te.DynamicClient = nil
 	}()
 }

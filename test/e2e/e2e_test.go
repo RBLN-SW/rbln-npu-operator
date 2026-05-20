@@ -51,7 +51,7 @@ const (
 	registrySecretName         = "drivercred"
 )
 
-var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
+var _ = Describe("e2e-npu-operator-scenario-test", Ordered, Label("container"), func() {
 	te := testenv.NewTestEnv()
 
 	Describe("NPU Operator RBLNClusterPolicy", func() {
@@ -79,6 +79,7 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, func() {
 					"rbln-npu-operator",
 					"HelmReleaseName",
 					buildOperatorHelmValues(true, false),
+					true,
 				)
 				setupSucceeded = true
 			})
@@ -460,6 +461,7 @@ func setupOperatorDeployment(
 	releaseName string,
 	releaseLogLabel string,
 	helmValues map[string]interface{},
+	needDriverCredSecret bool,
 ) (*HelmClient, string, *e2ek8s.CoreClient, *corev1.Namespace) {
 	var err error
 	k8sCoreClient := e2ek8s.NewClient(te.ClientSet.CoreV1())
@@ -472,17 +474,19 @@ func setupOperatorDeployment(
 		Fail(fmt.Sprintf("failed to create operator namespace %s: %v", e2eCfg.namespace, err))
 	}
 
-	if e2eCfg.registryUser == "" || e2eCfg.registryPassword == "" {
-		Fail("registry credentials are required: set E2E_CONTAINER_REGISTRY_USER and E2E_CONTAINER_REGISTRY_PASSWORD")
-	}
-	if err := ensureRegistrySecret(
-		ctx,
-		te.ClientSet.CoreV1(),
-		testNamespace.Name,
-		e2eCfg.registryUser,
-		e2eCfg.registryPassword,
-	); err != nil {
-		Fail(fmt.Sprintf("failed to create registry secret %s: %v", registrySecretName, err))
+	if needDriverCredSecret {
+		if e2eCfg.registryUser == "" || e2eCfg.registryPassword == "" {
+			Fail("registry credentials are required: set E2E_CONTAINER_REGISTRY_USER and E2E_CONTAINER_REGISTRY_PASSWORD")
+		}
+		if err := ensureRegistrySecret(
+			ctx,
+			te.ClientSet.CoreV1(),
+			testNamespace.Name,
+			e2eCfg.registryUser,
+			e2eCfg.registryPassword,
+		); err != nil {
+			Fail(fmt.Sprintf("failed to create registry secret %s: %v", registrySecretName, err))
+		}
 	}
 
 	helmClient, err := NewHelmClient(
@@ -492,6 +496,10 @@ func setupOperatorDeployment(
 	)
 	if err != nil {
 		Fail(fmt.Sprintf("failed to instantiate helm client: %v", err))
+	}
+
+	if err := helmClient.Uninstall(ctx, releaseName); err != nil {
+		e2elog.Infof("pre-install uninstall of %s skipped: %v", releaseName, err)
 	}
 
 	helmReleaseName, err := helmClient.Install(ctx, ChartOptions{
