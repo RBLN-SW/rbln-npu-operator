@@ -62,7 +62,7 @@ jobs:
     secrets:
       REGISTRY_USERNAME: ${{ secrets.HARBOR_USERNAME }}
       REGISTRY_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-  e2e-tests:
+  e2e-tests-container:
     needs: [image-build]
     runs-on: rbln-sw-k8s-4c-32gb
     container:
@@ -94,6 +94,7 @@ jobs:
       - name: Run e2e tests
         env:
           KUBE_CONTEXT: ${{ secrets.E2E_KUBE_CONTEXT }}
+          GINKGO_LABEL_FILTER: container
           OPERATOR_REGISTRY: harbor.k8s.rebellions.in
           OPERATOR_REPOSITORY: rebellions/rbln-npu-operator
           OPERATOR_VERSION: ${{ needs.image-build.outputs.operator-image-tag }}
@@ -106,8 +107,49 @@ jobs:
           VALIDATOR_VERSION: ${{ needs.image-build.outputs.operator-image-tag }}
         run: |
           make -C test/e2e e2e-test
+  e2e-tests-vm-passthrough:
+    needs: [image-build]
+    runs-on: rbln-sw-k8s-4c-32gb
+    container:
+      image: "ubuntu:24.04"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install make
+        run: |
+          apt-get update
+          apt-get install -y make ca-certificates
+          update-ca-certificates
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Restore kubeconfig for sandbox e2e tests
+        env:
+          KUBECONFIG_B64: ${{ secrets.E2E_SANDBOX_KUBECONFIG_B64 }}
+        run: |
+          if [ -z "$KUBECONFIG_B64" ]; then
+            echo "E2E_SANDBOX_KUBECONFIG_B64 secret is not configured" >&2
+            exit 1
+          fi
+          KUBECONFIG_PATH="$RUNNER_TEMP/e2e-sandbox-kubeconfig"
+          printf '%s' "$KUBECONFIG_B64" | base64 --decode > "$KUBECONFIG_PATH"
+          chmod 600 "$KUBECONFIG_PATH"
+          echo "KUBECONFIG=$KUBECONFIG_PATH" >> $GITHUB_ENV
+      - name: Run vm-passthrough e2e tests
+        env:
+          KUBE_CONTEXT: ${{ secrets.E2E_SANDBOX_KUBE_CONTEXT }}
+          GINKGO_LABEL_FILTER: vm-passthrough
+          OPERATOR_REGISTRY: harbor.k8s.rebellions.in
+          OPERATOR_REPOSITORY: rebellions/rbln-npu-operator
+          OPERATOR_VERSION: ${{ needs.image-build.outputs.operator-image-tag }}
+          VALIDATOR_REGISTRY: harbor.k8s.rebellions.in
+          VALIDATOR_REPOSITORY: rebellions/rbln-npu-operator-validator
+          VALIDATOR_VERSION: ${{ needs.image-build.outputs.operator-image-tag }}
+        run: |
+          make -C test/e2e e2e-test
   cleanup-images:
-    needs: [image-build, e2e-tests]
+    needs: [image-build, e2e-tests-container, e2e-tests-vm-passthrough]
     if: always()
     runs-on: rbln-sw-k8s-general
     env:
