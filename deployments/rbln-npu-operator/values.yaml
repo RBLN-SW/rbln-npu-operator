@@ -230,26 +230,19 @@ containerToolkit:
 # Sandbox Device Plugin for VM workloads
 sandboxDevicePlugin:
   enabled: false
+  # Standalone rbln-sandbox-device-plugin binary
+  # (github.com/RBLN-SW/sandbox-device-plugin).
   image:
-    registry: docker.io
-    repository: rebellions/k8s-device-plugin
-    tag: v0.3.8
+    registry: harbor.k8s.rebellions.in
+    repository: rebellions-sw/rbln-sandbox-device-plugin
+    tag: dev
     pullPolicy: IfNotPresent
 
-  # Resource discovery for sandbox workloads
-  resourceList:
-  - productCardNames:
-    - RBLN-CA22
-    resourceName: ATOM_PT
-    resourcePrefix: rebellions.ai
-  - productCardNames:
-    - RBLN-CA25
-    resourceName: ATOM_MAX_PT
-    resourcePrefix: rebellions.ai
-  - productCardNames:
-    - RBLN-CR03
-    resourceName: REBEL_PT
-    resourcePrefix: rebellions.ai
+  # alias-only contract: the binary advertises exactly one Kubernetes
+  # resource — "rebellions.ai/npu_pt" — controlled by the RBLN_PT_ALIAS
+  # env hardcoded in the operator. KubeVirt VMIs reference this name
+  # via hostDevices.deviceName. The legacy `resourceList` CRD field is
+  # no longer consumed by this plugin and is intentionally omitted.
 
 # VFIO Manager for VM workloads
 vfioManager:
