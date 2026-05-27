@@ -109,7 +109,7 @@ driver:
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-driver
-    tag: "3.0.0"
+    tag: "3.2.0"
     pullPolicy: IfNotPresent
   imagePullSecrets:
   - drivercred
@@ -196,7 +196,7 @@ rblnDaemon:
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-daemon
-    tag: 3.0.0
+    tag: 3.2.0
     pullPolicy: IfNotPresent
   imagePullSecrets:
   - drivercred
@@ -219,7 +219,7 @@ containerToolkit:
   image:
     registry: docker.io
     repository: rebellions/rbln-container-toolkit
-    tag: v0.2.0
+    tag: v0.2.1
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
