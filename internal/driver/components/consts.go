@@ -30,6 +30,11 @@ const (
 	hostSysVolumeName                         = "host-sys"
 	hostSysPath                               = "/sys"
 	chrootTmpVolumeName                       = "chroot-tmp"
+	driverReadyVolumeName                     = "rbln-driver-state"
+	driverReadyDirEnvName                     = "RBLN_DRIVER_READY_DIR"
+	driverReadyFileEnvName                    = "RBLN_DRIVER_READY_FILE"
+	defaultDriverReadyDir                     = "/run/rbln/driver-state"
+	defaultDriverReadyFile                    = "ready"
 )
 
 func ptr[T any](v T) *T {

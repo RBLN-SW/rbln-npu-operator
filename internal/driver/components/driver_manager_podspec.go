@@ -54,29 +54,45 @@ func (h *driverManagerPatcher) handleConfigMap(ctx context.Context, owner *rebel
 	script := `#!/bin/sh
 set -eu
 
+# Cross-component "driver container ready" signal published on the host
+# fs so other operands (rbln-validator, etc.) can detect when this
+# node's driver has finished installing. Path is a fixed contract;
+# consumers stat this exact file.
 VALIDATIONS_DIR="` + consts.ValidationsMountPath + `"
-READY_FILE="${VALIDATIONS_DIR}/.driver-ctr-ready"
+COMPONENT_READY_FILE="${VALIDATIONS_DIR}/.driver-ctr-ready"
+
+# Intra-pod "install pipeline complete" signal written by the driver
+# entrypoint after build -> fw update -> module load -> rootfs mount ->
+# /dev/rbln* verification finishes. This contract is mandatory; driver
+# images that do not implement it cannot pass this probe.
+DRIVER_READY_DIR="${` + driverReadyDirEnvName + `:-` + defaultDriverReadyDir + `}"
+DRIVER_READY_FILE_NAME="${` + driverReadyFileEnvName + `:-` + defaultDriverReadyFile + `}"
+DRIVER_READY_MARKER="${DRIVER_READY_DIR}/${DRIVER_READY_FILE_NAME}"
 
 mkdir -p "${VALIDATIONS_DIR}"
 
+publish_component_ready() {
+  TMP_FILE="${COMPONENT_READY_FILE}.tmp"
+  : > "${TMP_FILE}"
+  mv "${TMP_FILE}" "${COMPONENT_READY_FILE}"
+}
+
+# Defense in depth: kernel module is the ground truth for "driver is
+# loaded right now"; marker is the ground truth for "the entrypoint
+# finished the install pipeline". Either alone has a failure mode
+# (module true mid-fw-update; stale marker from a botched cleanup), so
+# require both.
 if [ ! -f /sys/module/rebellions/refcnt ]; then
   echo "Rebellions kernel module not loaded"
   exit 1
 fi
 
-if ! command -v rbln-smi >/dev/null 2>&1; then
-  echo "rbln-smi not found"
+if [ ! -f "${DRIVER_READY_MARKER}" ]; then
+  echo "Driver install marker not present at ${DRIVER_READY_MARKER}"
   exit 1
 fi
 
-if ! rbln-smi; then
-  echo "rbln-smi failed"
-  exit 1
-fi
-
-TMP_FILE="${READY_FILE}.tmp"
-: > "$TMP_FILE"
-mv "$TMP_FILE" "$READY_FILE"
+publish_component_ready
 `
 
 	cm := &corev1.ConfigMap{
@@ -145,6 +161,10 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool) (*corev1.PodSpe
 		},
 		{
 			Name:         chrootTmpVolumeName,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		},
+		{
+			Name:         driverReadyVolumeName,
 			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		},
 		{
@@ -249,6 +269,7 @@ func (h *driverManagerPatcher) buildDriverContainer(
 		},
 		{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
 		{Name: hostDevVolumeName, MountPath: hostDevPath},
+		{Name: driverReadyVolumeName, MountPath: defaultDriverReadyDir},
 		{
 			Name:      h.startupProbeConfigMapName(),
 			MountPath: startupProbeScriptPath,
@@ -262,7 +283,7 @@ func (h *driverManagerPatcher) buildDriverContainer(
 		WithName(driverManagerContainer).
 		WithCommands([]string{driverInstallerCommand}).
 		WithArgs([]string{driverInstallerInitArg}).
-		WithEnvs(h.desiredSpec.Env).
+		WithEnvs(driverContainerEnvs(h.desiredSpec.Env)).
 		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 		WithLifeCycle(&corev1.Lifecycle{
 			PreStop: &corev1.LifecycleHandler{
@@ -293,6 +314,17 @@ func (h *driverManagerPatcher) buildDriverContainer(
 	}
 
 	return container, nil
+}
+
+// driverContainerEnvs merges user-supplied env vars with operator-managed
+// readiness-marker env vars. Operator entries are upserted last so they
+// always win — the marker volume is mounted at the default path, and
+// letting users redirect the env vars would silently break the probe.
+func driverContainerEnvs(userEnv []corev1.EnvVar) []corev1.EnvVar {
+	envs := append([]corev1.EnvVar{}, userEnv...)
+	envs = upsertEnvVar(envs, corev1.EnvVar{Name: driverReadyDirEnvName, Value: defaultDriverReadyDir})
+	envs = upsertEnvVar(envs, corev1.EnvVar{Name: driverReadyFileEnvName, Value: defaultDriverReadyFile})
+	return envs
 }
 
 func (h *driverManagerPatcher) resolveImagePullPolicy() corev1.PullPolicy {

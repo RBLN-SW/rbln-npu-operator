@@ -413,6 +413,11 @@ func buildOperatorHelmValues(devicePluginEnabled, draKubeletPluginEnabled bool) 
 		"driver": map[string]interface{}{
 			"enabled":          true,
 			"imagePullSecrets": []string{registrySecretName},
+			"image": map[string]interface{}{
+				"registry":   "harbor.ssw.rbln.in",
+				"repository": "rebellions-dev/rbln-driver",
+				"tag":        "3.0.2",
+			},
 		},
 		"devicePlugin": map[string]interface{}{
 			"enabled": devicePluginEnabled,
