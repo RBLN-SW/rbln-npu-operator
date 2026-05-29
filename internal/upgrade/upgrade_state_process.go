@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
@@ -147,11 +148,29 @@ func (m *ClusterUpgradeStateManagerImpl) transitionUnknownNodeToDone(
 	return nil
 }
 
+func (m *ClusterUpgradeStateManagerImpl) countActiveUpgradeNodes(ctx context.Context) (int, error) {
+	nodeList := &corev1.NodeList{}
+	if err := m.k8sClient.List(ctx, nodeList, client.HasLabels{UpgradeStateLabelKey}); err != nil {
+		return 0, fmt.Errorf("failed to list nodes for upgrade-slot accounting: %w", err)
+	}
+
+	count := 0
+	for i := range nodeList.Items {
+		if IsInProgressUpgradeState(nodeList.Items[i].Labels[UpgradeStateLabelKey]) {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (m *ClusterUpgradeStateManagerImpl) ProcessUpgradeRequiredNodes(
 	ctx context.Context, currentClusterState *ClusterUpgradeState,
 	upgradePolicy *v1beta1.DriverUpgradePolicySpec,
 ) error {
-	upgradesInProgress := m.GetUpgradesInProgress(currentClusterState)
+	upgradesInProgress, err := m.countActiveUpgradeNodes(ctx)
+	if err != nil {
+		return err
+	}
 	upgradesAvailable := len(currentClusterState.NodeStates[UpgradeStateUpgradeRequired])
 	if upgradePolicy.MaxParallelUpgrades != 0 {
 		upgradesAvailable = upgradePolicy.MaxParallelUpgrades - upgradesInProgress
