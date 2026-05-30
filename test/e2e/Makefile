@@ -12,6 +12,7 @@ PYPI_PASSWORD ?=
 REGISTRY_USER ?= $(E2E_CONTAINER_REGISTRY_USER)
 REGISTRY_PASSWORD ?= $(E2E_CONTAINER_REGISTRY_PASSWORD)
 GINKGO_LABEL_FILTER ?=
+GO_TEST_TIMEOUT ?= 45m
 
 .PHONY: e2e-test
 e2e-test:
@@ -24,6 +25,7 @@ e2e-test:
 		exit 1; \
 	fi
 	$(GO_CMD) test -v . \
+		-timeout=$(GO_TEST_TIMEOUT) \
 		$(if $(strip $(GINKGO_LABEL_FILTER)),-ginkgo.label-filter=$(GINKGO_LABEL_FILTER)) \
 		-args \
 		-kubeconfig=$(KUBECONFIG) \

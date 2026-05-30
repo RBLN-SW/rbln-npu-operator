@@ -43,6 +43,7 @@ const (
 	vmpName                   = "rbln-npu-vmtest"
 	vmpVirtLauncherLabelKey   = "kubevirt.io"
 	vmpVirtLauncherLabelValue = "virt-launcher"
+	vmpVMStartTimeout         = 5 * time.Minute
 	vmpVMRunningTimeout       = 10 * time.Minute
 	vmpInGuestCheckTimeout    = 5 * time.Minute
 	vmpContainerDiskImage     = "quay.io/containerdisks/ubuntu:22.04"
@@ -197,6 +198,9 @@ var _ = Describe("e2e-npu-operator-vm-passthrough", Ordered, Label("vm-passthrou
 
 				By("waiting for the virt-launcher Pod to be created and request ATOM_PT")
 				Eventually(func(g Gomega) bool {
+					if msg := vmiSyncFailure(ctx, te, testNamespace.Name, vmpName); msg != "" {
+						StopTrying(fmt.Sprintf("VMI %s cannot be launched: %s", vmpName, msg)).Now()
+					}
 					pod, err := findVirtLauncherPod(ctx, k8sCoreClient, testNamespace.Name, vmpName)
 					g.Expect(err).NotTo(HaveOccurred())
 					if pod == nil {
@@ -216,8 +220,11 @@ var _ = Describe("e2e-npu-operator-vm-passthrough", Ordered, Label("vm-passthrou
 					return true
 				}).WithContext(ctx).
 					WithPolling(defaultOperandPollInterval).
-					Within(defaultOperandWaitTimeout).
-					Should(BeTrue(), "virt-launcher pod did not request %s", vmpAtomResourceName)
+					Within(vmpVMStartTimeout).
+					Should(BeTrue(), func() string {
+						return fmt.Sprintf("virt-launcher pod did not request %s\n%s",
+							vmpAtomResourceName, describeVMI(ctx, te, testNamespace.Name, vmpName))
+					})
 
 				By("waiting for the VMI to reach Phase: Running")
 				Eventually(func(g Gomega) string {
@@ -225,7 +232,10 @@ var _ = Describe("e2e-npu-operator-vm-passthrough", Ordered, Label("vm-passthrou
 				}).WithContext(ctx).
 					WithPolling(defaultOperandPollInterval).
 					Within(vmpVMRunningTimeout).
-					Should(Equal("Running"), "VMI %s never reached Running", vmpName)
+					Should(Equal("Running"), func() string {
+						return fmt.Sprintf("VMI %s never reached Running\n%s",
+							vmpName, describeVMI(ctx, te, testNamespace.Name, vmpName))
+					})
 			})
 
 			It("should observe in-guest lspci hit and clean shutdown (VM Stopped)", func(ctx context.Context) {
@@ -426,4 +436,50 @@ func getVMPrintableStatus(
 	g.Expect(err).NotTo(HaveOccurred())
 	status, _, _ := unstructured.NestedString(vm.Object, "status", "printableStatus")
 	return status
+}
+
+func vmiSyncFailure(ctx context.Context, te *testenv.TestEnv, namespace, name string) string {
+	vmi, err := te.DynamicClient.Resource(vmiGVR).Namespace(namespace).
+		Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return ""
+	}
+	conditions, _, _ := unstructured.NestedSlice(vmi.Object, "status", "conditions")
+	for _, raw := range conditions {
+		cond, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		condType, _, _ := unstructured.NestedString(cond, "type")
+		reason, _, _ := unstructured.NestedString(cond, "reason")
+		if condType == "Synchronized" && reason == "FailedCreate" {
+			msg, _, _ := unstructured.NestedString(cond, "message")
+			return fmt.Sprintf("%s: %s", reason, msg)
+		}
+	}
+	return ""
+}
+
+func describeVMI(ctx context.Context, te *testenv.TestEnv, namespace, name string) string {
+	vmi, err := te.DynamicClient.Resource(vmiGVR).Namespace(namespace).
+		Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Sprintf("VMI %s/%s not retrievable: %v", namespace, name, err)
+	}
+	phase, _, _ := unstructured.NestedString(vmi.Object, "status", "phase")
+	var b strings.Builder
+	fmt.Fprintf(&b, "VMI %s phase=%q conditions:", name, phase)
+	conditions, _, _ := unstructured.NestedSlice(vmi.Object, "status", "conditions")
+	for _, raw := range conditions {
+		cond, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		condType, _, _ := unstructured.NestedString(cond, "type")
+		status, _, _ := unstructured.NestedString(cond, "status")
+		reason, _, _ := unstructured.NestedString(cond, "reason")
+		msg, _, _ := unstructured.NestedString(cond, "message")
+		fmt.Fprintf(&b, "\n  - %s=%s reason=%q message=%q", condType, status, reason, msg)
+	}
+	return b.String()
 }

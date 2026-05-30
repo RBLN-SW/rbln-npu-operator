@@ -33,6 +33,10 @@ on:
         required: true
       REGISTRY_PASSWORD:
         required: true
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_PASSWORD:
+        required: false
     outputs:
       operator-version:
         description: "Short commit SHA"
@@ -91,6 +95,13 @@ jobs:
           registry: ${{ steps.build_vars.outputs.registry_host }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Login to Docker Hub for base-image pulls
+        if: ${{ steps.build_vars.outputs.registry_host != 'docker.io' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
       - name: Build NPU operator image
         env:
           VERSION: ${{ steps.build_vars.outputs.image_tag }}

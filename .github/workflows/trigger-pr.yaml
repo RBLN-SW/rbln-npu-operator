@@ -62,6 +62,8 @@ jobs:
     secrets:
       REGISTRY_USERNAME: ${{ secrets.HARBOR_USERNAME }}
       REGISTRY_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
   e2e-tests-container:
     needs: [image-build]
     runs-on: rbln-sw-k8s-4c-32gb

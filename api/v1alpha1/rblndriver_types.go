@@ -78,6 +78,7 @@ type RBLNDriverSpec struct {
 
 	// Manager represents configuration for Rebellions Driver Manager initContainer
 	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:={}
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Driver Manager",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	Manager DriverManagerSpec `json:"manager"`
 
@@ -178,17 +179,20 @@ type RBLNDriverList struct {
 type DriverManagerSpec struct {
 	// Registry represents Driver Manager registry path
 	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=docker.io
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Manager Registry",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Registry string `json:"registry,omitempty"`
 
 	// Image represents Rebellions Driver Manager image name
 	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=rebellions/rbln-k8s-driver-manager
 	// +kubebuilder:validation:Pattern=[a-zA-Z0-9\-]+
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Manager Image",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Image string `json:"image,omitempty"`
 
 	// Version represents Rebellions Driver Manager image tag (version)
 	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:="latest"
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Manager Version",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Version string `json:"version,omitempty"`
 

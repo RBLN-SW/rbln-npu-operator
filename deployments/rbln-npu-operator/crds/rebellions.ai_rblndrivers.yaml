@@ -235,10 +235,12 @@ spec:
                   type: string
                 type: array
               manager:
+                default: {}
                 description: Manager represents configuration for Rebellions Driver
                   Manager initContainer
                 properties:
                   image:
+                    default: rebellions/rbln-k8s-driver-manager
                     description: Image represents Rebellions Driver Manager image
                       name
                     pattern: '[a-zA-Z0-9\-]+'
@@ -257,9 +259,11 @@ spec:
                       type: string
                     type: array
                   registry:
+                    default: docker.io
                     description: Registry represents Driver Manager registry path
                     type: string
                   version:
+                    default: latest
                     description: Version represents Rebellions Driver Manager image
                       tag (version)
                     type: string

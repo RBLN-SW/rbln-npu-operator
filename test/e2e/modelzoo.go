@@ -32,7 +32,7 @@ const (
 	pypiRegistry    = "pypi.rebellions.in"
 	modelZooRepo    = "https://github.com/rebellions-sw/rbln-model-zoo.git"
 	modelZooModel   = "pytorch/vision/detection/yolov10/"
-	compilerVersion = "rebel-compiler==0.10.1"
+	compilerVersion = "rebel-compiler==0.10.4"
 	runnerImage     = "ubuntu:24.04"
 
 	modelZooPodTimeout   = 10 * time.Minute

@@ -179,6 +179,35 @@ func TestProcessUpgradeRequiredNodes(t *testing.T) {
 	}
 }
 
+func TestProcessUpgradeRequiredNodes_CountsInProgressFromNodeLabels(t *testing.T) {
+	mgr := newTestManager(t)
+
+	inProgressA := newNodeUpgradeState("node-reboot-a", UpgradeStateRebootValidationRequired, "rev1")
+	inProgressB := newNodeUpgradeState("node-reboot-b", UpgradeStateRebootValidationRequired, "rev1")
+	queued := newNodeUpgradeState("node-queued", UpgradeStateUpgradeRequired, "rev1")
+
+	registerNodes(t, mgr, inProgressA.Node, inProgressB.Node, queued.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateUpgradeRequired: {queued},
+	})
+
+	policy := &v1beta1.DriverUpgradePolicySpec{MaxParallelUpgrades: 2}
+
+	if err := mgr.ProcessUpgradeRequiredNodes(context.Background(), state, policy); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-queued"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUpgradeRequired {
+		t.Fatalf("queued node state = %q, want %q (cap of 2 already full, must not admit)",
+			got, UpgradeStateUpgradeRequired)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ProcessCordonRequiredNodes
 // ---------------------------------------------------------------------------

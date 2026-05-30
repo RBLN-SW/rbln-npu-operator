@@ -18,6 +18,12 @@ spec:
     - jsonPath: .status.state
       name: Status
       type: string
+    - jsonPath: .status.workloads[?(@.type=='container')].state
+      name: Container
+      type: string
+    - jsonPath: .status.workloads[?(@.type=='vm-passthrough')].state
+      name: VM-Passthrough
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -1163,6 +1169,13 @@ spec:
                       type: string
                     description: Labels specifies the labels for the DaemonSet pods
                     type: object
+                  refreshInterval:
+                    default: 5s
+                    description: |-
+                      RefreshInterval controls how often rbln-ctk-daemon refreshes its state.
+                      Accepts Go duration format ("5s", "1m", "1h30m"). "0s" disables auto-refresh.
+                      Injected as RBLN_CTK_DAEMON_REFRESH_INTERVAL on the container.
+                    type: string
                   registry:
                     default: docker.io
                     description: Registry override for the RBLN Container Toolkit
@@ -9955,6 +9968,11 @@ spec:
                 description: Components is a list of components and their status
                 items:
                   properties:
+                    desired:
+                      description: Desired is the DaemonSet's spec.DesiredNumberScheduled
+                        at the time of observation.
+                      format: int32
+                      type: integer
                     message:
                       description: Message contains details about why the component
                         is not ready.
@@ -9963,7 +9981,16 @@ spec:
                       type: string
                     namespace:
                       type: string
+                    ready:
+                      description: Ready is the DaemonSet's spec.NumberReady at the
+                        time of observation.
+                      format: int32
+                      type: integer
                     state:
+                      type: string
+                    workloadType:
+                      description: WorkloadType is the workload group this component
+                        serves ("container" or "vm-passthrough").
                       type: string
                   required:
                   - name
@@ -10029,6 +10056,10 @@ spec:
                   - type
                   type: object
                 type: array
+              namespace:
+                description: Namespace is the namespace where the operator manages
+                  its operands.
+                type: string
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed
                   by the controller.
@@ -10039,7 +10070,54 @@ spec:
                 enum:
                 - ready
                 - notReady
+                - ignored
                 type: string
+              workloads:
+                description: Workloads is the aggregate readiness summary for each
+                  workload type.
+                items:
+                  description: RBLNWorkloadStatus is the aggregate readiness summary
+                    for a single workload type.
+                  properties:
+                    componentCount:
+                      description: ComponentCount is the number of enabled components
+                        that target this workload.
+                      format: int32
+                      type: integer
+                    message:
+                      description: Message contains a short diagnostic when the workload
+                        is not ready.
+                      type: string
+                    nodeCount:
+                      description: NodeCount is the number of NPU nodes labeled for
+                        this workload.
+                      format: int32
+                      type: integer
+                    readyCount:
+                      description: ReadyCount is the number of those components currently
+                        ready.
+                      format: int32
+                      type: integer
+                    state:
+                      description: WorkloadState describes the aggregate state of
+                        a workload group.
+                      enum:
+                      - ready
+                      - progressing
+                      - empty
+                      - uncovered
+                      type: string
+                    type:
+                      description: Type is the workload type ("container" or "vm-passthrough").
+                      type: string
+                  required:
+                  - componentCount
+                  - nodeCount
+                  - readyCount
+                  - state
+                  - type
+                  type: object
+                type: array
             type: object
         type: object
     served: true

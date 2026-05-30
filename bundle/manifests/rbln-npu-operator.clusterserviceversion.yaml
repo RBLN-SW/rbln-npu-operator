@@ -184,7 +184,7 @@ metadata:
       ]
     capabilities: Basic Install
     containerImage: docker.io/rebellions/rbln-npu-operator:latest
-    createdAt: "2026-05-15T00:35:04Z"
+    createdAt: "2026-05-29T13:10:21Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -275,6 +275,14 @@ spec:
       - description: Labels specifies the labels for the DaemonSet pods
         displayName: Labels
         path: containerToolkit.labels
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: |-
+          RefreshInterval controls how often rbln-ctk-daemon refreshes its state.
+          Accepts Go duration format ("5s", "1m", "1h30m"). "0s" disables auto-refresh.
+          Injected as RBLN_CTK_DAEMON_REFRESH_INTERVAL on the container.
+        displayName: Refresh Interval
+        path: containerToolkit.refreshInterval
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN Container Toolkit image
@@ -873,6 +881,12 @@ spec:
         path: state
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Workloads is the aggregate readiness summary for each workload
+          type.
+        displayName: Workloads
+        path: workloads
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced
       version: v1beta1
     - description: RBLNDriver is the Schema for the rblndrivers API
       displayName: RBLNDriver
@@ -983,16 +997,16 @@ spec:
         - apiGroups:
           - ""
           resources:
-          - pods/eviction
-          verbs:
-          - create
-        - apiGroups:
-          - ""
-          resources:
           - events
           verbs:
           - create
           - patch
+        - apiGroups:
+          - ""
+          resources:
+          - pods/eviction
+          verbs:
+          - create
         - apiGroups:
           - apps
           resources:
