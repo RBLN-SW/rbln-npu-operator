@@ -37,7 +37,7 @@ metadata:
                 "memory": "64Mi"
               }
             },
-            "version": "3.0.0"
+            "version": "3.2.0"
           }
         },
         {
@@ -55,7 +55,7 @@ metadata:
               "image": "rebellions/rbln-container-toolkit",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v0.1.2"
+              "version": "v0.2.1"
             },
             "devicePlugin": {
               "enabled": true,
@@ -95,7 +95,7 @@ metadata:
                   "image": {
                     "image": "rebellions/rbln-node-reboot",
                     "registry": "docker.io",
-                    "version": "latest"
+                    "version": "v1.0.0"
                   },
                   "rebootTimeoutSeconds": 0
                 },
@@ -127,7 +127,7 @@ metadata:
                 "drivercred"
               ],
               "registry": "repo.rebellions.ai",
-              "version": "3.0.0"
+              "version": "3.2.0"
             },
             "sandboxDevicePlugin": {
               "enabled": false,
@@ -163,7 +163,7 @@ metadata:
               "image": "rebellions/rbln-npu-operator-validator",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "latest"
+              "version": "v0.4.3"
             },
             "vfioManager": {
               "driverManager": {
@@ -176,7 +176,7 @@ metadata:
               "image": "rebellions/rbln-vfio-manager",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "latest"
+              "version": "v1.0.0"
             },
             "workloadType": "container"
           }
@@ -184,7 +184,7 @@ metadata:
       ]
     capabilities: Basic Install
     containerImage: docker.io/rebellions/rbln-npu-operator:latest
-    createdAt: "2026-05-29T13:10:21Z"
+    createdAt: "2026-05-30T00:29:03Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
