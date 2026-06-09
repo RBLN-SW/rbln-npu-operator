@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 )
@@ -66,7 +67,9 @@ python -m pip install -i https://` + pypiRegistry + `/simple ` + compilerVersion
 python compile.py
 python inference.py`
 
-// ensurePyPISecret creates the pypi-cred Secret and returns a cleanup function.
+// ensurePyPISecret creates (or overwrites) the pypi-cred Secret. It tolerates a
+// leftover from a prior run whose DeferCleanup never fired on the shared e2e
+// cluster, overwriting it so the current run's credentials are used.
 func ensurePyPISecret(ctx context.Context, client corev1client.CoreV1Interface, namespace, username, password string) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -79,6 +82,9 @@ func ensurePyPISecret(ctx context.Context, client corev1client.CoreV1Interface, 
 		},
 	}
 	_, err := client.Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if apierrors.IsAlreadyExists(err) {
+		_, err = client.Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{})
+	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
