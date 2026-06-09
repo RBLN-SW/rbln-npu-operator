@@ -112,6 +112,9 @@ func (s *ClusterPolicyService) AssembleStatus(
 
 		wlType := c.WorkloadType()
 		nodeCount := census.CountFor(wlType)
+		if c.ComponentName() == consts.RBLNDaemonName {
+			nodeCount -= census.HostDriverNodes
+		}
 		report := c.IsReady(ctx, nodeCount)
 
 		componentStatuses = append(componentStatuses, rblnv1beta1.RBLNComponentStatus{

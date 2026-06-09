@@ -133,9 +133,10 @@ func TestListAndClassifyNodes(t *testing.T) {
 
 func TestReconcileNodes(t *testing.T) {
 	type want struct {
-		count        int
-		labels       map[string]string
-		absentLabels []string
+		count           int
+		hostDriverNodes int
+		labels          map[string]string
+		absentLabels    []string
 	}
 
 	tests := map[string]struct {
@@ -232,6 +233,52 @@ func TestReconcileNodes(t *testing.T) {
 				absentLabels: labelKeys(rblnComponentLabels[consts.RBLNWorkloadConfigContainer]),
 			},
 		},
+		"excludes rbln-daemon on pre-installed driver nodes": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			node: &corev1.Node{
+				ObjectMeta: newObjectMeta("node-preinstalled", map[string]string{
+					consts.NFDDevicePCILabelKey:     labelValueTrue,
+					consts.RBLNDeployDriverLabelKey: consts.RBLNDeployDriverPreInstalled,
+				}),
+			},
+			want: want{
+				count:           1,
+				hostDriverNodes: 1,
+				labels: map[string]string{
+					consts.RBLNPresentLabelKey:                   labelValueTrue,
+					consts.RBLNDeployDriverLabelKey:              consts.RBLNDeployDriverPreInstalled,
+					"rebellions.ai/npu.deploy.device-plugin":     labelValueTrue,
+					"rebellions.ai/npu.deploy.container-toolkit": labelValueTrue,
+				},
+				absentLabels: append(
+					[]string{consts.RBLNDeployRBLNDaemonLabelKey},
+					labelKeys(rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough])...,
+				),
+			},
+		},
+		"removes the rbln-daemon label once the driver becomes pre-installed": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			node: &corev1.Node{
+				ObjectMeta: newObjectMeta("node-preinstalled-existing", mergeLabelMaps(
+					rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
+					map[string]string{
+						consts.NFDDevicePCILabelKey:     labelValueTrue,
+						consts.RBLNPresentLabelKey:      labelValueTrue,
+						consts.RBLNDeployDriverLabelKey: consts.RBLNDeployDriverPreInstalled,
+					},
+				)),
+			},
+			want: want{
+				count:           1,
+				hostDriverNodes: 1,
+				labels: map[string]string{
+					consts.RBLNPresentLabelKey:               labelValueTrue,
+					consts.RBLNDeployDriverLabelKey:          consts.RBLNDeployDriverPreInstalled,
+					"rebellions.ai/npu.deploy.device-plugin": labelValueTrue,
+				},
+				absentLabels: []string{consts.RBLNDeployRBLNDaemonLabelKey},
+			},
+		},
 		"does not modify labels when the node already has the correct workload labels": {
 			workloadType: consts.RBLNWorkloadConfigContainer,
 			node: &corev1.Node{
@@ -265,6 +312,9 @@ func TestReconcileNodes(t *testing.T) {
 			}
 			if int(census.TotalNPU) != tc.want.count {
 				t.Fatalf("ReconcileNodes() count = %d, want %d", census.TotalNPU, tc.want.count)
+			}
+			if int(census.HostDriverNodes) != tc.want.hostDriverNodes {
+				t.Fatalf("ReconcileNodes() hostDriverNodes = %d, want %d", census.HostDriverNodes, tc.want.hostDriverNodes)
 			}
 
 			var updated corev1.Node

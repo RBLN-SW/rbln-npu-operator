@@ -26,7 +26,10 @@ const (
 	RBLNPresentLabelKey             = "rebellions.ai/npu.present"
 	RBLNDeploySkipLabelKey          = "rebellions.ai/npu.deploy.skip"
 	RBLNDeployDriverLabelKey        = "rebellions.ai/npu.deploy.driver"
+	RBLNDeployRBLNDaemonLabelKey    = "rebellions.ai/npu.deploy.rbln-daemon"
 	NFDLabelPrefix                  = "feature.node.kubernetes.io/"
+
+	RBLNDeployDriverPreInstalled = "pre-installed"
 )
 
 // Container runtimes
