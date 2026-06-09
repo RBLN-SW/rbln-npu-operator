@@ -434,12 +434,15 @@ steps:
       kubectl delete rblndrivers --all --ignore-not-found || true
       exit 0
 
-  # Sandbox-cluster cleanup — mirrors `cleanup` but on the sandbox kubeconfig.
+  # Sandbox-cluster cleanup — mirrors `cleanup`: depends on the whole suite so it
+  # runs last (regardless of pass/fail), keeping the sandbox cluster alive for
+  # debugging until the build ends. Only s00 uses the sandbox cluster; the other
+  # deps are purely for end-of-build ordering.
   # s00's release self-uninstalls on graceful teardown; an agent preempt/OOM can
   # leak the release, RBLN CRs, and the KubeVirt VM test_zz creates in `default`.
   - label: ":broom: sandbox cleanup"
     key: sandbox-cleanup
-    depends_on: [s00]
+    depends_on: [s00, s01, s02, s03, s04, s05, s06, s08]
     allow_dependency_failure: true
     timeout_in_minutes: 10
     image: ${SENTINEL_RUNNER_IMAGE}
