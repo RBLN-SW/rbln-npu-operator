@@ -29,14 +29,15 @@ env:
   HELM_CHART_VERSION: ""
 
   # ---- Driver image override (TEMPORARY) -------------------------------------
-  # Points sentinel at a playground-built driver image instead of the default
+  # Points sentinel at a dev-built driver image instead of the default
   # production registry/repo. Consumed by sentinel via
-  # src/sentinel/config.py (driver_image_registry / driver_image_repository)
+  # src/sentinel/config.py (driver_image_registry / repository / tag)
   # and injected into helm install in helpers/helm_values.py, so all scenarios
-  # that install the operator chart pick this up. Remove these two lines once
-  # the playground work lands in the normal release flow.
-  SENTINEL_DRIVER_IMAGE_REGISTRY: harbor.k8s.rebellions.in
-  SENTINEL_DRIVER_IMAGE_REPOSITORY: playground/rbln-driver
+  # that install the operator chart pick this up. Remove these lines once
+  # the driver image lands in the normal release flow.
+  SENTINEL_DRIVER_IMAGE_REGISTRY: harbor.ssw.rbln.in
+  SENTINEL_DRIVER_IMAGE_REPOSITORY: rebellions-dev/rbln-driver
+  SENTINEL_DRIVER_IMAGE_TAG: "3.2.0-rc3"
 
 agents:
   queue: "k8s"
@@ -314,7 +315,7 @@ steps:
     depends_on: s05
     env:
       SCENARIO_FAMILY: driver_upgrade
-      SENTINEL_DRIVER_UPGRADE_VERSION: "3.0.1"
+      SENTINEL_DRIVER_UPGRADE_VERSION: "3.2.0"
     # Driver reboot test can take longer than the other scenarios.
     command: *scenario_command
     <<: *scenario_defaults
