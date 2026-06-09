@@ -327,7 +327,8 @@ steps:
 
   - label: ":pytest: S07 vm passthrough (sandbox)"
     key: s07
-    depends_on: build-image
+    # Sandbox cluster; gated on s06 only to keep pipeline order (still parallel with s08).
+    depends_on: s06
     env: { SCENARIO_FAMILY: vm }
     command: *scenario_command
     <<: *scenario_defaults
