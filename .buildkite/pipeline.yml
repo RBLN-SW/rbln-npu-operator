@@ -77,10 +77,10 @@ _scenario_defaults: &scenario_defaults
 #      credentials are injected automatically by the agent
 #   3. override operator + validator images via SENTINEL_* envs so Helm values
 #      point at the image we just pushed to Harbor
-#   4. run pytest for the scoped scenario directory
+#   4. run the scoped scenario via the sentinel CLI (family name -> pytest -m)
 #
 # NOTE on $$ escaping: Buildkite interpolates `$VAR` at pipeline-upload time.
-# Variables only set at runtime (step-level `env:` like SCENARIO_DIR,
+# Variables only set at runtime (step-level `env:` like SCENARIO_FAMILY,
 # step-level `secrets:` injections like REBEL_SW_DEV_* / HF_TOKEN /
 # KUBECONFIG_B64) must be `$$VAR` so bash expands them at command execution.
 _scenario_command: &scenario_command |
@@ -147,7 +147,7 @@ _scenario_command: &scenario_command |
       HELM_VERSION_ARG="--helm-chart-version=$$HELM_CHART_VERSION"
   fi
 
-  uv run pytest "tests/$$SCENARIO_DIR/" \
+  uv run sentinel run "$$SCENARIO_FAMILY" \
       --helm-chart="$$HELM_CHART" \
       $$HELM_VERSION_ARG \
       --reports-dir=reports \
@@ -277,35 +277,35 @@ steps:
   - label: ":pytest: S01 install"
     key: s01
     depends_on: preflight
-    env: { SCENARIO_DIR: scenario_01_install }
+    env: { SCENARIO_FAMILY: install }
     command: *scenario_command
     <<: *scenario_defaults
 
   - label: ":pytest: S02 container mode"
     key: s02
     depends_on: s01
-    env: { SCENARIO_DIR: scenario_02_container_mode }
+    env: { SCENARIO_FAMILY: container }
     command: *scenario_command
     <<: *scenario_defaults
 
   - label: ":pytest: S03 DRA"
     key: s03
     depends_on: s02
-    env: { SCENARIO_DIR: scenario_03_dra }
+    env: { SCENARIO_FAMILY: dra }
     command: *scenario_command
     <<: *scenario_defaults
 
   - label: ":pytest: S04 skip label"
     key: s04
     depends_on: s03
-    env: { SCENARIO_DIR: scenario_04_skip_label }
+    env: { SCENARIO_FAMILY: skip_label }
     command: *scenario_command
     <<: *scenario_defaults
 
   - label: ":pytest: S05 uninstall cascade"
     key: s05
     depends_on: s04
-    env: { SCENARIO_DIR: scenario_05_uninstall_cascade }
+    env: { SCENARIO_FAMILY: uninstall }
     command: *scenario_command
     <<: *scenario_defaults
 
@@ -313,7 +313,7 @@ steps:
     key: s06
     depends_on: s05
     env:
-      SCENARIO_DIR: scenario_06_driver_upgrade
+      SCENARIO_FAMILY: driver_upgrade
       SENTINEL_DRIVER_UPGRADE_VERSION: "3.0.1"
     # Driver reboot test can take longer than the other scenarios.
     command: *scenario_command
@@ -325,7 +325,7 @@ steps:
   - label: ":pytest: S08 negative"
     key: s08
     depends_on: s06
-    env: { SCENARIO_DIR: scenario_08_negative }
+    env: { SCENARIO_FAMILY: negative }
     command: *scenario_command
     <<: *scenario_defaults
 
