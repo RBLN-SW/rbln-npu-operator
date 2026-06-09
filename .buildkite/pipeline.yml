@@ -325,7 +325,18 @@ steps:
     <<: *scenario_defaults
     timeout_in_minutes: 90
 
-  # Note: scenario_07_vm_passthrough intentionally skipped per current policy.
+  - label: ":pytest: S07 vm passthrough (sandbox)"
+    key: s07
+    depends_on: build-image
+    env: { SCENARIO_FAMILY: vm }
+    command: *scenario_command
+    <<: *scenario_defaults
+    secrets:
+      REBEL_SW_DEV_USERNAME: REBEL_SW_DEV_USERNAME
+      REBEL_SW_DEV_PASSWORD: REBEL_SW_DEV_PASSWORD
+      HF_TOKEN: HF_TOKEN
+      KUBECONFIG_B64: SANDBOX_KUBECONFIG_B64
+      GIT_PAT: GIT_PAT
 
   - label: ":pytest: S08 negative"
     key: s08
@@ -343,7 +354,7 @@ steps:
   # Requires SLACK_OAUTH_TOKEN secret; bot must be invited to ${SLACK_CHANNEL_ID}.
   - label: ":slack: notify"
     key: notify
-    depends_on: [s01, s02, s03, s04, s05, s06, s08]
+    depends_on: [s01, s02, s03, s04, s05, s06, s07, s08]
     allow_dependency_failure: true
     timeout_in_minutes: 10
     image: harbor.k8s.rebellions.in/dockerhub-proxy/node:20
@@ -355,7 +366,7 @@ steps:
       set -euo pipefail
 
       mkdir -p art
-      for s in s01 s02 s03 s04 s05 s06 s08; do
+      for s in s01 s02 s03 s04 s05 s06 s07 s08; do
           mkdir -p "art/$$s"
           buildkite-agent artifact download --step "$$s" \
               "${SENTINEL_DIR}/reports/run.json" "art/$$s/" || true
@@ -420,4 +431,29 @@ steps:
       helm list -n rbln-system --filter 'rbln' -q | xargs -r -n1 helm uninstall -n rbln-system || true
       kubectl delete rblnclusterpolicies --all --ignore-not-found || true
       kubectl delete rblndrivers --all --ignore-not-found || true
+      exit 0
+
+  # Sandbox-cluster cleanup — mirrors `cleanup` but on the sandbox kubeconfig.
+  # s07's release self-uninstalls on graceful teardown; an agent preempt/OOM can
+  # leak the release, RBLN CRs, and the KubeVirt VM test_zz creates in `default`.
+  - label: ":broom: sandbox cleanup"
+    key: sandbox-cleanup
+    depends_on: [s07]
+    allow_dependency_failure: true
+    timeout_in_minutes: 10
+    image: ${SENTINEL_RUNNER_IMAGE}
+    secrets:
+      KUBECONFIG_B64: SANDBOX_KUBECONFIG_B64
+    command: |
+      set -u
+
+      mkdir -p "$$HOME/.kube"
+      echo "$$KUBECONFIG_B64" | base64 -d > "$$HOME/.kube/config"
+      chmod 600 "$$HOME/.kube/config"
+      export KUBECONFIG="$$HOME/.kube/config"
+
+      helm list -n rbln-system --filter 'rbln' -q | xargs -r -n1 helm uninstall -n rbln-system || true
+      kubectl delete rblnclusterpolicies --all --ignore-not-found || true
+      kubectl delete rblndrivers --all --ignore-not-found || true
+      kubectl delete virtualmachine sentinel-npu-test-vm -n default --ignore-not-found || true
       exit 0
