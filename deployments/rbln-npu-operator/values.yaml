@@ -150,7 +150,7 @@ driver:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.2.0
+      tag: v0.2.1
       pullPolicy: IfNotPresent
   #  imagePullSecrets:
   #  - my-registry-secret
@@ -263,7 +263,7 @@ vfioManager:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.2.0
+      tag: v0.2.1
       pullPolicy: IfNotPresent
     env: []
 
