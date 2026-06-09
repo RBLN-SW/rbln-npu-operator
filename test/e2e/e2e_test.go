@@ -161,39 +161,72 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, Label("container"), 
 					Should(BeTrue(), "no ready labeled node exposed rebellions.ai/npu")
 			})
 
-			It("should run model-zoo compile/inference on ubuntu 24.04", func(ctx context.Context) {
+			It("should run model-zoo compile/inference on ubuntu 22.04 on every NPU node", func(ctx context.Context) {
 				ensurePyPISecret(ctx, te.ClientSet.CoreV1(), testNamespace.Name, e2eCfg.pypiUsername, e2eCfg.pypiPassword)
 				DeferCleanup(func() {
 					cleanupPyPISecret(te.ClientSet.CoreV1(), testNamespace.Name)
 				})
 
-				podName := "model-zoo-ubuntu-24-04"
-				container := newModelZooContainer()
-				container.Resources = corev1.ResourceRequirements{
-					Limits: corev1.ResourceList{
-						NPUResourceName: resource.MustParse("1"),
-					},
-				}
-
-				pod := &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      podName,
-						Namespace: testNamespace.Name,
-						Labels:    map[string]string{"app": "model-zoo-smoke"},
-					},
-					Spec: corev1.PodSpec{
-						RestartPolicy: corev1.RestartPolicyNever,
-						Containers:    []corev1.Container{container},
-					},
-				}
-
-				_, err := te.ClientSet.CoreV1().Pods(testNamespace.Name).Create(ctx, pod, metav1.CreateOptions{})
+				nodes, err := k8sCoreClient.ListNodes(ctx, map[string]string{
+					devicePluginNodeLabelKey: devicePluginNodeLabelValue,
+				})
 				Expect(err).NotTo(HaveOccurred())
+
+				hostnames := make([]string, 0, len(nodes))
+				for i := range nodes {
+					node := &nodes[i]
+					if !k8sCoreClient.IsNodeReady(node) {
+						continue
+					}
+					allocQty, allocOK := node.Status.Allocatable[NPUResourceName]
+					if !allocOK || allocQty.Value() == 0 {
+						continue
+					}
+					hostname := node.Labels[corev1.LabelHostname]
+					Expect(hostname).NotTo(BeEmpty(), "node %s missing %s label", node.Name, corev1.LabelHostname)
+					hostnames = append(hostnames, hostname)
+				}
+				Expect(hostnames).NotTo(BeEmpty(), "no ready NPU node with allocatable %s", NPUResourceName)
+
+				podNames := make([]string, 0, len(hostnames))
+				for i, hostname := range hostnames {
+					podName := fmt.Sprintf("model-zoo-ubuntu-22-04-%d", i)
+					e2elog.Infof("scheduling %s on node hostname=%s", podName, hostname)
+
+					container := newModelZooContainer()
+					container.Resources = corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							NPUResourceName: resource.MustParse("1"),
+						},
+					}
+
+					pod := &corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      podName,
+							Namespace: testNamespace.Name,
+							Labels:    map[string]string{"app": "model-zoo-smoke"},
+						},
+						Spec: corev1.PodSpec{
+							RestartPolicy: corev1.RestartPolicyNever,
+							NodeSelector:  map[string]string{corev1.LabelHostname: hostname},
+							Containers:    []corev1.Container{container},
+						},
+					}
+
+					_, err = te.ClientSet.CoreV1().Pods(testNamespace.Name).Create(ctx, pod, metav1.CreateOptions{})
+					Expect(err).NotTo(HaveOccurred())
+					podNames = append(podNames, podName)
+				}
+
 				DeferCleanup(func() {
-					_ = te.ClientSet.CoreV1().Pods(testNamespace.Name).Delete(context.Background(), podName, metav1.DeleteOptions{})
+					for _, name := range podNames {
+						_ = te.ClientSet.CoreV1().Pods(testNamespace.Name).Delete(context.Background(), name, metav1.DeleteOptions{})
+					}
 				})
 
-				waitForPodCompletion(ctx, te.ClientSet.CoreV1(), testNamespace.Name, podName)
+				for _, name := range podNames {
+					waitForPodCompletion(ctx, te.ClientSet.CoreV1(), testNamespace.Name, name)
+				}
 			})
 
 			It("should switch from device-plugin to DRA kubelet plugin", func(ctx context.Context) {
@@ -249,7 +282,7 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, Label("container"), 
 					Should(BeTrue(), "DRA ResourceSlice for driver %s not found", draDeviceClassName)
 			})
 
-			It("should run model-zoo compile/inference on ubuntu 24.04 with DRA", func(ctx context.Context) {
+			It("should run model-zoo compile/inference on ubuntu 22.04 with DRA", func(ctx context.Context) {
 				ensurePyPISecret(ctx, te.ClientSet.CoreV1(), testNamespace.Name, e2eCfg.pypiUsername, e2eCfg.pypiPassword)
 				DeferCleanup(func() {
 					cleanupPyPISecret(te.ClientSet.CoreV1(), testNamespace.Name)
@@ -286,7 +319,7 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, Label("container"), 
 						Delete(context.Background(), claimTemplateName, metav1.DeleteOptions{})
 				})
 
-				podName := "model-zoo-ubuntu-24-04-dra"
+				podName := "model-zoo-ubuntu-22-04-dra"
 				container := newModelZooContainer()
 				container.Resources = corev1.ResourceRequirements{
 					Claims: []corev1.ResourceClaim{

@@ -33,7 +33,7 @@ const (
 	modelZooRepo    = "https://github.com/rebellions-sw/rbln-model-zoo.git"
 	modelZooModel   = "pytorch/vision/detection/yolov10/"
 	compilerVersion = "rebel-compiler==0.10.4"
-	runnerImage     = "ubuntu:24.04"
+	runnerImage     = "ubuntu:22.04"
 
 	modelZooPodTimeout   = 10 * time.Minute
 	modelZooPollInterval = 10 * time.Second
