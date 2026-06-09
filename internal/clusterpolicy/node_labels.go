@@ -26,7 +26,7 @@ var rblnComponentLabels = map[string]map[string]string{
 		"rebellions.ai/npu.deploy.device-plugin":         labelValueTrue,
 		"rebellions.ai/npu.deploy.dra-kubelet-plugin":    labelValueTrue,
 		"rebellions.ai/npu.deploy.metrics-exporter":      labelValueTrue,
-		"rebellions.ai/npu.deploy.rbln-daemon":           labelValueTrue,
+		consts.RBLNDeployRBLNDaemonLabelKey:              labelValueTrue,
 		"rebellions.ai/npu.deploy.npu-feature-discovery": labelValueTrue,
 		"rebellions.ai/npu.deploy.operator-validator":    labelValueTrue,
 		"rebellions.ai/npu.deploy.container-toolkit":     labelValueTrue,
@@ -86,6 +86,7 @@ type NodeCensus struct {
 	TotalNPU           int32
 	ContainerNodes     int32
 	VMPassthroughNodes int32
+	HostDriverNodes    int32
 }
 
 // CountFor returns 0 for unknown workload types.
@@ -127,6 +128,9 @@ func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []
 		switch workload {
 		case consts.RBLNWorkloadConfigContainer:
 			census.ContainerNodes++
+			if labels[consts.RBLNDeployDriverLabelKey] == consts.RBLNDeployDriverPreInstalled {
+				census.HostDriverNodes++
+			}
 		case consts.RBLNWorkloadConfigVMPassthrough:
 			census.VMPassthroughNodes++
 		}
@@ -251,14 +255,12 @@ func removeAllRBLNComponentLabels(labels map[string]string) bool {
 }
 
 func updateRBLNComponentLabels(labels map[string]string, config string) bool {
+	desired := desiredComponentLabels(labels, config)
 	modified := false
 
-	for workloadConfig, labelsMap := range rblnComponentLabels {
-		if workloadConfig == config {
-			continue
-		}
+	for _, labelsMap := range rblnComponentLabels {
 		for key := range labelsMap {
-			if _, keep := rblnComponentLabels[config][key]; keep {
+			if _, keep := desired[key]; keep {
 				continue
 			}
 			if _, exists := labels[key]; exists {
@@ -268,7 +270,7 @@ func updateRBLNComponentLabels(labels map[string]string, config string) bool {
 		}
 	}
 
-	for key, value := range rblnComponentLabels[config] {
+	for key, value := range desired {
 		if _, exists := labels[key]; !exists {
 			labels[key] = value
 			modified = true
@@ -276,4 +278,21 @@ func updateRBLNComponentLabels(labels map[string]string, config string) bool {
 	}
 
 	return modified
+}
+
+func desiredComponentLabels(labels map[string]string, config string) map[string]string {
+	base := rblnComponentLabels[config]
+	if config != consts.RBLNWorkloadConfigContainer ||
+		labels[consts.RBLNDeployDriverLabelKey] != consts.RBLNDeployDriverPreInstalled {
+		return base
+	}
+
+	desired := make(map[string]string, len(base))
+	for key, value := range base {
+		if key == consts.RBLNDeployRBLNDaemonLabelKey {
+			continue
+		}
+		desired[key] = value
+	}
+	return desired
 }

@@ -14,15 +14,16 @@ import (
 )
 
 type fakePatcher struct {
-	name         string
-	namespace    string
-	workloadType string
-	enabled      bool
-	patchErr     error
-	cleanupErr   error
-	report       components.ReadinessReport
-	patchCalls   int
-	cleanCalls   int
+	name          string
+	namespace     string
+	workloadType  string
+	enabled       bool
+	patchErr      error
+	cleanupErr    error
+	report        components.ReadinessReport
+	patchCalls    int
+	cleanCalls    int
+	gotReadyCount int32
 }
 
 var _ components.Patcher = (*fakePatcher)(nil)
@@ -39,7 +40,8 @@ func (f *fakePatcher) CleanUp(context.Context, *rblnv1beta1.RBLNClusterPolicy) e
 	return f.cleanupErr
 }
 
-func (f *fakePatcher) IsReady(context.Context, int32) components.ReadinessReport {
+func (f *fakePatcher) IsReady(_ context.Context, nodeCount int32) components.ReadinessReport {
+	f.gotReadyCount = nodeCount
 	return f.report
 }
 
@@ -231,6 +233,49 @@ func TestAssembleStatus(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads); diff != "" {
 				t.Errorf("%s: workloads -want, +got:\n%s", tc.reason, diff)
+			}
+		})
+	}
+}
+
+func TestAssembleStatusRBLNDaemonExcludesHostDriverNodes(t *testing.T) {
+	ready := components.ReadinessReport{State: rblnv1beta1.ComponentStateReady}
+
+	tests := map[string]struct {
+		census            NodeCensus
+		wantDaemonCount   int32
+		wantOtherNodeSeen int32
+	}{
+		"partial pre-installed reduces only rbln-daemon count": {
+			census:            NodeCensus{TotalNPU: 3, ContainerNodes: 3, HostDriverNodes: 1},
+			wantDaemonCount:   2,
+			wantOtherNodeSeen: 3,
+		},
+		"all pre-installed yields zero expected rbln-daemon nodes": {
+			census:            NodeCensus{TotalNPU: 2, ContainerNodes: 2, HostDriverNodes: 2},
+			wantDaemonCount:   0,
+			wantOtherNodeSeen: 2,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			daemon := &fakePatcher{name: consts.RBLNDaemonName, namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigContainer, enabled: true, report: ready}
+			other := &fakePatcher{name: "device-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigContainer, enabled: true, report: ready}
+
+			service := &ClusterPolicyService{
+				log:        logr.Discard(),
+				policy:     &rblnv1beta1.RBLNClusterPolicy{},
+				components: toPatchers([]*fakePatcher{daemon, other}),
+			}
+
+			service.AssembleStatus(context.Background(), tc.census)
+
+			if daemon.gotReadyCount != tc.wantDaemonCount {
+				t.Errorf("rbln-daemon IsReady count = %d, want %d", daemon.gotReadyCount, tc.wantDaemonCount)
+			}
+			if other.gotReadyCount != tc.wantOtherNodeSeen {
+				t.Errorf("device-plugin IsReady count = %d, want %d", other.gotReadyCount, tc.wantOtherNodeSeen)
 			}
 		})
 	}
