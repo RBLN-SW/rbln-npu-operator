@@ -28,16 +28,20 @@ env:
   HELM_CHART: ""
   HELM_CHART_VERSION: ""
 
-  # ---- Driver image override (TEMPORARY) -------------------------------------
-  # Points sentinel at a dev-built driver image instead of the default
-  # production registry/repo. Consumed by sentinel via
-  # src/sentinel/config.py (driver_image_registry / repository / tag)
-  # and injected into helm install in helpers/helm_values.py, so all scenarios
-  # that install the operator chart pick this up. Remove these lines once
-  # the driver image lands in the normal release flow.
+  # ---- Driver + rbln-daemon image override (TEMPORARY) -----------------------
+  # Points sentinel at dev-built driver + rbln-daemon images instead of the
+  # default production registry/repo. Consumed by sentinel via
+  # src/sentinel/config.py (driver_image_* / rbln_daemon_image_*) and injected
+  # into helm install in helpers/helm_values.py, so all scenarios that install
+  # the operator chart pick this up. harbor.ssw.rbln.in needs no pull secret, so
+  # the drivercred secret (harbor.k8s) is irrelevant for these. Remove these
+  # lines once the images land in the normal release flow.
   SENTINEL_DRIVER_IMAGE_REGISTRY: harbor.ssw.rbln.in
   SENTINEL_DRIVER_IMAGE_REPOSITORY: rebellions-dev/rbln-driver
   SENTINEL_DRIVER_IMAGE_TAG: "3.2.0-rc3"
+  SENTINEL_RBLN_DAEMON_IMAGE_REGISTRY: harbor.ssw.rbln.in
+  SENTINEL_RBLN_DAEMON_IMAGE_REPOSITORY: rebellions-dev/rbln-daemon
+  SENTINEL_RBLN_DAEMON_IMAGE_TAG: "3.2.0"
 
 agents:
   queue: "k8s"
