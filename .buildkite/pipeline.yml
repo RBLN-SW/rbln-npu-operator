@@ -350,6 +350,25 @@ steps:
     command: *scenario_command
     <<: *scenario_defaults
 
+  - label: ":pytest: S08 workload switch"
+    key: s08
+    # Workload-type switch test (vm-passthrough <-> container <-> vm-passthrough).
+    # Gated on both the vm scenario (s00) and the container chain (s07) so it runs
+    # after both workload types are exercised and never contends with them. Uses
+    # the sandbox cluster — the vm-passthrough phases rebind NPUs to vfio-pci.
+    # Defined after s07 because Buildkite resolves depends_on against steps
+    # already declared above it.
+    depends_on: [s00, s07]
+    env: { SCENARIO_FAMILY: workload_switch }
+    command: *scenario_command
+    <<: *scenario_defaults
+    secrets:
+      REBEL_SW_DEV_USERNAME: REBEL_SW_DEV_USERNAME
+      REBEL_SW_DEV_PASSWORD: REBEL_SW_DEV_PASSWORD
+      HF_TOKEN: HF_TOKEN
+      KUBECONFIG_B64: SANDBOX_KUBECONFIG_B64
+      GIT_PAT: GIT_PAT
+
 
   # Post a per-scenario summary to Slack. Depends on scenarios only (parallel
   # with cleanup) and tolerates upstream failures so red builds still notify.
@@ -359,7 +378,7 @@ steps:
   # Requires SLACK_OAUTH_TOKEN secret; bot must be invited to ${SLACK_CHANNEL_ID}.
   - label: ":slack: notify"
     key: notify
-    depends_on: [s00, s01, s02, s03, s04, s05, s06, s07]
+    depends_on: [s00, s01, s02, s03, s04, s05, s06, s07, s08]
     allow_dependency_failure: true
     timeout_in_minutes: 10
     image: harbor.k8s.rebellions.in/dockerhub-proxy/node:20
@@ -371,7 +390,7 @@ steps:
       set -euo pipefail
 
       mkdir -p art
-      for s in s00 s01 s02 s03 s04 s05 s06 s07; do
+      for s in s00 s01 s02 s03 s04 s05 s06 s07 s08; do
           mkdir -p "art/$$s"
           buildkite-agent artifact download --step "$$s" \
               "${SENTINEL_DIR}/reports/run.json" "art/$$s/" || true
@@ -447,7 +466,7 @@ steps:
   # leak the release, RBLN CRs, and the KubeVirt VM test_zz creates in `default`.
   - label: ":broom: sandbox cleanup"
     key: sandbox-cleanup
-    depends_on: [s00, s01, s02, s03, s04, s05, s06, s07]
+    depends_on: [s00, s01, s02, s03, s04, s05, s06, s07, s08]
     allow_dependency_failure: true
     timeout_in_minutes: 10
     image: ${SENTINEL_RUNNER_IMAGE}
