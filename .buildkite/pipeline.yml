@@ -38,10 +38,13 @@ env:
   # lines once the images land in the normal release flow.
   SENTINEL_DRIVER_IMAGE_REGISTRY: harbor.ssw.rbln.in
   SENTINEL_DRIVER_IMAGE_REPOSITORY: rebellions-dev/rbln-driver
-  SENTINEL_DRIVER_IMAGE_TAG: "3.2.0-rc3"
+  # Per-build overridable: reads SENTINEL_DRIVER_IMAGE_TAG from the build env
+  # (trigger pipeline `env:` / New Build / API), else falls back to this default.
+  SENTINEL_DRIVER_IMAGE_TAG: "${SENTINEL_DRIVER_IMAGE_TAG:-3.2.0-rc3}"
   SENTINEL_RBLN_DAEMON_IMAGE_REGISTRY: harbor.ssw.rbln.in
   SENTINEL_RBLN_DAEMON_IMAGE_REPOSITORY: rebellions-dev/rbln-daemon
-  SENTINEL_RBLN_DAEMON_IMAGE_TAG: "3.2.0"
+  # Per-build overridable, same mechanism as SENTINEL_DRIVER_IMAGE_TAG.
+  SENTINEL_RBLN_DAEMON_IMAGE_TAG: "${SENTINEL_RBLN_DAEMON_IMAGE_TAG:-3.2.0}"
 
 agents:
   queue: "k8s"
@@ -319,7 +322,8 @@ steps:
     depends_on: s05
     env:
       SCENARIO_FAMILY: driver_upgrade
-      SENTINEL_DRIVER_UPGRADE_VERSION: "3.2.0"
+      # Per-build overridable (upgrade target), same mechanism as SENTINEL_DRIVER_IMAGE_TAG.
+      SENTINEL_DRIVER_UPGRADE_VERSION: "${SENTINEL_DRIVER_UPGRADE_VERSION:-3.2.0}"
     # Driver reboot test can take longer than the other scenarios.
     command: *scenario_command
     <<: *scenario_defaults
