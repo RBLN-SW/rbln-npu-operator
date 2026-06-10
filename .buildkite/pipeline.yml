@@ -339,8 +339,8 @@ steps:
       KUBECONFIG_B64: SANDBOX_KUBECONFIG_B64
       GIT_PAT: GIT_PAT
 
-  - label: ":pytest: S08 negative"
-    key: s08
+  - label: ":pytest: S07 negative"
+    key: s07
     depends_on: s06
     env: { SCENARIO_FAMILY: negative }
     command: *scenario_command
@@ -355,7 +355,7 @@ steps:
   # Requires SLACK_OAUTH_TOKEN secret; bot must be invited to ${SLACK_CHANNEL_ID}.
   - label: ":slack: notify"
     key: notify
-    depends_on: [s00, s01, s02, s03, s04, s05, s06, s08]
+    depends_on: [s00, s01, s02, s03, s04, s05, s06, s07]
     allow_dependency_failure: true
     timeout_in_minutes: 10
     image: harbor.k8s.rebellions.in/dockerhub-proxy/node:20
@@ -367,7 +367,7 @@ steps:
       set -euo pipefail
 
       mkdir -p art
-      for s in s00 s01 s02 s03 s04 s05 s06 s08; do
+      for s in s00 s01 s02 s03 s04 s05 s06 s07; do
           mkdir -p "art/$$s"
           buildkite-agent artifact download --step "$$s" \
               "${SENTINEL_DIR}/reports/run.json" "art/$$s/" || true
@@ -409,7 +409,7 @@ steps:
   # CRDs. This step runs regardless of upstream success/failure.
   - label: ":broom: cleanup"
     key: cleanup
-    depends_on: [s01, s02, s03, s04, s05, s06, s08]
+    depends_on: [s01, s02, s03, s04, s05, s06, s07]
     allow_dependency_failure: true
     timeout_in_minutes: 10
     image: ${SENTINEL_RUNNER_IMAGE}
@@ -443,7 +443,7 @@ steps:
   # leak the release, RBLN CRs, and the KubeVirt VM test_zz creates in `default`.
   - label: ":broom: sandbox cleanup"
     key: sandbox-cleanup
-    depends_on: [s00, s01, s02, s03, s04, s05, s06, s08]
+    depends_on: [s00, s01, s02, s03, s04, s05, s06, s07]
     allow_dependency_failure: true
     timeout_in_minutes: 10
     image: ${SENTINEL_RUNNER_IMAGE}
