@@ -64,8 +64,11 @@ cd rbln-model-zoo/` + modelZooModel + `
 git submodule update --init ultralytics/
 python -m pip install -r requirements.txt
 python -m pip install -i https://` + pypiRegistry + `/simple ` + compilerVersion + `
+echo "[INFO] Running compile.py..."
 python compile.py
-python inference.py`
+echo "[INFO] Running inference.py..."
+python inference.py
+echo "[SUCCESS] Model-zoo inference completed."`
 
 // ensurePyPISecret creates (or overwrites) the pypi-cred Secret. It tolerates a
 // leftover from a prior run whose DeferCleanup never fired on the shared e2e

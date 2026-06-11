@@ -383,7 +383,10 @@ steps:
     timeout_in_minutes: 10
     image: harbor.k8s.rebellions.in/dockerhub-proxy/node:20
     env:
-      SLACK_CHANNEL_ID: C09NQQGNVTJ
+      # Per-build overridable, same mechanism as SENTINEL_DRIVER_IMAGE_TAG:
+      # reads SENTINEL_SLACK_CHANNEL_ID from the build env (trigger pipeline
+      # `env:` / New Build / API), else falls back to this default.
+      SLACK_CHANNEL_ID: "${SENTINEL_SLACK_CHANNEL_ID:-C09NQQGNVTJ}"
     secrets:
       SLACK_OAUTH_TOKEN: SLACK_OAUTH_TOKEN
     command: |
