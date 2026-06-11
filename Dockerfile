@@ -1,7 +1,7 @@
 # Build the manager binary
 ARG GOLANG_VERSION=1.25.7
 
-FROM golang:${GOLANG_VERSION} AS builder
+FROM harbor.k8s.rebellions.in/dockerhub-proxy/golang:${GOLANG_VERSION} AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH
 
@@ -20,7 +20,7 @@ COPY internal/ internal/
 
 RUN make cmds
 
-FROM redhat/ubi9-minimal:9.6
+FROM harbor.k8s.rebellions.in/dockerhub-proxy/redhat/ubi9-minimal:9.6
 ARG VERSION
 
 LABEL \

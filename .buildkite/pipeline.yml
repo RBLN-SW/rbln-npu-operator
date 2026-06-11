@@ -1,0 +1,491 @@
+env:
+  BUILDKITE: "true"
+
+  # ---- Image registry (nightly build target) ---------------------------------
+  HARBOR_HOST: harbor.k8s.rebellions.in
+  IMAGE_REGISTRY: harbor.k8s.rebellions.in/rebellions
+  VALIDATOR_IMAGE_NAME: harbor.k8s.rebellions.in/rebellions/rbln-npu-operator-validator
+  # Runner for the build-image DinD step — alpine/docker-with-buildx + bash +
+  # make + git. Source: .buildkite/images/buildx-ci.Dockerfile.
+  BUILDX_CI_IMAGE: harbor.k8s.rebellions.in/rebellions/buildx-ci:latest
+
+  # ---- Sentinel (E2E test harness) -------------------------------------------
+  # Each Buildkite step runs on its own agent, so every scenario step clones
+  # the sentinel repo fresh. Pin SENTINEL_REF from the pipeline trigger for
+  # reproducible nightlies. SENTINEL_RUNNER_IMAGE is the pre-baked runner
+  # image (git + uv + kubectl + helm + python) used as the dev container
+  # for every non-DinD step.
+  SENTINEL_REPO: https://github.com/rebellions-sw/npu-operator-sentinel.git
+  SENTINEL_REF: dev
+  SENTINEL_DIR: npu-operator-sentinel
+  SENTINEL_RUNNER_IMAGE: harbor.k8s.rebellions.in/rebellions/npu-operator-sentinel:latest
+
+  # ---- Helm chart ------------------------------------------------------------
+  # Empty default -> resolves to the absolute path of the chart bundled with
+  # this repo (deployments/rbln-npu-operator), computed at runtime from the
+  # Buildkite checkout root. Override via the trigger to point at a different
+  # source (local path or OCI). HELM_CHART_VERSION only applies to OCI sources.
+  HELM_CHART: ""
+  HELM_CHART_VERSION: ""
+
+  # ---- Driver + rbln-daemon image override (TEMPORARY) -----------------------
+  # Points sentinel at dev-built driver + rbln-daemon images instead of the
+  # default production registry/repo. Consumed by sentinel via
+  # src/sentinel/config.py (driver_image_* / rbln_daemon_image_*) and injected
+  # into helm install in helpers/helm_values.py, so all scenarios that install
+  # the operator chart pick this up. harbor.ssw.rbln.in needs no pull secret, so
+  # the drivercred secret (harbor.k8s) is irrelevant for these. Remove these
+  # lines once the images land in the normal release flow.
+  SENTINEL_DRIVER_IMAGE_REGISTRY: harbor.ssw.rbln.in
+  SENTINEL_DRIVER_IMAGE_REPOSITORY: rebellions-dev/rbln-driver
+  # Per-build overridable: reads SENTINEL_DRIVER_IMAGE_TAG from the build env
+  # (trigger pipeline `env:` / New Build / API), else falls back to this default.
+  SENTINEL_DRIVER_IMAGE_TAG: "${SENTINEL_DRIVER_IMAGE_TAG:-3.2.0-rc3}"
+  SENTINEL_RBLN_DAEMON_IMAGE_REGISTRY: harbor.ssw.rbln.in
+  SENTINEL_RBLN_DAEMON_IMAGE_REPOSITORY: rebellions-dev/rbln-daemon
+  # Per-build overridable, same mechanism as SENTINEL_DRIVER_IMAGE_TAG.
+  SENTINEL_RBLN_DAEMON_IMAGE_TAG: "${SENTINEL_RBLN_DAEMON_IMAGE_TAG:-3.2.0}"
+
+agents:
+  queue: "k8s"
+
+# Test Engine uploader. Requires BUILDKITE_ANALYTICS_TOKEN secret on the agent.
+#_test_collector: &test_collector
+#  test-collector#v1.11.0:
+#    files: "${SENTINEL_DIR}/reports/junit.xml"
+#    format: "junit"
+
+_scenario_defaults: &scenario_defaults
+  timeout_in_minutes: 120
+  image: ${SENTINEL_RUNNER_IMAGE}
+  secrets:
+    REBEL_SW_DEV_USERNAME: REBEL_SW_DEV_USERNAME
+    REBEL_SW_DEV_PASSWORD: REBEL_SW_DEV_PASSWORD
+    HF_TOKEN: HF_TOKEN
+    KUBECONFIG_B64: KUBECONFIG_B64
+    GIT_PAT: GIT_PAT
+  retry:
+    automatic:
+      - exit_status: -1
+        limit: 2
+      - signal_reason: agent_stop
+        limit: 2
+    manual:
+      allowed: true
+      reason: "Flake retry"
+  artifact_paths:
+    - "${SENTINEL_DIR}/reports/**/*"
+    - "${SENTINEL_DIR}/logs/**/*"
+#  plugins:
+#    - *test_collector
+
+# Shared scenario runner:
+#   1. derive image tag from commit (must match build-image step)
+#   2. clone sentinel fresh (agents are ephemeral / isolated); GitHub
+#      credentials are injected automatically by the agent
+#   3. override operator + validator images via SENTINEL_* envs so Helm values
+#      point at the image we just pushed to Harbor
+#   4. run the scoped scenario via the sentinel CLI (family name -> pytest -m)
+#
+# NOTE on $$ escaping: Buildkite interpolates `$VAR` at pipeline-upload time.
+# Variables only set at runtime (step-level `env:` like SCENARIO_FAMILY,
+# step-level `secrets:` injections like REBEL_SW_DEV_* / HF_TOKEN /
+# KUBECONFIG_B64) must be `$$VAR` so bash expands them at command execution.
+_scenario_command: &scenario_command |
+  set -euo pipefail
+
+  OPERATOR_IMAGE_TAG="$${BUILDKITE_COMMIT:0:8}"
+  # Capture absolute path to the operator repo checkout BEFORE cd'ing into
+  # the sentinel clone — sentinel's --helm-chart needs an absolute path.
+  OPERATOR_ROOT="$$(pwd)"
+
+  # Materialize kubeconfig from the base64-encoded Buildkite secret.
+  mkdir -p "$$HOME/.kube"
+  echo "$$KUBECONFIG_B64" | base64 -d > "$$HOME/.kube/config"
+  chmod 600 "$$HOME/.kube/config"
+  export KUBECONFIG="$$HOME/.kube/config"
+  export SENTINEL_KUBECONFIG="$$KUBECONFIG"
+
+  # Authenticate git clone via GIT_PAT (GitHub App flow is unreliable on this
+  # agent). url.insteadOf rewrites the protocol+host so ${SENTINEL_REPO} stays
+  # clean and the PAT is only in the ephemeral pod's git config.
+  git config --global url."https://x-access-token:$$GIT_PAT@github.com/".insteadOf "https://github.com/"
+
+  rm -rf "${SENTINEL_DIR}"
+  git clone --depth=1 --branch "${SENTINEL_REF}" "${SENTINEL_REPO}" "${SENTINEL_DIR}"
+  cd "${SENTINEL_DIR}"
+  uv sync --all-extras
+
+  # Default to the chart bundled with this repo; trigger-level HELM_CHART wins.
+  if [ -z "$$HELM_CHART" ]; then
+      HELM_CHART="$$OPERATOR_ROOT/deployments/rbln-npu-operator"
+  fi
+
+  # Fetch chart dependencies (e.g. node-feature-discovery subchart) — helm
+  # install refuses to run if Chart.yaml deps aren't materialised in charts/,
+  # even when the dep's `condition:` disables it.
+  helm dependency update "$$HELM_CHART"
+
+  # Point tests at the nightly image just pushed.
+  export SENTINEL_OPERATOR_REGISTRY="${HARBOR_HOST}"
+  export SENTINEL_OPERATOR_REPOSITORY="rebellions/rbln-npu-operator"
+  export SENTINEL_OPERATOR_VERSION="$$OPERATOR_IMAGE_TAG"
+  export SENTINEL_VALIDATOR_REGISTRY="${HARBOR_HOST}"
+  export SENTINEL_VALIDATOR_REPOSITORY="rebellions/rbln-npu-operator-validator"
+  export SENTINEL_VALIDATOR_VERSION="$$OPERATOR_IMAGE_TAG"
+
+  # Credentials the test harness injects into the cluster:
+  #   - registry pull secret (drivercred)
+  #   - PyPI creds for model-zoo inference pods (rebel-compiler install)
+  # Both reuse the same REBEL_SW_DEV_* pair.
+  export SENTINEL_REGISTRY_SERVER="${HARBOR_HOST}"
+  export SENTINEL_REGISTRY_USER="$$REBEL_SW_DEV_USERNAME"
+  export SENTINEL_REGISTRY_PASSWORD="$$REBEL_SW_DEV_PASSWORD"
+  export SENTINEL_PYPI_USERNAME="$$REBEL_SW_DEV_USERNAME"
+  export SENTINEL_PYPI_PASSWORD="$$REBEL_SW_DEV_PASSWORD"
+
+  # HuggingFace token for gated model-zoo models — agent-injected as HF_TOKEN.
+  export SENTINEL_HF_TOKEN="$$HF_TOKEN"
+
+  # HELM_CHART_VERSION only applies to OCI sources; inject the flag at runtime
+  # so Buildkite's pipeline interpolation (which doesn't handle nested braced
+  # vars inside :+ alternatives) doesn't mangle it.
+  HELM_VERSION_ARG=""
+  if [ -n "$$HELM_CHART_VERSION" ]; then
+      HELM_VERSION_ARG="--helm-chart-version=$$HELM_CHART_VERSION"
+  fi
+
+  uv run sentinel run "$$SCENARIO_FAMILY" \
+      --helm-chart="$$HELM_CHART" \
+      $$HELM_VERSION_ARG \
+      --reports-dir=reports \
+      --logs-dir=logs
+
+# --- Steps ----------------------------------------------------------------------
+
+steps:
+  # 0. Build & push operator + validator images to Harbor.
+  #    Tag = short commit SHA; every downstream step derives the same tag
+  #    from BUILDKITE_COMMIT so no meta-data coordination is needed.
+  # Docker-in-Docker pattern per Buildkite agent-stack-k8s docs:
+  # https://buildkite.com/docs/agent/self-hosted/agent-stack-k8s/dind-container-builds
+  #   - main container: alpine/docker-with-buildx (provides docker CLI + buildx)
+  #   - sidecar:        docker:dind (privileged, runs the daemon)
+  #   - they talk via DOCKER_HOST=tcp://localhost:2375 inside the same Pod.
+  - label: ":docker: build & push operator image"
+    key: build-image
+    timeout_in_minutes: 30
+    image: ${BUILDX_CI_IMAGE}
+    env:
+      DOCKER_HOST: tcp://localhost:2375
+    secrets:
+      REBEL_SW_DEV_USERNAME: REBEL_SW_DEV_USERNAME
+      REBEL_SW_DEV_PASSWORD: REBEL_SW_DEV_PASSWORD
+    plugins:
+      - kubernetes:
+          sidecars:
+            - image: harbor.k8s.rebellions.in/dockerhub-proxy/docker:dind
+              command: [dockerd-entrypoint.sh]
+              securityContext:
+                privileged: true
+              env:
+                - name: DOCKER_TLS_CERTDIR
+                  value: ""
+    command: |
+      set -euo pipefail
+
+      # Record build start time (epoch seconds) for the notify step to
+      # compute wall-clock duration. Buildkite doesn't expose a
+      # BUILDKITE_BUILD_CREATED_AT env var, so we set it here as the first
+      # step's very first action. Read by the notify step via
+      # `buildkite-agent meta-data get build:started_at`.
+      buildkite-agent meta-data set "build:started_at" "$$(date -u +%s)"
+
+      # Wait for the dockerd sidecar to become reachable (race-condition
+      # mitigation called out in the Buildkite docs). 60s was too tight on
+      # this cluster — harbor pulls of docker:dind plus daemon startup can
+      # go past 60s under load. Bumped to ~180s and we dump the full
+      # `docker info` output on the final failure so the next incident
+      # shows whether it's daemon-not-ready vs. sidecar never scheduled.
+      echo "waiting for dockerd sidecar..."
+      for i in $$(seq 1 90); do
+          if docker info >/dev/null 2>&1; then
+              echo "dockerd ready after $${i}x2s"
+              break
+          fi
+          sleep 2
+      done
+      if ! docker info >/dev/null 2>&1; then
+          echo "::error:: dockerd sidecar did not become ready within 180s"
+          docker info 2>&1 || true
+          exit 1
+      fi
+
+      # The Makefile build-image target uses --output=type=image,push=true
+      # which requires the docker-container buildx driver (the default
+      # `docker` driver can't push directly). --bootstrap is omitted — some
+      # buildx versions nil-panic in the tracing init during bootstrap; the
+      # first `docker buildx build` bootstraps the builder lazily anyway.
+      docker buildx create --use --name ci-builder --driver docker-container
+
+      IMAGE_TAG="$${BUILDKITE_COMMIT:0:8}"
+
+      # REBEL_SW_DEV_USERNAME / REBEL_SW_DEV_PASSWORD are injected by the
+      # agent env hook — use $$ so they're resolved at runtime, not upload.
+      echo "$$REBEL_SW_DEV_PASSWORD" | docker login "${HARBOR_HOST}" \
+          --username "$$REBEL_SW_DEV_USERNAME" --password-stdin
+
+      # Makefile derives IMAGE_NAME = $(REGISTRY)/rbln-npu-operator and
+      # IMAGE_TAG = $(VERSION), so operator build only needs REGISTRY+VERSION.
+      make build-image \
+          REGISTRY="${IMAGE_REGISTRY}" \
+          VERSION="$$IMAGE_TAG" \
+          PUSH_ON_BUILD=true
+
+      # Validator image has a different name, so IMAGE_NAME must be overridden.
+      make build-image \
+          REGISTRY="${IMAGE_REGISTRY}" \
+          IMAGE_NAME="${VALIDATOR_IMAGE_NAME}" \
+          VERSION="$$IMAGE_TAG" \
+          PUSH_ON_BUILD=true
+
+  # 1. Preflight — collect tests + dump cluster info so failures in S01 have context.
+  - label: ":mag: preflight"
+    key: preflight
+    depends_on: build-image
+    timeout_in_minutes: 15
+    image: ${SENTINEL_RUNNER_IMAGE}
+    secrets:
+      KUBECONFIG_B64: KUBECONFIG_B64
+      GIT_PAT: GIT_PAT
+    command: |
+      set -euo pipefail
+      OPERATOR_ROOT="$$(pwd)"
+
+      mkdir -p "$$HOME/.kube"
+      echo "$$KUBECONFIG_B64" | base64 -d > "$$HOME/.kube/config"
+      chmod 600 "$$HOME/.kube/config"
+      export KUBECONFIG="$$HOME/.kube/config"
+      export SENTINEL_KUBECONFIG="$$KUBECONFIG"
+
+      git config --global url."https://x-access-token:$$GIT_PAT@github.com/".insteadOf "https://github.com/"
+
+      rm -rf "${SENTINEL_DIR}"
+      git clone --depth=1 --branch "${SENTINEL_REF}" "${SENTINEL_REPO}" "${SENTINEL_DIR}"
+      cd "${SENTINEL_DIR}"
+      uv sync --all-extras
+      if [ -z "$$HELM_CHART" ]; then
+          HELM_CHART="$$OPERATOR_ROOT/deployments/rbln-npu-operator"
+      fi
+      uv run pytest --collect-only -q --helm-chart="$$HELM_CHART"
+      kubectl get nodes -o wide
+      kubectl get ns
+      helm version
+
+  - label: ":pytest: S01 install"
+    key: s01
+    depends_on: preflight
+    env: { SCENARIO_FAMILY: install }
+    command: *scenario_command
+    <<: *scenario_defaults
+
+  - label: ":pytest: S02 container mode"
+    key: s02
+    depends_on: s01
+    env: { SCENARIO_FAMILY: container }
+    command: *scenario_command
+    <<: *scenario_defaults
+
+  - label: ":pytest: S03 DRA"
+    key: s03
+    depends_on: s02
+    env: { SCENARIO_FAMILY: dra }
+    command: *scenario_command
+    <<: *scenario_defaults
+
+  - label: ":pytest: S04 skip label"
+    key: s04
+    depends_on: s03
+    env: { SCENARIO_FAMILY: skip_label }
+    command: *scenario_command
+    <<: *scenario_defaults
+
+  - label: ":pytest: S05 uninstall cascade"
+    key: s05
+    depends_on: s04
+    env: { SCENARIO_FAMILY: uninstall }
+    command: *scenario_command
+    <<: *scenario_defaults
+
+  - label: ":pytest: S06 driver upgrade"
+    key: s06
+    depends_on: s05
+    env:
+      SCENARIO_FAMILY: driver_upgrade
+      # Per-build overridable (upgrade target), same mechanism as SENTINEL_DRIVER_IMAGE_TAG.
+      SENTINEL_DRIVER_UPGRADE_VERSION: "${SENTINEL_DRIVER_UPGRADE_VERSION:-3.2.0}"
+    # Driver reboot test can take longer than the other scenarios.
+    command: *scenario_command
+    <<: *scenario_defaults
+    timeout_in_minutes: 90
+
+  - label: ":pytest: S00 vm passthrough (sandbox)"
+    key: s00
+    # Separate sandbox cluster; runs first, in parallel with the main chain.
+    depends_on: build-image
+    env: { SCENARIO_FAMILY: vm }
+    command: *scenario_command
+    <<: *scenario_defaults
+    secrets:
+      REBEL_SW_DEV_USERNAME: REBEL_SW_DEV_USERNAME
+      REBEL_SW_DEV_PASSWORD: REBEL_SW_DEV_PASSWORD
+      HF_TOKEN: HF_TOKEN
+      KUBECONFIG_B64: SANDBOX_KUBECONFIG_B64
+      GIT_PAT: GIT_PAT
+
+  - label: ":pytest: S07 negative"
+    key: s07
+    depends_on: s06
+    env: { SCENARIO_FAMILY: negative }
+    command: *scenario_command
+    <<: *scenario_defaults
+
+  - label: ":pytest: S08 workload switch"
+    key: s08
+    # Workload-type switch test (vm-passthrough <-> container <-> vm-passthrough).
+    # Gated on both the vm scenario (s00) and the container chain (s07) so it runs
+    # after both workload types are exercised and never contends with them. Uses
+    # the sandbox cluster — the vm-passthrough phases rebind NPUs to vfio-pci.
+    # Defined after s07 because Buildkite resolves depends_on against steps
+    # already declared above it.
+    depends_on: [s00, s07]
+    env: { SCENARIO_FAMILY: workload_switch }
+    command: *scenario_command
+    <<: *scenario_defaults
+    secrets:
+      REBEL_SW_DEV_USERNAME: REBEL_SW_DEV_USERNAME
+      REBEL_SW_DEV_PASSWORD: REBEL_SW_DEV_PASSWORD
+      HF_TOKEN: HF_TOKEN
+      KUBECONFIG_B64: SANDBOX_KUBECONFIG_B64
+      GIT_PAT: GIT_PAT
+
+
+  # Post a per-scenario summary to Slack. Depends on scenarios only (parallel
+  # with cleanup) and tolerates upstream failures so red builds still notify.
+  # Artifact inputs:
+  #   - ${SENTINEL_DIR}/reports/run.json   (sentinel scenario tally)
+  #   - ${SENTINEL_DIR}/reports/report.html (self-contained report; linked per row)
+  # Requires SLACK_OAUTH_TOKEN secret; bot must be invited to ${SLACK_CHANNEL_ID}.
+  - label: ":slack: notify"
+    key: notify
+    depends_on: [s00, s01, s02, s03, s04, s05, s06, s07, s08]
+    allow_dependency_failure: true
+    timeout_in_minutes: 10
+    image: harbor.k8s.rebellions.in/dockerhub-proxy/node:20
+    env:
+      # Per-build overridable, same mechanism as SENTINEL_DRIVER_IMAGE_TAG:
+      # reads SENTINEL_SLACK_CHANNEL_ID from the build env (trigger pipeline
+      # `env:` / New Build / API), else falls back to this default.
+      SLACK_CHANNEL_ID: "${SENTINEL_SLACK_CHANNEL_ID:-C09NQQGNVTJ}"
+    secrets:
+      SLACK_OAUTH_TOKEN: SLACK_OAUTH_TOKEN
+    command: |
+      set -euo pipefail
+
+      mkdir -p art
+      for s in s00 s01 s02 s03 s04 s05 s06 s07 s08; do
+          mkdir -p "art/$$s"
+          buildkite-agent artifact download --step "$$s" \
+              "${SENTINEL_DIR}/reports/run.json" "art/$$s/" || true
+
+          # --format uses printf-style placeholders (NOT Go templates):
+          # %i = artifact UUID, %j = job UUID. One line per match, we take
+          # the first. build_ctrf.js uses these to build the direct inline
+          # download URL for reports/report.html so Slack's "report" link
+          # opens the rendered HTML instead of a step page.
+          # Trailing `|| true` keeps the step green when a scenario didn't
+          # upload any artifacts (search exits non-zero on 0 matches, and
+          # `set -e` propagates that through the pipeline).
+          buildkite-agent artifact search --step "$$s" \
+              --format '%i %j\n' \
+              "${SENTINEL_DIR}/reports/report.html" 2>/dev/null \
+              | head -n1 > "art/$$s/report_ids.txt" || true
+
+          # Fallback: job UUID from run.json (always uploaded when the
+          # scenario step got past sentinel startup). Used by build_ctrf.js
+          # if report.html is missing — links to the step page instead.
+          buildkite-agent artifact search --step "$$s" \
+              --format '%j\n' \
+              "${SENTINEL_DIR}/reports/run.json" 2>/dev/null \
+              | head -n1 > "art/$$s/job_id.txt" || true
+      done
+
+      # Read the build start timestamp stamped by the first step (build-image)
+      # so build_ctrf.js can compute wall-clock duration for the Slack summary.
+      # Empty fallback keeps the script working (duration -> 0s) if the
+      # upstream step never ran or never stamped.
+      export BUILD_STARTED_AT="$$(buildkite-agent meta-data get 'build:started_at' 2>/dev/null || true)"
+
+      node .buildkite/notify/build_ctrf.js art/ > combined.ctrf.json
+      npx -y slack-ctrf custom combined.ctrf.json \
+          .buildkite/notify/sentinel-summary.hbs --blockkit
+
+  # Optional: cluster sanity cleanup after the suite. Each scenario already
+  # uninstalls its own release, but a hard crash (OOM, agent preempt) can leak
+  # CRDs. This step runs regardless of upstream success/failure.
+  - label: ":broom: cleanup"
+    key: cleanup
+    depends_on: [s01, s02, s03, s04, s05, s06, s07]
+    allow_dependency_failure: true
+    timeout_in_minutes: 10
+    image: ${SENTINEL_RUNNER_IMAGE}
+    secrets:
+      KUBECONFIG_B64: KUBECONFIG_B64
+    command: |
+      set -u
+
+      mkdir -p "$$HOME/.kube"
+      echo "$$KUBECONFIG_B64" | base64 -d > "$$HOME/.kube/config"
+      chmod 600 "$$HOME/.kube/config"
+      export KUBECONFIG="$$HOME/.kube/config"
+
+      # Best-effort: each scenario already uninstalls its own release. Cleanup
+      # runs regardless of upstream pass/fail, and if earlier scenarios did a
+      # clean uninstall the CRDs themselves may already be gone — so we don't
+      # want a "resource type not found" on step 2 to mask anything that
+      # step 3 might still need to delete.
+      # sentinel's default namespace: see npu-operator-sentinel/config/default.yaml.
+      helm list -n rbln-system --filter 'rbln' -q | xargs -r -n1 helm uninstall -n rbln-system || true
+      kubectl delete rblnclusterpolicies --all --ignore-not-found || true
+      kubectl delete rblndrivers --all --ignore-not-found || true
+      kubectl delete namespace rbln-system --ignore-not-found || true
+      exit 0
+
+  # Sandbox-cluster cleanup — mirrors `cleanup`: depends on the whole suite so it
+  # runs last (regardless of pass/fail), keeping the sandbox cluster alive for
+  # debugging until the build ends. Only s00 uses the sandbox cluster; the other
+  # deps are purely for end-of-build ordering.
+  # s00's release self-uninstalls on graceful teardown; an agent preempt/OOM can
+  # leak the release, RBLN CRs, and the KubeVirt VM test_zz creates in `default`.
+  - label: ":broom: sandbox cleanup"
+    key: sandbox-cleanup
+    depends_on: [s00, s01, s02, s03, s04, s05, s06, s07, s08]
+    allow_dependency_failure: true
+    timeout_in_minutes: 10
+    image: ${SENTINEL_RUNNER_IMAGE}
+    secrets:
+      KUBECONFIG_B64: SANDBOX_KUBECONFIG_B64
+    command: |
+      set -u
+
+      mkdir -p "$$HOME/.kube"
+      echo "$$KUBECONFIG_B64" | base64 -d > "$$HOME/.kube/config"
+      chmod 600 "$$HOME/.kube/config"
+      export KUBECONFIG="$$HOME/.kube/config"
+
+      helm list -n rbln-system --filter 'rbln' -q | xargs -r -n1 helm uninstall -n rbln-system || true
+      kubectl delete rblnclusterpolicies --all --ignore-not-found || true
+      kubectl delete rblndrivers --all --ignore-not-found || true
+      kubectl delete virtualmachine sentinel-npu-test-vm -n default --ignore-not-found || true
+      kubectl delete namespace rbln-system --ignore-not-found || true
+      exit 0

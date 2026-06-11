@@ -1,0 +1,36 @@
+{
+  "text": "NPU Operator Nightly Test Result #{{ctrf.environment.buildName}} — {{ctrf.summary.passed}}/{{ctrf.summary.tests}} passed",
+  "blocks": [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "{{ctrf.environment.extra.overall_emoji}} *NPU Operator Nightly Test Result <{{{ctrf.environment.buildUrl}}}|#{{ctrf.environment.buildName}}>*"
+      }
+    }{{#if ctrf.environment.extra.scenarios}},
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": ":white_check_mark: {{ctrf.summary.passed}} passed · :x: {{ctrf.summary.failed}} failed · :fast_forward: {{ctrf.summary.skipped}} skipped · :clock3: {{ctrf.environment.extra.duration}}"
+      }
+    },
+    { "type": "divider" },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "*Scenarios*\n{{#each ctrf.environment.extra.scenarios}}{{status_emoji}} *{{name}}* — :white_check_mark: {{passed}} · :x: {{failed}} · :fast_forward: {{skipped}} · <{{{report_url}}}|details>\n{{/each}}"
+        }
+      ]
+    }{{else}},
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": ":rotating_light: *No scenarios ran*\nAn upstream step (image build or preflight) failed before the test suite started. Open the build to see which step broke."
+      }
+    }{{/if}}
+  ]
+}
