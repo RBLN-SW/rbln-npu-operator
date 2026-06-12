@@ -18,33 +18,52 @@ jobs:
     uses: ./.github/workflows/go-tests.yaml
   go-build:
     uses: ./.github/workflows/go-build.yaml
-  image-build-amd64:
+  dev-image:
     needs: [manifests-check, code-check, go-tests, go-build]
-    uses: ./.github/workflows/image-build.yaml
-    with:
-      push-on-build: 'true'
-      image-tag: latest
-      platform: linux/amd64
-      runner: ubuntu-latest
-    secrets:
-      REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
-  image-build-arm64:
-    needs: [manifests-check, code-check, go-tests, go-build]
-    uses: ./.github/workflows/image-build.yaml
-    with:
-      push-on-build: 'true'
-      image-tag: latest
-      platform: linux/arm64
-      runner: ubuntu-22.04-rbln-arm
-    secrets:
-      REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
-  image-manifest:
-    needs: [image-build-amd64, image-build-arm64]
-    uses: ./.github/workflows/image-manifest.yaml
-    with:
-      image-tag: latest
-    secrets:
-      REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+    runs-on: rbln-sw-k8s-general
+    env:
+      REGISTRY: harbor.k8s.rebellions.in/rebellions
+      OPERATOR_IMAGE: harbor.k8s.rebellions.in/rebellions/rbln-npu-operator
+      VALIDATOR_IMAGE: harbor.k8s.rebellions.in/rebellions/rbln-npu-operator-validator
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout code
+      - name: Install prerequisites
+        run: |
+          if ! command -v docker &>/dev/null; then
+            curl -fsSL https://get.docker.com | sudo sh
+            sudo usermod -aG docker "$USER"
+            sudo chmod 666 /var/run/docker.sock
+          fi
+          if ! command -v make &>/dev/null; then
+            sudo apt-get update && sudo apt-get install -y make
+          fi
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: harbor.k8s.rebellions.in
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      - name: Login to Docker Hub for base-image pulls
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      - name: Build and push operator image
+        env:
+          VERSION: ${{ github.sha }}
+          PUSH_ON_BUILD: 'true'
+          PLATFORM: linux/amd64
+        run: make build-image
+      - name: Build and push validator image
+        env:
+          VERSION: ${{ github.sha }}
+          PUSH_ON_BUILD: 'true'
+          PLATFORM: linux/amd64
+        run: make build-image IMAGE_NAME="$VALIDATOR_IMAGE"
+      - name: Tag dev (alias of the immutable commit SHA)
+        run: |
+          docker buildx imagetools create --tag "${OPERATOR_IMAGE}:dev" "${OPERATOR_IMAGE}:${GITHUB_SHA}"
+          docker buildx imagetools create --tag "${VALIDATOR_IMAGE}:dev" "${VALIDATOR_IMAGE}:${GITHUB_SHA}"
