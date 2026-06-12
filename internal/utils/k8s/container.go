@@ -2,6 +2,7 @@ package k8sutil
 
 import (
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -25,6 +26,12 @@ func (b *ContainerBuilder) WithImage(image, tag string, imgPullPolicy corev1.Pul
 		tag = "latest"
 	}
 
+	if digest, ok := imageDigest(tag); ok {
+		b.obj.Image = image + "@" + digest
+		b.obj.ImagePullPolicy = imgPullPolicy
+		return b
+	}
+
 	// pull Always if tag is "latest"
 	pullPolicy := imgPullPolicy
 	if tag == "latest" {
@@ -35,6 +42,14 @@ func (b *ContainerBuilder) WithImage(image, tag string, imgPullPolicy corev1.Pul
 	b.obj.ImagePullPolicy = pullPolicy
 
 	return b
+}
+
+func imageDigest(ver string) (string, bool) {
+	ver = strings.TrimPrefix(ver, "@")
+	if strings.Contains(ver, "sha256:") {
+		return ver, true
+	}
+	return ver, false
 }
 
 func (b *ContainerBuilder) WithResources(resources corev1.ResourceRequirements, defaultCPUReq string, defaultMemoryReq string) *ContainerBuilder {

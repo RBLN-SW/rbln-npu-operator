@@ -34,6 +34,7 @@ jobs:
     uses: ./.github/workflows/image-manifest.yaml
     with:
       image-tag: ${{ github.ref_name }}
+      latest-alias: 'true'
     secrets:
       REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}

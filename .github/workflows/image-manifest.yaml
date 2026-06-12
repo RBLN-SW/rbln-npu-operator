@@ -12,6 +12,11 @@ on:
         required: false
         default: 'docker.io/rebellions'
         type: string
+      latest-alias:
+        description: "Also tag the manifest as :latest"
+        required: false
+        default: 'false'
+        type: string
     secrets:
       REGISTRY_USERNAME:
         required: true
@@ -55,6 +60,17 @@ jobs:
         run: |
           docker buildx imagetools create \
             --tag "${VALIDATOR_IMAGE}:${{ inputs.image-tag }}" \
+            "${VALIDATOR_IMAGE}:${{ inputs.image-tag }}-amd64" \
+            "${VALIDATOR_IMAGE}:${{ inputs.image-tag }}-arm64"
+      - name: Create latest manifest
+        if: ${{ inputs.latest-alias == 'true' }}
+        run: |
+          docker buildx imagetools create \
+            --tag "${OPERATOR_IMAGE}:latest" \
+            "${OPERATOR_IMAGE}:${{ inputs.image-tag }}-amd64" \
+            "${OPERATOR_IMAGE}:${{ inputs.image-tag }}-arm64"
+          docker buildx imagetools create \
+            --tag "${VALIDATOR_IMAGE}:latest" \
             "${VALIDATOR_IMAGE}:${{ inputs.image-tag }}-amd64" \
             "${VALIDATOR_IMAGE}:${{ inputs.image-tag }}-arm64"
       - name: Verify manifests
