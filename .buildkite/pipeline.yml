@@ -46,6 +46,24 @@ env:
   # Per-build overridable, same mechanism as SENTINEL_DRIVER_IMAGE_TAG.
   SENTINEL_RBLN_DAEMON_IMAGE_TAG: "${SENTINEL_RBLN_DAEMON_IMAGE_TAG:-3.2.0}"
 
+  # ---- Operand image override (global; operands only) ------------------------
+  # Sentinel's global image override (npu-operator-sentinel #18) retargets only
+  # the controller-deployed OPERAND components — device-plugin, dra-kubelet-plugin,
+  # metrics-exporter, npu-feature-discovery, container-toolkit,
+  # sandbox-device-plugin, vfio-manager (+ their driver-managers) — at the dev
+  # registry. operator/validator (built & SHA-tagged by this pipeline) and
+  # driver/rbln-daemon (overridden above) are intentionally NOT affected.
+  # Registry is host-only; each operand keeps its chart-default repository, so
+  # refs resolve to harbor.k8s.rebellions.in/<repo>:dev. Per-build overridable
+  # via the trigger, same mechanism as the driver tags.
+  SENTINEL_IMAGE_REGISTRY: "${SENTINEL_IMAGE_REGISTRY:-harbor.k8s.rebellions.in}"
+  SENTINEL_IMAGE_TAG: "${SENTINEL_IMAGE_TAG:-dev}"
+  SENTINEL_IMAGE_PULL_POLICY: "${SENTINEL_IMAGE_PULL_POLICY:-Always}"
+  # The VM sandbox-device-plugin was rebuilt under a new repository; global
+  # registry+tag still apply, so it resolves to
+  # harbor.k8s.rebellions.in/rebellions/sandbox-device-plugin:dev.
+  SENTINEL_SANDBOX_DEVICE_PLUGIN_IMAGE_REPOSITORY: "${SENTINEL_SANDBOX_DEVICE_PLUGIN_IMAGE_REPOSITORY:-rebellions/sandbox-device-plugin}"
+
 agents:
   queue: "k8s"
 
