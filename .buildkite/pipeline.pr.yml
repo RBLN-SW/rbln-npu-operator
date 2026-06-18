@@ -1,0 +1,287 @@
+# rbln-npu-operator PR CI pipeline.
+#
+# On every PR, build the operator + validator images (short-SHA tag) and run the
+# sentinel scenarios as two parallel tracks:
+#   - container track (main cluster)    -> install container dra
+#   - vm track        (sandbox cluster) -> vm
+#
+# Differences from the nightly pipeline (.buildkite/pipeline.nightly.yml):
+#   - scenarios grouped into tracks instead of one step per family (S00..S08)
+#   - concurrency_group locks guard against concurrent cluster access
+#   - results reported to the PR via GitHub commit status instead of Slack
+#   - teardown handled inline by nuke() in scenario_command; no cleanup steps
+#
+# Modeled on rbln-k8s-driver-manager/.buildkite/pipeline.yml's PR pattern.
+
+notify:
+  - github_commit_status:
+      context: "[OP] PR CI"
+
+env:
+  # ---- Image registry (build target) ----------------------------------------
+  HARBOR_HOST: harbor.k8s.rebellions.in
+  IMAGE_REGISTRY: harbor.k8s.rebellions.in/rebellions
+  VALIDATOR_IMAGE_NAME: harbor.k8s.rebellions.in/rebellions/rbln-npu-operator-validator
+  # Runner for the build-image DinD step (docker CLI + buildx + bash + make + git).
+  BUILDX_CI_IMAGE: harbor.k8s.rebellions.in/rebellions/buildx-ci:latest
+
+  # ---- Sentinel (E2E test harness) -------------------------------------------
+  # Each step runs on its own ephemeral agent, so every step clones sentinel fresh.
+  SENTINEL_REPO: https://github.com/rebellions-sw/npu-operator-sentinel.git
+  SENTINEL_REF: dev
+  SENTINEL_DIR: npu-operator-sentinel
+  SENTINEL_RUNNER_IMAGE: harbor.k8s.rebellions.in/rebellions/npu-operator-sentinel:latest
+
+  # The cluster lock serializes runs, so a single namespace is fine.
+  TEST_NAMESPACE: "${TEST_NAMESPACE:-rbln-system}"
+
+  # ---- Driver + rbln-daemon images (dev) -------------------------------------
+  # External dependency images (not operands), pinned to the dev images exactly
+  # like the nightly pipeline.
+  SENTINEL_DRIVER_IMAGE_REGISTRY: harbor.ssw.rbln.in
+  SENTINEL_DRIVER_IMAGE_REPOSITORY: rebellions-dev/rbln-driver
+  SENTINEL_DRIVER_IMAGE_TAG: "${SENTINEL_DRIVER_IMAGE_TAG:-3.2.0-rc3}"
+  SENTINEL_RBLN_DAEMON_IMAGE_REGISTRY: harbor.ssw.rbln.in
+  SENTINEL_RBLN_DAEMON_IMAGE_REPOSITORY: rebellions-dev/rbln-daemon
+  SENTINEL_RBLN_DAEMON_IMAGE_TAG: "${SENTINEL_RBLN_DAEMON_IMAGE_TAG:-3.2.0}"
+
+  # ---- Operand image override (global; operands only) ------------------------
+  # Retarget every controller-deployed operand (device-plugin, dra-kubelet-plugin,
+  # metrics-exporter, npu-feature-discovery, container-toolkit,
+  # sandbox-device-plugin, vfio-manager, ...) at the dev registry. operator and
+  # validator are NOT touched here — they use the SHA image built by this PR
+  # (set in scenario_command).
+  SENTINEL_IMAGE_REGISTRY: "${SENTINEL_IMAGE_REGISTRY:-harbor.k8s.rebellions.in}"
+  SENTINEL_IMAGE_TAG: "${SENTINEL_IMAGE_TAG:-dev}"
+  SENTINEL_IMAGE_PULL_POLICY: "${SENTINEL_IMAGE_PULL_POLICY:-Always}"
+  # The VM sandbox-device-plugin was rebuilt under a new repository; the global
+  # registry+tag still apply, so it resolves to
+  # harbor.k8s.rebellions.in/rebellions/sandbox-device-plugin:dev.
+  SENTINEL_SANDBOX_DEVICE_PLUGIN_IMAGE_REPOSITORY: "${SENTINEL_SANDBOX_DEVICE_PLUGIN_IMAGE_REPOSITORY:-rebellions/sandbox-device-plugin}"
+
+agents:
+  queue: "k8s"
+
+_scenario_defaults: &scenario_defaults
+  image: ${SENTINEL_RUNNER_IMAGE}
+  concurrency: 1
+  priority: 1
+  secrets:
+    REBEL_SW_DEV_USERNAME: REBEL_SW_DEV_USERNAME
+    REBEL_SW_DEV_PASSWORD: REBEL_SW_DEV_PASSWORD
+    HF_TOKEN: HF_TOKEN
+    KUBECONFIG_B64: KUBECONFIG_B64
+    GIT_PAT: GIT_PAT
+  retry:
+    automatic:
+      - exit_status: -1
+        limit: 2
+      - signal_reason: agent_stop
+        limit: 2
+  artifact_paths:
+    - "${SENTINEL_DIR}/reports/**/*"
+    - "${SENTINEL_DIR}/logs/**/*"
+
+# Shared scenario runner. SCENARIO_FAMILY (step env) selects the scenarios; it may
+# hold several space-separated families, so it is passed UNQUOTED into
+# `sentinel run` (word-split into multiple args).
+#
+# $$ escaping: Buildkite interpolates `${VAR}` (env block) at pipeline-upload
+# time; variables only available at runtime — step env (SCENARIO_FAMILY), secret
+# injections (REBEL_SW_DEV_* / HF_TOKEN / KUBECONFIG_B64 / GIT_PAT), and
+# BUILDKITE_COMMIT — must be `$$VAR` so bash expands them at execution.
+_scenario_command: &scenario_command |
+  set -euo pipefail
+
+  OPERATOR_IMAGE_TAG="$${BUILDKITE_COMMIT:0:8}"
+  REPO_ROOT="$$(pwd)"
+
+  # Materialize kubeconfig. The vm track injects KUBECONFIG_B64 from the
+  # SANDBOX_KUBECONFIG_B64 secret, so this same block targets either cluster.
+  mkdir -p "$$HOME/.kube"
+  echo "$$KUBECONFIG_B64" | base64 -d > "$$HOME/.kube/config"
+  chmod 600 "$$HOME/.kube/config"
+  export KUBECONFIG="$$HOME/.kube/config"
+  export SENTINEL_KUBECONFIG="$$KUBECONFIG"
+
+  # We hold the cluster lock, so a full nuke (incl. cluster-scoped CRs) is safe.
+  # Run before install too, to clear any hard-killed run's leftover, and after
+  # to release a clean cluster.
+  nuke() {
+    helm list -n "${TEST_NAMESPACE}" -q | xargs -r -n1 helm uninstall -n "${TEST_NAMESPACE}" || true
+    kubectl delete rblnclusterpolicies --all --ignore-not-found || true
+    kubectl delete rblndrivers --all --ignore-not-found || true
+    # KubeVirt test VM (vm track) lives in `default`; no-op on the container
+    # cluster (|| true).
+    kubectl delete virtualmachine sentinel-npu-test-vm -n default --ignore-not-found || true
+    kubectl delete namespace "${TEST_NAMESPACE}" --ignore-not-found || true
+  }
+  nuke
+
+  # GitHub App flow is unreliable on this agent, so authenticate clones via
+  # GIT_PAT. url.insteadOf rewrites the protocol+host so the PAT stays only in
+  # the ephemeral pod's git config.
+  git config --global url."https://x-access-token:$$GIT_PAT@github.com/".insteadOf "https://github.com/"
+
+  # The chart lives inside this repo's checkout, so no operator-repo clone.
+  HELM_CHART="$$REPO_ROOT/deployments/rbln-npu-operator"
+  # Fetch chart dependencies (e.g. node-feature-discovery subchart) — helm
+  # install refuses to run if Chart.yaml deps aren't materialised in charts/,
+  # even when the dep's `condition:` disables it.
+  helm dependency update "$$HELM_CHART"
+
+  rm -rf "${SENTINEL_DIR}"
+  git clone --depth=1 --branch "${SENTINEL_REF}" "${SENTINEL_REPO}" "${SENTINEL_DIR}"
+  cd "${SENTINEL_DIR}"
+  uv sync --all-extras
+
+  # operator + validator are the components under test -> point at the PR SHA image.
+  export SENTINEL_OPERATOR_REGISTRY="${HARBOR_HOST}"
+  export SENTINEL_OPERATOR_REPOSITORY="rebellions/rbln-npu-operator"
+  export SENTINEL_OPERATOR_VERSION="$$OPERATOR_IMAGE_TAG"
+  export SENTINEL_VALIDATOR_REGISTRY="${HARBOR_HOST}"
+  export SENTINEL_VALIDATOR_REPOSITORY="rebellions/rbln-npu-operator-validator"
+  export SENTINEL_VALIDATOR_VERSION="$$OPERATOR_IMAGE_TAG"
+
+  # Credentials the harness injects into the cluster:
+  #   - registry pull secret (drivercred)
+  #   - PyPI creds for model-zoo inference pods (rebel-compiler install; used by
+  #     the container track)
+  # Both reuse the same REBEL_SW_DEV_* pair.
+  export SENTINEL_REGISTRY_SERVER="${HARBOR_HOST}"
+  export SENTINEL_REGISTRY_USER="$$REBEL_SW_DEV_USERNAME"
+  export SENTINEL_REGISTRY_PASSWORD="$$REBEL_SW_DEV_PASSWORD"
+  export SENTINEL_PYPI_USERNAME="$$REBEL_SW_DEV_USERNAME"
+  export SENTINEL_PYPI_PASSWORD="$$REBEL_SW_DEV_PASSWORD"
+  # HuggingFace token for gated model-zoo models.
+  export SENTINEL_HF_TOKEN="$$HF_TOKEN"
+
+  # Capture the result so we still tear down (nuke) before releasing the lock.
+  set +e
+  uv run sentinel run $$SCENARIO_FAMILY \
+    --helm-chart="$$HELM_CHART" \
+    --namespace="${TEST_NAMESPACE}" \
+    --reports-dir=reports \
+    --logs-dir=logs
+  rc=$$?
+  set -e
+
+  nuke
+  exit $$rc
+
+# --- Steps ----------------------------------------------------------------------
+
+steps:
+  # 0. Build & push operator + validator images to Harbor.
+  #    Tag = short commit SHA; every downstream step derives the same tag from
+  #    BUILDKITE_COMMIT so no meta-data coordination is needed.
+  # Docker-in-Docker pattern per Buildkite agent-stack-k8s docs:
+  #   - main container: alpine/docker-with-buildx (docker CLI + buildx)
+  #   - sidecar:        docker:dind (privileged, runs the daemon)
+  #   - they talk via DOCKER_HOST=tcp://localhost:2375 inside the same Pod.
+  - label: ":docker: build & push operator image"
+    key: build-image
+    timeout_in_minutes: 30
+    image: ${BUILDX_CI_IMAGE}
+    env:
+      DOCKER_HOST: tcp://localhost:2375
+    secrets:
+      REBEL_SW_DEV_USERNAME: REBEL_SW_DEV_USERNAME
+      REBEL_SW_DEV_PASSWORD: REBEL_SW_DEV_PASSWORD
+    plugins:
+      - kubernetes:
+          sidecars:
+            - image: harbor.k8s.rebellions.in/dockerhub-proxy/docker:dind
+              command: [dockerd-entrypoint.sh]
+              securityContext:
+                privileged: true
+              env:
+                - name: DOCKER_TLS_CERTDIR
+                  value: ""
+    notify:
+      - github_commit_status:
+          context: "[OP] Build Image"
+    command: |
+      set -euo pipefail
+
+      # Wait for the dockerd sidecar to become reachable (up to ~180s). Harbor
+      # pulls of docker:dind plus daemon startup can exceed 60s under load.
+      echo "waiting for dockerd sidecar..."
+      for i in $$(seq 1 90); do
+          if docker info >/dev/null 2>&1; then
+              echo "dockerd ready after $${i}x2s"
+              break
+          fi
+          sleep 2
+      done
+      if ! docker info >/dev/null 2>&1; then
+          echo "::error:: dockerd sidecar did not become ready within 180s"
+          docker info 2>&1 || true
+          exit 1
+      fi
+
+      # The Makefile build-image target uses --output=type=image,push=true which
+      # requires the docker-container buildx driver (the default `docker` driver
+      # can't push directly). The first build bootstraps the builder lazily.
+      docker buildx create --use --name ci-builder --driver docker-container
+
+      IMAGE_TAG="$${BUILDKITE_COMMIT:0:8}"
+
+      echo "$$REBEL_SW_DEV_PASSWORD" | docker login "${HARBOR_HOST}" \
+          --username "$$REBEL_SW_DEV_USERNAME" --password-stdin
+
+      # Makefile derives IMAGE_NAME = $(REGISTRY)/rbln-npu-operator and
+      # IMAGE_TAG = $(VERSION), so the operator build only needs REGISTRY+VERSION.
+      make build-image \
+          REGISTRY="${IMAGE_REGISTRY}" \
+          VERSION="$$IMAGE_TAG" \
+          PUSH_ON_BUILD=true
+
+      # Validator image has a different name, so IMAGE_NAME must be overridden.
+      make build-image \
+          REGISTRY="${IMAGE_REGISTRY}" \
+          IMAGE_NAME="${VALIDATOR_IMAGE_NAME}" \
+          VERSION="$$IMAGE_TAG" \
+          PUSH_ON_BUILD=true
+
+  # 1. Container track (main cluster): install + container + dra.
+  #    Mirrors the old GHA `container` Ginkgo label (install -> device-plugin ->
+  #    modelzoo -> DRA -> modelzoo).
+  - label: ":pytest: container track (install + container + dra)"
+    key: container-track
+    depends_on: build-image
+    timeout_in_minutes: 120
+    # Container-cluster lock, shared cross-repo (feature-discovery / driver-manager
+    # / operator): one job at a time, held through teardown so the next job gets a
+    # clean cluster.
+    concurrency_group: "cloud-ci-container"
+    env:
+      SCENARIO_FAMILY: "install container dra"
+    notify:
+      - github_commit_status:
+          context: "[OP] Container Track"
+    command: *scenario_command
+    <<: *scenario_defaults
+
+  # 2. VM track (sandbox cluster): vm.
+  #    Mirrors the old GHA `vm-passthrough` Ginkgo label. Uses a separate sandbox
+  #    cluster -> its own lock, so it runs in parallel with the container track.
+  - label: ":pytest: vm track (vm passthrough)"
+    key: vm-track
+    depends_on: build-image
+    timeout_in_minutes: 90
+    concurrency_group: "cloud-ci-sandbox"
+    env:
+      SCENARIO_FAMILY: "vm"
+    notify:
+      - github_commit_status:
+          context: "[OP] VM Track"
+    command: *scenario_command
+    <<: *scenario_defaults
+    # Override the secret set so KUBECONFIG_B64 points at the sandbox cluster.
+    secrets:
+      REBEL_SW_DEV_USERNAME: REBEL_SW_DEV_USERNAME
+      REBEL_SW_DEV_PASSWORD: REBEL_SW_DEV_PASSWORD
+      HF_TOKEN: HF_TOKEN
+      KUBECONFIG_B64: SANDBOX_KUBECONFIG_B64
+      GIT_PAT: GIT_PAT
