@@ -83,7 +83,7 @@ The operator supports two main workload configurations:
 #### VM Passthrough Workloads (`vm-passthrough`)
 - **Components**: Sandbox Device Plugin, VFIO Manager
 - **Use Case**: Virtualized environments with NPU passthrough using KubeVirt
-- **Resource Types**: `rebellions.ai/ATOM_PT`, `rebellions.ai/ATOM_MAX_PT`
+- **Resource Types**: One per (model, function) auto-discovered from `sysfs` + `pci.ids` — e.g. `rebellions.ai/RBLN-CA22_PF`, `rebellions.ai/RBLN-CA25_VF`
 - **Requirements**: KubeVirt must be installed and VFIO-PCI driver configuration required
 
 ### KubeVirt Integration for VM Passthrough
@@ -103,14 +103,11 @@ The VM passthrough mode is specifically designed to work with KubeVirt, providin
 # values.yaml
 devicePlugin:
   enabled: true
-  resourceList:
-  - productCardNames:
-    - RBLN-CA12
-    - RBLN-CA22
-    - RBLN-CA25
-    resourceName: ATOM
-    resourcePrefix: rebellions.ai
 ```
+
+The plugin advertises `rebellions.ai/npu` (generic) and one product-specific
+resource per detected NPU model. Set `devicePlugin.useGenericResourceName: false`
+to disable the generic alias.
 
 ### VM Passthrough Deployment
 
@@ -118,18 +115,14 @@ devicePlugin:
 # values.yaml
 sandboxDevicePlugin:
   enabled: true
-  resourceList:
-  - productCardNames:
-    - RBLN-CA22
-    resourceName: ATOM_PT
-    resourcePrefix: rebellions.ai
-  - productCardNames:
-    - RBLN-CA25
-    resourceName: ATOM_MAX_PT
-    resourcePrefix: rebellions.ai
 vfioManager:
   enabled: true
 ```
+
+The sandbox device plugin runs in per-model mode: each `(model, function)`
+discovered via `sysfs` + `pci.ids` becomes its own kubelet resource (e.g.
+`rebellions.ai/RBLN-CA22_PF`). KubeVirt `permittedHostDevices` must whitelist
+each resource name actually consumed by VMs.
 
 ### Using NPU Resources in Pods
 
@@ -169,36 +162,36 @@ spec:
           ...
           hostDevices:
             - name: rbln0
-              deviceName: rebellions.ai/ATOM_MAX_PT
+              deviceName: rebellions.ai/RBLN-CA22_PF
               tag: "pci"
             - name: rbln1
-              deviceName: rebellions.ai/ATOM_MAX_PT
+              deviceName: rebellions.ai/RBLN-CA22_PF
               tag: "pci"
             - name: rbln2
-              deviceName: rebellions.ai/ATOM_MAX_PT
+              deviceName: rebellions.ai/RBLN-CA22_PF
               tag: "pci"
             - name: rbln3
-              deviceName: rebellions.ai/ATOM_MAX_PT
+              deviceName: rebellions.ai/RBLN-CA22_PF
               tag: "pci"
             - name: rbln4
-              deviceName: rebellions.ai/ATOM_MAX_PT
+              deviceName: rebellions.ai/RBLN-CA22_PF
               tag: "pci"
             - name: rbln5
-              deviceName: rebellions.ai/ATOM_MAX_PT
+              deviceName: rebellions.ai/RBLN-CA22_PF
               tag: "pci"
             - name: rbln6
-              deviceName: rebellions.ai/ATOM_MAX_PT
+              deviceName: rebellions.ai/RBLN-CA22_PF
               tag: "pci"
             - name: rbln7
-              deviceName: rebellions.ai/ATOM_MAX_PT
+              deviceName: rebellions.ai/RBLN-CA22_PF
               tag: "pci"
         resources:
           requests:
-            rebellions.ai/ATOM_MAX_PT: 8
+            rebellions.ai/RBLN-CA22_PF: 8
             cpu: "4"
             memory: 50Gi
           limits:
-            rebellions.ai/ATOM_MAX_PT: 8
+            rebellions.ai/RBLN-CA22_PF: 8
             cpu: "4"
             memory: 50Gi
 ```

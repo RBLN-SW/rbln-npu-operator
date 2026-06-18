@@ -137,11 +137,3 @@ const (
 	ValidationsVolumeName = "run-rbln-validations"
 	ValidationsMountPath  = "/run/rbln/validations"
 )
-
-// DeviceMapping maps product card names to their device IDs
-var DeviceMapping = map[string][]string{
-	RBLNCardCA12: {"1120", "1121"},
-	RBLNCardCA22: {"1220", "1221"},
-	RBLNCardCA25: {"1250", "1251"},
-	RBLNCardCR03: {"2030", "2031"},
-}

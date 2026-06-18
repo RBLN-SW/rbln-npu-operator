@@ -37,7 +37,12 @@ import (
 )
 
 const (
-	vmpAtomResourceName       = corev1.ResourceName("rebellions.ai/ATOM_PT")
+	// per-model contract: the operator injects an empty RBLN_PT_ALIAS, so
+	// the sandbox-device-plugin advertises one resource per (model, function)
+	// derived from sysfs+pci.ids — e.g. "rebellions.ai/RBLN-CA22_PF".
+	// The value below targets the current sandbox cluster's NPU; override
+	// when running against a node with different hardware.
+	vmpAtomResourceName       = corev1.ResourceName("rebellions.ai/RBLN-CA22_PF")
 	vmpSandboxNodeLabelKey    = "rebellions.ai/npu.deploy.sandbox-device-plugin"
 	vmpSandboxNodeLabelValue  = "true"
 	vmpName                   = "rbln-npu-vmtest"
@@ -47,7 +52,6 @@ const (
 	vmpVMRunningTimeout       = 10 * time.Minute
 	vmpInGuestCheckTimeout    = 5 * time.Minute
 	vmpContainerDiskImage     = "quay.io/containerdisks/ubuntu:22.04"
-	vmpProductCardNameForATOM = "RBLN-CA22"
 	vmpKubeVirtAPIVersion     = "kubevirt.io/v1"
 	vmpVirtualMachineKind     = "VirtualMachine"
 )
@@ -87,10 +91,11 @@ var _ = Describe("e2e-npu-operator-vm-passthrough", Ordered, Label("vm-passthrou
 				Scenario:
 				- Deploy NPU Operator with workloadType=vm-passthrough.
 				- Verify sandbox-device-plugin and vfio-manager pods are Ready.
-				- Verify rebellions.ai/ATOM_PT is advertised on NPU nodes.
-				- Apply a KubeVirt VirtualMachine with hostDevices referencing the
-				  ATOM_PT resource, then assert:
-					- virt-launcher Pod requests rebellions.ai/ATOM_PT
+				- Verify a per-model NPU resource (vmpAtomResourceName, e.g.
+				  rebellions.ai/RBLN-CA22_PF) is advertised on NPU nodes.
+				- Apply a KubeVirt VirtualMachine with hostDevices referencing
+				  that resource, then assert:
+					- virt-launcher Pod requests the per-model resource
 					- VMI reaches Phase: Running (KubeVirt-side VFIO attach OK)
 					- VMI reaches Phase: Succeeded (cloud-init found the device
 					  inside the guest via lspci -d 1eff: and triggered poweroff)
@@ -155,7 +160,7 @@ var _ = Describe("e2e-npu-operator-vm-passthrough", Ordered, Label("vm-passthrou
 				}
 			})
 
-			It("should advertise rebellions.ai/ATOM_PT on sandbox-device-plugin-labeled nodes", func(ctx context.Context) {
+			It("should advertise the per-model NPU resource on sandbox-device-plugin-labeled nodes", func(ctx context.Context) {
 				Eventually(func(g Gomega) bool {
 					nodes, err := k8sCoreClient.ListNodes(ctx, map[string]string{
 						vmpSandboxNodeLabelKey: vmpSandboxNodeLabelValue,
@@ -190,13 +195,13 @@ var _ = Describe("e2e-npu-operator-vm-passthrough", Ordered, Label("vm-passthrou
 					Should(BeTrue(), "no ready labeled node exposed %s", vmpAtomResourceName)
 			})
 
-			It("should run a KubeVirt VM with hostDevices=ATOM_PT and reach Running phase", func(ctx context.Context) {
+			It("should run a KubeVirt VM with per-model hostDevices and reach Running phase", func(ctx context.Context) {
 				vm := buildHostDeviceVM(vmpName, testNamespace.Name, vmpCloudInitUserData)
 				_, err := te.DynamicClient.Resource(vmGVR).Namespace(testNamespace.Name).
 					Create(ctx, vm, metav1.CreateOptions{})
 				Expect(err).NotTo(HaveOccurred())
 
-				By("waiting for the virt-launcher Pod to be created and request ATOM_PT")
+				By(fmt.Sprintf("waiting for the virt-launcher Pod to be created and request %s", vmpAtomResourceName))
 				Eventually(func(g Gomega) bool {
 					if msg := vmiSyncFailure(ctx, te, testNamespace.Name, vmpName); msg != "" {
 						StopTrying(fmt.Sprintf("VMI %s cannot be launched: %s", vmpName, msg)).Now()
@@ -274,17 +279,12 @@ func buildSandboxOperatorHelmValues() map[string]interface{} {
 		"rblnDaemon":          map[string]interface{}{"enabled": false},
 		"containerToolkit":    map[string]interface{}{"enabled": false},
 		"npuFeatureDiscovery": map[string]interface{}{"enabled": false},
+		// per-model: resourceList is omitted; the binary advertises
+		// rebellions.ai/RBLN-<MODEL>_<PF|VF> from sysfs+pci.ids.
 		"sandboxDevicePlugin": map[string]interface{}{
 			"enabled": true,
 			"image": map[string]interface{}{
 				"pullPolicy": "Always",
-			},
-			"resourceList": []map[string]interface{}{
-				{
-					"productCardNames": []string{vmpProductCardNameForATOM},
-					"resourceName":     "ATOM_PT",
-					"resourcePrefix":   "rebellions.ai",
-				},
 			},
 		},
 		"vfioManager": map[string]interface{}{

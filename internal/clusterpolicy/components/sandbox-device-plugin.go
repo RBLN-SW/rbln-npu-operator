@@ -2,7 +2,6 @@ package components
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -16,6 +15,11 @@ import (
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
+
+// sandboxResourceAlias is injected as RBLN_PT_ALIAS into the plugin binary.
+// Empty (default) → per-model mode (rebellions.ai/RBLN-<MODEL>_<PF|VF>),
+// non-empty → single-alias mode (rebellions.ai/<alias>).
+const sandboxResourceAlias = ""
 
 type sandboxDevicePluginPatcher struct {
 	basePatcher
@@ -39,6 +43,16 @@ func NewSandboxDevicePluginPatcher(client client.Client, log logr.Logger, namesp
 	}
 }
 
+// Idempotent — backward-compat cleanup
+func (h *sandboxDevicePluginPatcher) deleteLegacyConfigMap(ctx context.Context) error {
+	return h.deleteIfExists(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      h.name + "-config",
+			Namespace: h.namespace,
+		},
+	})
+}
+
 func (h *sandboxDevicePluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	if !h.IsEnabled() {
 		return h.CleanUp(ctx, owner)
@@ -49,7 +63,7 @@ func (h *sandboxDevicePluginPatcher) Patch(ctx context.Context, owner *rblnv1bet
 	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.handleConfigMap(ctx, owner); err != nil {
+	if err := h.deleteLegacyConfigMap(ctx); err != nil {
 		return err
 	}
 	return h.handleDaemonSet(ctx, owner)
@@ -60,9 +74,7 @@ func (h *sandboxDevicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1b
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
-	if err := h.deleteIfExists(ctx, &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: h.name + "-config", Namespace: h.namespace},
-	}); err != nil {
+	if err := h.deleteLegacyConfigMap(ctx); err != nil {
 		return err
 	}
 	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
@@ -71,72 +83,19 @@ func (h *sandboxDevicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1b
 	return h.deleteServiceAccount(ctx)
 }
 
-func (h *sandboxDevicePluginPatcher) buildSandboxDevicePluginConfig() (string, error) {
-	configResources := make([]configResource, 0)
-	for _, resource := range h.desiredSpec.ResourceList {
-		devices, err := collectDevices(resource.ProductCardNames)
-		if err != nil {
-			h.log.Error(err, "Failed to collect devices for resource", "resourceName", resource.ResourceName)
-			return "", err
-		}
-		configResources = append(configResources, configResource{
-			ResourceName:   resource.ResourceName,
-			ResourcePrefix: resource.ResourcePrefix,
-			DeviceType:     consts.DeviceTypeAccelerator,
-			Selectors: deviceSelector{
-				Vendors: []string{consts.RBLNVendorCode},
-				Drivers: []string{"vfio-pci"},
-				Devices: devices,
-			},
-		})
-	}
-	configDataBytes, err := json.MarshalIndent(configResourceList{ResourceList: configResources}, "", "  ")
-	if err != nil {
-		h.log.Error(err, "Failed to marshal sandbox device plugin config")
-		return "", err
-	}
-	return string(configDataBytes), nil
-}
-
-func (h *sandboxDevicePluginPatcher) handleConfigMap(ctx context.Context, cp *rblnv1beta1.RBLNClusterPolicy) error {
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: h.name + "-config", Namespace: h.namespace},
-	}
-
-	configData, err := h.buildSandboxDevicePluginConfig()
-	if err != nil {
-		return err
-	}
-
-	res, err := controllerutil.CreateOrPatch(ctx, h.client, cm, func() error {
-		cm.Data = map[string]string{"config.json": configData}
-		return ctrl.SetControllerReference(cp, cm, h.scheme)
-	})
-	if err != nil {
-		h.log.Error(err, "Failed to reconcile SandboxDevicePlugin ConfigMap")
-		return err
-	}
-	h.log.Info("Reconciled SandboxDevicePlugin ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", res)
-	return nil
-}
-
+// buildVolumes returns the mounts the alias-only plugin pod needs:
+//   - validations shared dir (init container output handoff)
+//   - kubelet socket dir (register/serve)
+//   - /dev/vfio (hand VFIO char devices to virt-launcher)
+//   - /sys/bus/pci/devices RO (sysfs scan)
+//   - /sys (vfio-pci-validation init container reads driver symlinks)
 func (h *sandboxDevicePluginPatcher) buildVolumes() []corev1.Volume {
 	return []corev1.Volume{
 		hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 		hostPathVolume("devicesock", "/var/lib/kubelet/device-plugins", corev1.HostPathDirectory),
-		hostPathVolume("plugins-registry", "/var/lib/kubelet/plugins_registry", corev1.HostPathDirectory),
-		hostPathVolume("log", "/var/log", corev1.HostPathDirectory),
-		{
-			Name: "config-volume",
-			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: h.name + "-config"},
-				Items:                []corev1.KeyToPath{{Key: "config.json", Path: "config.json"}},
-				DefaultMode:          ptr(int32(0o644)),
-			}},
-		},
-		hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
-		hostPathVolume("host-dev", "/dev", corev1.HostPathDirectory),
 		hostPathVolume("host-vfio", "/dev/vfio", corev1.HostPathDirectory),
+		hostPathVolume("sys-bus-pci", "/sys/bus/pci/devices", corev1.HostPathDirectory),
+		hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
 	}
 }
 
@@ -155,16 +114,18 @@ func (h *sandboxDevicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 			k8sutil.NewContainerBuilder().
 				WithName(h.name).
 				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
-				WithArgs([]string{"--use-cdi=false"}).
 				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
+				WithEnvs([]corev1.EnvVar{
+					// RBLN_PT_ALIAS empty → per-model; non-empty → single-alias.
+					{Name: "RBLN_PT_ALIAS", Value: sandboxResourceAlias},
+					// Next two match binary defaults; spelled out for review visibility.
+					{Name: "RBLN_SYSFS_PCI_PATH", Value: "/sys/bus/pci/devices"},
+					{Name: "RBLN_KUBELET_DEVICE_PLUGIN_PATH", Value: "/var/lib/kubelet/device-plugins"},
+				}).
 				WithVolumeMounts([]corev1.VolumeMount{
 					{Name: "devicesock", MountPath: "/var/lib/kubelet/device-plugins"},
-					{Name: "plugins-registry", MountPath: "/var/lib/kubelet/plugins_registry"},
-					{Name: "log", MountPath: "/var/log"},
-					{Name: "config-volume", MountPath: "/etc/pcidp"},
-					{Name: "host-dev", MountPath: "/dev"},
 					{Name: "host-vfio", MountPath: "/dev/vfio"},
-					{Name: "host-sys", MountPath: "/sys"},
+					{Name: "sys-bus-pci", MountPath: "/sys/bus/pci/devices", ReadOnly: true},
 				}).
 				WithSecurityContext(&corev1.SecurityContext{
 					Privileged: ptr(true),
