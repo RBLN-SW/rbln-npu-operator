@@ -195,7 +195,7 @@ var _ = Describe("e2e-npu-operator-vm-passthrough", Ordered, Label("vm-passthrou
 					Should(BeTrue(), "no ready labeled node exposed %s", vmpAtomResourceName)
 			})
 
-			It("should run a KubeVirt VM whose hostDevices reference the per-model NPU resource and reach Running phase", func(ctx context.Context) {
+			It("should run a KubeVirt VM with per-model hostDevices and reach Running phase", func(ctx context.Context) {
 				vm := buildHostDeviceVM(vmpName, testNamespace.Name, vmpCloudInitUserData)
 				_, err := te.DynamicClient.Resource(vmGVR).Namespace(testNamespace.Name).
 					Create(ctx, vm, metav1.CreateOptions{})
