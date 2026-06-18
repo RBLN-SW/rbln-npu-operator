@@ -6,7 +6,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
@@ -167,52 +166,6 @@ func TestEnvVarValue(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Fatalf("envVarValue() = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestCollectDevices(t *testing.T) {
-	tests := map[string]struct {
-		cards   []string
-		want    []string
-		wantErr bool
-	}{
-		"single valid card": {
-			cards:   []string{consts.RBLNCardCA12},
-			want:    []string{"1120", "1121"},
-			wantErr: false,
-		},
-		"multiple valid cards": {
-			cards:   []string{consts.RBLNCardCA12, consts.RBLNCardCA22},
-			want:    []string{"1120", "1121", "1220", "1221"},
-			wantErr: false,
-		},
-		"unknown card returns error": {
-			cards:   []string{"RBLN-INVALID"},
-			wantErr: true,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			got, err := collectDevices(tc.cards)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if len(got) != len(tc.want) {
-				t.Fatalf("len(got) = %d, want %d", len(got), len(tc.want))
-			}
-			for i := range tc.want {
-				if got[i] != tc.want[i] {
-					t.Fatalf("got[%d] = %q, want %q", i, got[i], tc.want[i])
-				}
 			}
 		})
 	}

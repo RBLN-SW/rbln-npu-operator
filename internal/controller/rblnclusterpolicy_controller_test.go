@@ -156,7 +156,9 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			By("creating the sandbox device plugin resources")
 			expectResource(ctx, &corev1.ServiceAccount{}, "rbln-sandbox-device-plugin", vmNS, 5*time.Second)
 			expectResource(ctx, &appsv1.DaemonSet{}, "rbln-sandbox-device-plugin", vmNS, 5*time.Second)
-			expectResource(ctx, &corev1.ConfigMap{}, "rbln-sandbox-device-plugin-config", vmNS, 5*time.Second)
+			// alias-only contract: the legacy <name>-config ConfigMap is no
+			// longer created. Patch idempotently deletes any stale instance.
+			expectResourceDeleted(ctx, &corev1.ConfigMap{}, "rbln-sandbox-device-plugin-config", vmNS, 5*time.Second)
 
 			By("not creating container workload resources")
 			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-device-plugin", vmNS, 5*time.Second)

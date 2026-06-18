@@ -1,7 +1,6 @@
 package components
 
 import (
-	"fmt"
 	"reflect"
 	"slices"
 
@@ -24,23 +23,6 @@ func selectorLabels(component string) map[string]string {
 // ComponentSpec defines the common interface for component specs.
 type ComponentSpec interface {
 	IsEnabled() bool
-}
-
-type deviceSelector struct {
-	Vendors []string `json:"vendors"`
-	Devices []string `json:"devices"`
-	Drivers []string `json:"drivers"`
-}
-
-type configResource struct {
-	ResourceName   string         `json:"resourceName"`
-	ResourcePrefix string         `json:"resourcePrefix"`
-	DeviceType     string         `json:"deviceType"`
-	Selectors      deviceSelector `json:"selectors"`
-}
-
-type configResourceList struct {
-	ResourceList []configResource `json:"resourceList"`
 }
 
 func ptr[T any](v T) *T {
@@ -128,16 +110,4 @@ func envVarValue(envs []corev1.EnvVar, name string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func collectDevices(productCardNames []string) ([]string, error) {
-	devices := make([]string, 0)
-	for _, productCardName := range productCardNames {
-		deviceList, ok := consts.DeviceMapping[productCardName]
-		if !ok {
-			return nil, fmt.Errorf("unknown product card name: %s", productCardName)
-		}
-		devices = append(devices, deviceList...)
-	}
-	return devices, nil
 }

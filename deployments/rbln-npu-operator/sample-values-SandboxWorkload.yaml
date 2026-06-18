@@ -222,29 +222,19 @@ containerToolkit:
   resources: {}
   env: []
 
-# Sandbox Device Plugin for VM workloads
+# Sandbox Device Plugin for VM workloads.
+# The image is the standalone sandbox-device-plugin binary
+# (github.com/RBLN-SW/sandbox-device-plugin), not the shared k8s-device-plugin
 sandboxDevicePlugin:
   enabled: true
   image:
     registry: docker.io
-    repository: rebellions/k8s-device-plugin
-    tag: v0.3.8
+    repository: rebellions/sandbox-device-plugin
+    tag: v0.1.0
     pullPolicy: IfNotPresent
 
-  # Resource discovery for sandbox workloads
-  resourceList:
-  - productCardNames:
-    - RBLN-CA22
-    resourceName: ATOM_PT
-    resourcePrefix: rebellions.ai
-  - productCardNames:
-    - RBLN-CA25
-    resourceName: ATOM_MAX_PT
-    resourcePrefix: rebellions.ai
-  - productCardNames:
-    - RBLN-CR03
-    resourceName: REBEL_PT
-    resourcePrefix: rebellions.ai
+  # Per-model: empty RBLN_PT_ALIAS → rebellions.ai/RBLN-<MODEL>_{PF,VF}.
+  # KubeVirt permittedHostDevices must whitelist each name in use.
 
 # VFIO Manager for VM workloads
 vfioManager:
