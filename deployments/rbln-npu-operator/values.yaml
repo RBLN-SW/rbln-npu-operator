@@ -109,7 +109,7 @@ driver:
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-driver
-    tag: "3.2.0"
+    tag: "3.2.2"
     pullPolicy: IfNotPresent
   imagePullSecrets:
   - drivercred
@@ -196,7 +196,7 @@ rblnDaemon:
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-daemon
-    tag: 3.2.0
+    tag: 3.2.2
     pullPolicy: IfNotPresent
   imagePullSecrets:
   - drivercred
