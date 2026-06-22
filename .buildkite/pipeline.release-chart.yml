@@ -1,0 +1,154 @@
+# rbln-npu-operator — manual RC publish (operator + validator images + Helm chart) to Harbor.
+#
+# Triggered manually only (no tag/branch trigger). Builds the operator and
+# validator images at the RC version, pushes them to the internal Harbor
+# registry, then packages the Helm chart (pointing operator/validator at Harbor)
+# and pushes the chart to Harbor's OCI registry. Completely separate from the
+# official docker.io release (.github/workflows/release.yaml), which is untouched.
+#
+# Inputs — set as build env vars when starting the build:
+#   CHART_VERSION  (required)  Helm chart version, e.g. 0.5.0-rc1 (used verbatim).
+#   APP_VERSION    (optional)  chart appVersion + operator/validator image tag;
+#                              defaults to CHART_VERSION.
+#
+# Version coupling: the chart resolves operator & validator image tags from
+# .Chart.AppVersion (their values.yaml tag is ""), so the images are built at the
+# effective app-version (APP_VERSION or CHART_VERSION) and the chart is packaged
+# with the same --app-version.
+#
+# $$ vs ${} (same rule as pipeline.pr.yml): Buildkite interpolates ${VAR} from the
+# env block at pipeline-upload time; the CHART_VERSION / APP_VERSION build env vars
+# and the injected REBEL_SW_DEV_* secrets only exist at runtime, so they are
+# written as $$VAR for bash to expand at execution.
+
+agents:
+  queue: "k8s"
+
+env:
+  HARBOR_HOST: harbor.k8s.rebellions.in
+  IMAGE_REGISTRY: harbor.k8s.rebellions.in/rebellions
+  VALIDATOR_IMAGE_NAME: harbor.k8s.rebellions.in/rebellions/rbln-npu-operator-validator
+  HELM_OCI_REPO: oci://harbor.k8s.rebellions.in/rebellions
+  CHART_DIR: deployments/rbln-npu-operator
+  NFD_REPO_URL: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+  # DinD build runner (docker CLI + buildx + make + git). Source:
+  # .buildkite/images/buildx-ci.Dockerfile.
+  BUILDX_CI_IMAGE: harbor.k8s.rebellions.in/rebellions/buildx-ci:latest
+  # Runner that bundles helm + git; reused here for the chart packaging step.
+  SENTINEL_RUNNER_IMAGE: harbor.k8s.rebellions.in/rebellions/npu-operator-sentinel:latest
+
+steps:
+  # 1. Build & push operator + validator images to Harbor at the RC app-version.
+  #    DinD pattern + commands copied from pipeline.pr.yml's build-image step.
+  - label: ":docker: build & push operator + validator images"
+    key: build-images
+    timeout_in_minutes: 30
+    image: ${BUILDX_CI_IMAGE}
+    env:
+      DOCKER_HOST: tcp://localhost:2375
+    secrets:
+      REBEL_SW_DEV_USERNAME: REBEL_SW_DEV_USERNAME
+      REBEL_SW_DEV_PASSWORD: REBEL_SW_DEV_PASSWORD
+    plugins:
+      - kubernetes:
+          sidecars:
+            - image: harbor.k8s.rebellions.in/dockerhub-proxy/docker:dind
+              command: [dockerd-entrypoint.sh]
+              securityContext:
+                privileged: true
+              env:
+                - name: DOCKER_TLS_CERTDIR
+                  value: ""
+    command: |
+      set -euo pipefail
+
+      # CHART_VERSION (build env var) drives the image tag via the app-version.
+      if [ -z "$${CHART_VERSION:-}" ]; then
+        echo "ERROR: CHART_VERSION build env var is required (e.g. 0.5.0-rc1)" >&2
+        exit 1
+      fi
+      APPVER="$${APP_VERSION:-$$CHART_VERSION}"
+
+      echo "waiting for dockerd sidecar..."
+      for i in $$(seq 1 90); do
+          if docker info >/dev/null 2>&1; then
+              echo "dockerd ready after $${i}x2s"
+              break
+          fi
+          sleep 2
+      done
+      if ! docker info >/dev/null 2>&1; then
+          echo "::error:: dockerd sidecar did not become ready within 180s"
+          docker info 2>&1 || true
+          exit 1
+      fi
+
+      docker buildx create --use --name ci-builder --driver docker-container
+
+      echo "$$REBEL_SW_DEV_PASSWORD" | docker login "${HARBOR_HOST}" \
+          --username "$$REBEL_SW_DEV_USERNAME" --password-stdin
+
+      # operator: Makefile derives IMAGE_NAME = $(REGISTRY)/rbln-npu-operator.
+      make build-image \
+          REGISTRY="${IMAGE_REGISTRY}" \
+          VERSION="$$APPVER" \
+          PUSH_ON_BUILD=true
+
+      # validator: same image content published under the validator name.
+      make build-image \
+          REGISTRY="${IMAGE_REGISTRY}" \
+          IMAGE_NAME="${VALIDATOR_IMAGE_NAME}" \
+          VERSION="$$APPVER" \
+          PUSH_ON_BUILD=true
+
+  # 2. Package & push the Helm chart, with operator/validator pointed at Harbor.
+  - label: ":helm: publish RC chart to Harbor"
+    key: publish-chart
+    depends_on: build-images
+    timeout_in_minutes: 15
+    image: ${SENTINEL_RUNNER_IMAGE}
+    secrets:
+      REBEL_SW_DEV_USERNAME: REBEL_SW_DEV_USERNAME
+      REBEL_SW_DEV_PASSWORD: REBEL_SW_DEV_PASSWORD
+    command: |
+      set -euo pipefail
+
+      if [ -z "$${CHART_VERSION:-}" ]; then
+        echo "ERROR: CHART_VERSION build env var is required (e.g. 0.5.0-rc1)" >&2
+        exit 1
+      fi
+      APPVER="$${APP_VERSION:-$$CHART_VERSION}"
+      echo "Publishing chart --version=$$CHART_VERSION --app-version=$$APPVER"
+
+      # yq isn't bundled in the runner image; fetch it like release.yaml does.
+      if ! command -v yq >/dev/null 2>&1; then
+        mkdir -p "$$HOME/bin"
+        curl -fsSL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o "$$HOME/bin/yq"
+        chmod +x "$$HOME/bin/yq"
+        export PATH="$$HOME/bin:$$PATH"
+      fi
+
+      # Repoint operator/validator at Harbor in the *ephemeral* checkout only — the
+      # committed values.yaml (docker.io) is never changed. Image tags still resolve
+      # from .Chart.AppVersion (their values.yaml tag stays "").
+      yq -i '.operator.image.registry = "${HARBOR_HOST}"' "${CHART_DIR}/values.yaml"
+      yq -i '.validator.image.registry = "${HARBOR_HOST}"' "${CHART_DIR}/values.yaml"
+
+      # Harbor OCI auth for the chart push (helm port of pr.yml's docker login).
+      echo "$$REBEL_SW_DEV_PASSWORD" | helm registry login "${HARBOR_HOST}" \
+        --username "$$REBEL_SW_DEV_USERNAME" --password-stdin
+
+      # Mirror of the Makefile helm-deps -> helm-package -> helm-push-oci recipe
+      # (helm invoked directly: the runner bundles helm, not make).
+      helm repo add nfd "${NFD_REPO_URL}" --force-update
+      helm dependency build "${CHART_DIR}"
+
+      mkdir -p dist
+      helm package "${CHART_DIR}" \
+        --destination dist \
+        --version "$$CHART_VERSION" \
+        --app-version "$$APPVER"
+
+      # helm push appends the chart name (rbln-npu-operator-chart); final ref:
+      #   oci://harbor.k8s.rebellions.in/rebellions/rbln-npu-operator-chart:<CHART_VERSION>
+      helm push "dist/rbln-npu-operator-chart-$$CHART_VERSION.tgz" "${HELM_OCI_REPO}"
