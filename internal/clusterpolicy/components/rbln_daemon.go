@@ -112,11 +112,6 @@ func (h *rblnDaemonPatcher) handleService(ctx context.Context, owner *rblnv1beta
 func (h *rblnDaemonPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
 	initContainer := buildToolkitValidationInitContainer(owner.Spec.Validator)
 
-	hostPort := h.desiredSpec.HostPort
-	if hostPort == 0 {
-		hostPort = rblnDaemonDefaultHostPort
-	}
-
 	daemonContainer := k8sutil.NewContainerBuilder().
 		WithName(h.name).
 		WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
@@ -127,7 +122,6 @@ func (h *rblnDaemonPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *
 			{
 				Name:          rblnDaemonPortName,
 				ContainerPort: rblnDaemonDefaultHostPort,
-				HostPort:      hostPort,
 				Protocol:      corev1.ProtocolTCP,
 			},
 		}).
@@ -145,6 +139,7 @@ func (h *rblnDaemonPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *
 
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).
+		WithHostNetwork(true).
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.rbln-daemon": "true"}).
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
