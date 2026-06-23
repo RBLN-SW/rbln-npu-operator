@@ -52,15 +52,19 @@ func TestRBLNDaemonPatch(t *testing.T) {
 		t.Fatalf("command = %q, want %q", mainContainer.Command[0], rblnDaemonCommand)
 	}
 
+	if !ds.Spec.Template.Spec.HostNetwork {
+		t.Fatal("expected pod HostNetwork=true (binds node :50051 directly, no portmap DNAT)")
+	}
+
 	foundPort := false
 	for _, port := range mainContainer.Ports {
-		if port.ContainerPort == 50051 && port.HostPort == 50051 && port.Protocol == corev1.ProtocolTCP {
+		if port.ContainerPort == 50051 && port.HostPort == 0 && port.Protocol == corev1.ProtocolTCP {
 			foundPort = true
 			break
 		}
 	}
 	if !foundPort {
-		t.Fatal("expected container port 50051 with hostPort 50051 TCP")
+		t.Fatal("expected container port 50051 TCP with no hostPort under hostNetwork")
 	}
 
 	// Service
