@@ -49,6 +49,24 @@ sync-crds:
 	@echo "Syncing CRDs into Helm packages..."
 	cp $(PROJECT_DIR)/config/crd/bases/* $(PROJECT_DIR)/deployments/rbln-npu-operator/crds
 
+# Chart RBAC is GENERATED from config/rbac (the same source operator-sdk reads
+# into the bundle CSV), so the Helm install and the OLM/CSV install can never
+# drift. Each chart file keeps its templated header; only the `rules:` block is
+# replaced from the matching kubebuilder-generated source. Format: src:dst.
+RBAC_SYNC_MAP := \
+	config/rbac/role.yaml:deployments/rbln-npu-operator/templates/rbac/clusterrole-controller.yaml \
+	config/rbac/leader_election_role.yaml:deployments/rbln-npu-operator/templates/rbac/role-controller.yaml \
+	config/rbac/metrics_auth_role.yaml:deployments/rbln-npu-operator/templates/rbac/clusterrole-metrics.yaml
+
+.PHONY: sync-rbac
+sync-rbac: ## Regenerate Helm chart RBAC rules from config/rbac (single source of truth).
+	@echo "Syncing RBAC rules from config/rbac into Helm chart..."
+	@for pair in $(RBAC_SYNC_MAP); do \
+		src="$(PROJECT_DIR)/$${pair%%:*}"; dst="$(PROJECT_DIR)/$${pair##*:}"; \
+		{ awk '/^rules:/{exit} 1' "$$dst"; awk '/^rules:/{f=1} f' "$$src"; } > "$$dst.tmp"; \
+		mv "$$dst.tmp" "$$dst"; \
+	done
+
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
@@ -209,7 +227,7 @@ endef
 ##@ Checks
 
 .PHONY: verify-manifests-sync
-verify-manifests-sync: manifests generate sync-crds
+verify-manifests-sync: manifests generate sync-crds sync-rbac
 	@echo "Checking if code and manifests are synchronized..."
 	@git diff --exit-code -- api config deployments
 	@echo "Code and manifests synchronization check completed."
