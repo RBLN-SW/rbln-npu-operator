@@ -102,11 +102,11 @@ driver:
       image:
         registry: docker.io
         image: rebellions/rbln-node-reboot
-        version: latest
+        version: v1.0.0
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-driver
-    tag: "3.0.0"
+    tag: "3.2.2"
     pullPolicy: IfNotPresent
   imagePullSecrets:
   - drivercred
@@ -147,7 +147,7 @@ driver:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.2.0
+      tag: v0.2.1
       pullPolicy: IfNotPresent
   #  imagePullSecrets:
   #  - my-registry-secret
@@ -159,7 +159,7 @@ devicePlugin:
   image:
     registry: docker.io
     repository: rebellions/k8s-device-plugin
-    tag: v0.4.0
+    tag: v0.4.1
     pullPolicy: IfNotPresent
   # Advertise the generic resource name (rebellions.ai/npu) in addition to product-specific ones.
   # the controller forwards it to the device plugin container as USE_GENERIC_RESOURCE_NAME.
@@ -193,7 +193,7 @@ rblnDaemon:
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-daemon
-    tag: "3.0.0"
+    tag: "3.2.2"
     pullPolicy: IfNotPresent
   imagePullSecrets:
   - drivercred
@@ -216,7 +216,7 @@ containerToolkit:
   image:
     registry: docker.io
     repository: rebellions/rbln-container-toolkit
-    tag: v0.1.2
+    tag: v0.2.1
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
@@ -225,26 +225,17 @@ containerToolkit:
 # Sandbox Device Plugin for VM workloads
 sandboxDevicePlugin:
   enabled: false
+  # Standalone sandbox-device-plugin binary
+  # (github.com/RBLN-SW/sandbox-device-plugin).
   image:
     registry: docker.io
-    repository: rebellions/k8s-device-plugin
-    tag: v0.3.8
+    repository: rebellions/sandbox-device-plugin
+    tag: v0.1.0
     pullPolicy: IfNotPresent
 
-  # Resource discovery for sandbox workloads
-  resourceList:
-  - productCardNames:
-    - RBLN-CA22
-    resourceName: ATOM_PT
-    resourcePrefix: rebellions.ai
-  - productCardNames:
-    - RBLN-CA25
-    resourceName: ATOM_MAX_PT
-    resourcePrefix: rebellions.ai
-  - productCardNames:
-    - RBLN-CR03
-    resourceName: REBEL_PT
-    resourcePrefix: rebellions.ai
+  # Per-model: empty RBLN_PT_ALIAS → one resource per (model, function),
+  # e.g. rebellions.ai/RBLN-CA22_PF. KubeVirt permittedHostDevices must
+  # whitelist each name in use. `resourceList` is intentionally omitted.
 
 # VFIO Manager for VM workloads
 vfioManager:
@@ -252,13 +243,13 @@ vfioManager:
   image:
     registry: docker.io
     repository: rebellions/rbln-vfio-manager
-    tag: latest
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   driverManager:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.2.0
+      tag: v0.2.1
       pullPolicy: IfNotPresent
     env: []
 
