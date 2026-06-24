@@ -12,9 +12,11 @@
 #                              defaults to CHART_VERSION.
 #
 # Version coupling: the chart resolves operator & validator image tags from
-# .Chart.AppVersion (their values.yaml tag is ""), so the images are built at the
-# effective app-version (APP_VERSION or CHART_VERSION) and the chart is packaged
-# with the same --app-version.
+# .Chart.AppVersion (their values.yaml tag is ""). Mirroring the docker.io release,
+# the operator/validator image tag and the chart --app-version are v-prefixed
+# (v<app-version>) while the chart --version (the OCI artifact tag) is not. So the
+# images are built at v<app-version> and the chart is packaged with a matching
+# v-prefixed --app-version.
 #
 # $$ vs ${} (same rule as pipeline.pr.yml): Buildkite interpolates ${VAR} from the
 # env block at pipeline-upload time; the CHART_VERSION / APP_VERSION build env vars
@@ -62,12 +64,15 @@ steps:
     command: |
       set -euo pipefail
 
-      # CHART_VERSION (build env var) drives the image tag via the app-version.
+      # CHART_VERSION (build env var) drives the v-prefixed operator/validator
+      # image tag (and Chart.AppVersion), e.g. CHART_VERSION=0.4.4-rc2 -> v0.4.4-rc2.
       if [ -z "$${CHART_VERSION:-}" ]; then
         echo "ERROR: CHART_VERSION build env var is required (e.g. 0.5.0-rc1)" >&2
         exit 1
       fi
       APPVER="$${APP_VERSION:-$$CHART_VERSION}"
+      APPVER="$${APPVER#v}"        # normalize: inputs are unprefixed (e.g. 0.4.4-rc2)
+      IMAGE_TAG="v$$APPVER"        # operator & validator images are v-prefixed
 
       echo "waiting for dockerd sidecar..."
       for i in $$(seq 1 90); do
@@ -91,14 +96,14 @@ steps:
       # operator: Makefile derives IMAGE_NAME = $(REGISTRY)/rbln-npu-operator.
       make build-image \
           REGISTRY="${IMAGE_REGISTRY}" \
-          VERSION="$$APPVER" \
+          VERSION="$$IMAGE_TAG" \
           PUSH_ON_BUILD=true
 
       # validator: same image content published under the validator name.
       make build-image \
           REGISTRY="${IMAGE_REGISTRY}" \
           IMAGE_NAME="${VALIDATOR_IMAGE_NAME}" \
-          VERSION="$$APPVER" \
+          VERSION="$$IMAGE_TAG" \
           PUSH_ON_BUILD=true
 
   # 2. Package & push the Helm chart, with operator/validator pointed at Harbor.
@@ -118,7 +123,9 @@ steps:
         exit 1
       fi
       APPVER="$${APP_VERSION:-$$CHART_VERSION}"
-      echo "Publishing chart --version=$$CHART_VERSION --app-version=$$APPVER"
+      APPVER="$${APPVER#v}"            # normalize; image tag & app-version are v-prefixed
+      CHART_VER="$${CHART_VERSION#v}"  # chart (OCI) version stays unprefixed
+      echo "Publishing chart --version=$$CHART_VER --app-version=v$$APPVER"
 
       # yq isn't bundled in the runner image; fetch it like release.yaml does.
       if ! command -v yq >/dev/null 2>&1; then
@@ -146,9 +153,9 @@ steps:
       mkdir -p dist
       helm package "${CHART_DIR}" \
         --destination dist \
-        --version "$$CHART_VERSION" \
-        --app-version "$$APPVER"
+        --version "$$CHART_VER" \
+        --app-version "v$$APPVER"
 
       # helm push appends the chart name (rbln-npu-operator-chart); final ref:
       #   oci://harbor.k8s.rebellions.in/rebellions/rbln-npu-operator-chart:<CHART_VERSION>
-      helm push "dist/rbln-npu-operator-chart-$$CHART_VERSION.tgz" "${HELM_OCI_REPO}"
+      helm push "dist/rbln-npu-operator-chart-$$CHART_VER.tgz" "${HELM_OCI_REPO}"
