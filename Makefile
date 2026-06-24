@@ -430,32 +430,48 @@ push-bundle-image: build-bundle-image
 
 .PHONY: opm
 OPM = $(LOCALBIN)/opm
-opm: ## Download opm locally if necessary.
+# Always use the pinned $(OPM_VERSION) (not a stray system opm): FBC bundle-dir
+# rendering needs a recent opm, and older binaries fail confusingly.
+opm: ## Download the pinned opm ($(OPM_VERSION)) to $(LOCALBIN) if missing.
 ifeq (,$(wildcard $(OPM)))
-ifeq (,$(shell which opm 2>/dev/null))
 	@{ \
 	set -e ;\
 	mkdir -p $(dir $(OPM)) ;\
 	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/v1.23.0/$${OS}-$${ARCH}-opm ;\
+	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$${OS}-$${ARCH}-opm ;\
 	chmod +x $(OPM) ;\
 	}
-else
-OPM = $(shell which opm)
-endif
-endif
-
-ifneq ($(origin CATALOG_BASE_IMG), undefined)
-FROM_INDEX_OPT := --from-index $(CATALOG_BASE_IMG)
 endif
 
 CATALOG_IMAGE ?= $(REGISTRY)/rbln-npu-operator-catalog:$(VERSION)
+CATALOG_DIR ?= catalog
+# Source the catalog renders from: a bundle image (default, for CI/cluster use)
+# or a local bundle directory (CATALOG_BUNDLE=bundle) for image-less PR validation.
+CATALOG_BUNDLE ?= $(BUNDLE_IMAGE)
 
-.PHONY: catalog-build
-catalog-build: opm ## Build a catalog image.
-	DOCKER_BUILDKIT=1 DOCKER_DEFAULT_PLATFORM=linux/amd64 \
-	$(OPM) index add --container-tool $(CONTAINER_TOOL) --mode semver --tag $(CATALOG_IMAGE) --bundles $(BUNDLE_IMAGE) $(FROM_INDEX_OPT)
+# Render a single-bundle file-based catalog (FBC): olm.package + olm.channel +
+# the bundle rendered from $(CATALOG_BUNDLE). The channel head must match the
+# bundle's CSV name (rbln-npu-operator.v$(BUNDLE_SEMVER)).
+.PHONY: catalog
+catalog: opm ## Render and validate an FBC catalog from $(CATALOG_BUNDLE) into $(CATALOG_DIR)/.
+	rm -rf $(CATALOG_DIR)
+	mkdir -p $(CATALOG_DIR)
+	@{ \
+		printf 'schema: olm.package\nname: rbln-npu-operator\ndefaultChannel: stable\n---\n'; \
+		printf 'schema: olm.channel\nname: stable\npackage: rbln-npu-operator\nentries:\n- name: rbln-npu-operator.v$(BUNDLE_SEMVER)\n---\n'; \
+		$(OPM) render $(CATALOG_BUNDLE) --output=yaml; \
+	} > $(CATALOG_DIR)/index.yaml
+	$(OPM) validate $(CATALOG_DIR)
+
+.PHONY: catalog-build-image
+catalog-build-image: ## Build the FBC catalog image (run `make catalog` first).
+	DOCKER_BUILDKIT=1 \
+		$(CONTAINER_TOOL) $(BUILDX) build --pull \
+		$(DOCKER_BUILD_OPTIONS) \
+		$(DOCKER_BUILD_PLATFORM_OPTIONS) \
+		--tag $(CATALOG_IMAGE) \
+		--file catalog.Dockerfile $(CURDIR)
 
 .PHONY: catalog-push
-catalog-push: ## Push a catalog image.
+catalog-push: ## Push the catalog image.
 	$(CONTAINER_TOOL) push $(CATALOG_IMAGE)

@@ -10,6 +10,10 @@ REGCTL_VERSION ?= v0.9.1
 
 OPERATOR_SDK_VERSION ?= v1.38.0
 
+# opm for FBC (file-based catalog) render/validate. Aligned with the
+# certified-operators FBC Makefile default so the dev catalog matches what ships.
+OPM_VERSION ?= v1.46.0
+
 KUSTOMIZE_VERSION ?= v5.4.2
 
 CONTROLLER_TOOLS_VERSION ?= v0.20.1
