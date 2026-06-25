@@ -7,7 +7,7 @@ metadata:
 spec:
   registry: repo.rebellions.ai
   image: rebellions/rbln-driver
-  version: "3.2.0"
+  version: "3.2.2"
   imagePullPolicy: IfNotPresent
   imagePullSecrets:
   - drivercred
@@ -33,7 +33,7 @@ spec:
   manager:
     registry: docker.io
     image: rebellions/rbln-k8s-driver-manager
-    version: v0.2.0
+    version: v0.2.1
     imagePullPolicy: IfNotPresent
     # imagePullSecrets:
     # - my-registry-secret

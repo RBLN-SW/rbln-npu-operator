@@ -2,26 +2,6 @@ package v1beta1
 
 import corev1 "k8s.io/api/core/v1"
 
-type RBLNDevicePluginResourceSpec struct {
-	// ResourceName is the name of the resource
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:=ATOM
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Resource Name",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	ResourceName string `json:"resourceName,omitempty"`
-
-	// ResourcePrefix is the prefix of the resource
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:=rebellions.ai
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Resource Prefix",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	ResourcePrefix string `json:"resourcePrefix,omitempty"`
-
-	// ProductCardNames is the name of the product card
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:={RBLN-CA12,RBLN-CA22,RBLN-CA25}
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Product Card Names",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	ProductCardNames []string `json:"productCardNames"`
-}
-
 // PodDefaultsSpec defines common configuration applied to all DaemonSet pods managed by the operator.
 type PodDefaultsSpec struct {
 	// Labels specifies the labels for the DaemonSet pods

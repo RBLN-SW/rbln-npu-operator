@@ -560,21 +560,6 @@ spec:
         path: sandboxDevicePlugin.registry
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ProductCardNames is the name of the product card
-        displayName: Product Card Names
-        path: sandboxDevicePlugin.resourceList[0].productCardNames
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ResourceName is the name of the resource
-        displayName: Resource Name
-        path: sandboxDevicePlugin.resourceList[0].resourceName
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ResourcePrefix is the prefix of the resource
-        displayName: Resource Prefix
-        path: sandboxDevicePlugin.resourceList[0].resourcePrefix
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Resources specifies the resource requirements for the DaemonSet
           pods
         displayName: Resource Requirements
