@@ -67,3 +67,17 @@ jobs:
         run: |
           docker buildx imagetools create --tag "${OPERATOR_IMAGE}:dev" "${OPERATOR_IMAGE}:${GITHUB_SHA}"
           docker buildx imagetools create --tag "${VALIDATOR_IMAGE}:dev" "${VALIDATOR_IMAGE}:${GITHUB_SHA}"
+      - name: Build and push OLM bundle + catalog (dev)
+        env:
+          VERSION: v0.0.0-dev
+          BUNDLE_IMAGE: ${{ env.REGISTRY }}/rbln-npu-operator-bundle:dev
+          CATALOG_IMAGE: ${{ env.REGISTRY }}/rbln-npu-operator-catalog:dev
+          PUSH_ON_BUILD: 'true'
+          PLATFORM: linux/amd64
+        run: |
+          # Bundle pins the immutable commit-SHA operator image; operands stay CR-driven.
+          make bundle VERSION="$VERSION" IMAGE="${OPERATOR_IMAGE}:${GITHUB_SHA}" USE_IMAGE_DIGESTS=false
+          make build-bundle-image
+          # Render the FBC from the just-pushed bundle, then build + push the catalog image.
+          make catalog
+          make catalog-build-image

@@ -52,6 +52,9 @@ jobs:
   go-build:
     needs: pr-title-validation
     uses: ./.github/workflows/go-build.yaml
+  olm-bundle-check:
+    needs: pr-title-validation
+    uses: ./.github/workflows/olm-bundle-check.yaml
   # E2E tests (container / vm-passthrough) and the PR image build moved to the
   # Buildkite PR CI pipeline (.buildkite/pipeline.pr.yml). The Go e2e suite under
   # test/e2e/ is kept and still runnable via `make -C test/e2e e2e-test`.

@@ -1,0 +1,22 @@
+name: OLM Bundle Checks
+
+on:
+  workflow_call:
+
+jobs:
+  # Static OLM validation — no cluster, no registry. Catches CSV/CRD/RBAC/annotation
+  # regressions and broken catalog structure before they reach a release bundle.
+  olm-bundle-check:
+    name: olm bundle + catalog validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout code
+      - uses: ./.github/actions/setup-go
+        name: Setup Go
+      - name: Generate and validate bundle
+        # `make bundle` ends with `operator-sdk bundle validate ./bundle`.
+        # The image ref is a placeholder (not pulled during validation).
+        run: make bundle VERSION=v0.0.0-dev IMAGE=example.com/rbln-npu-operator:dev USE_IMAGE_DIGESTS=false
+      - name: Render and validate FBC catalog (from the on-disk bundle)
+        run: make catalog VERSION=v0.0.0-dev CATALOG_BUNDLE=bundle
