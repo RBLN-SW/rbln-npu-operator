@@ -28,6 +28,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         name: Checkout code
+      - uses: ./.github/actions/setup-go
+        name: Setup Go
       - name: Install prerequisites
         run: |
           if ! command -v docker &>/dev/null; then
