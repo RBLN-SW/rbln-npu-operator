@@ -240,7 +240,7 @@ sandboxDevicePlugin:
 
   # Per-model: empty RBLN_PT_ALIAS → one resource per (model, function),
   # e.g. rebellions.ai/RBLN-CA22_PF. KubeVirt permittedHostDevices must
-  # whitelist each name in use. `resourceList` is intentionally omitted.
+  # whitelist each name in use.
 
 # VFIO Manager for VM workloads
 vfioManager:

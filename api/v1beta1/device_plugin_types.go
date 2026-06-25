@@ -68,11 +68,6 @@ type RBLNSandboxDevicePluginSpec struct {
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
-
-	// ResourceList is the list of resources to be managed by the device plugin
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:={{resourceName:ATOM,resourcePrefix:rebellions.ai,productCardNames:{RBLN-CA12,RBLN-CA22,RBLN-CA25}}}
-	ResourceList []RBLNDevicePluginResourceSpec `json:"resourceList"`
 }
 
 func (s RBLNDevicePluginSpec) IsEnabled() bool        { return s.Enabled }

@@ -7979,38 +7979,6 @@ spec:
                     description: Registry override for the RBLN Sandbox Device Plugin
                       image
                     type: string
-                  resourceList:
-                    default:
-                    - productCardNames:
-                      - RBLN-CA12
-                      - RBLN-CA22
-                      - RBLN-CA25
-                      resourceName: ATOM
-                      resourcePrefix: rebellions.ai
-                    description: ResourceList is the list of resources to be managed
-                      by the device plugin
-                    items:
-                      properties:
-                        productCardNames:
-                          default:
-                          - RBLN-CA12
-                          - RBLN-CA22
-                          - RBLN-CA25
-                          description: ProductCardNames is the name of the product
-                            card
-                          items:
-                            type: string
-                          type: array
-                        resourceName:
-                          default: ATOM
-                          description: ResourceName is the name of the resource
-                          type: string
-                        resourcePrefix:
-                          default: rebellions.ai
-                          description: ResourcePrefix is the prefix of the resource
-                          type: string
-                      type: object
-                    type: array
                   resources:
                     description: Resources specifies the resource requirements for
                       the DaemonSet pods

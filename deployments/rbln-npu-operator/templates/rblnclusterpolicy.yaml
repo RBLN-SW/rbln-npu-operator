@@ -141,10 +141,6 @@ spec:
     image: {{ .Values.sandboxDevicePlugin.image.repository | quote }}
     imagePullPolicy: {{ .Values.sandboxDevicePlugin.image.pullPolicy | quote }}
     version: {{ .Values.sandboxDevicePlugin.image.tag | quote }}
-    {{- if .Values.sandboxDevicePlugin.resourceList }}
-    resourceList:
-      {{- toYaml .Values.sandboxDevicePlugin.resourceList | nindent 4 }}
-    {{- end }}
 
   vfioManager:
     enabled: {{ .Values.vfioManager.enabled }}

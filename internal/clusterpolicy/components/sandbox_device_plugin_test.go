@@ -28,18 +28,6 @@ func TestSandboxDevicePluginPatch(t *testing.T) {
 		Registry: "docker.io",
 		Image:    "rebellions/sandbox-device-plugin",
 		Version:  "dev",
-		// ResourceList is intentionally exercised here even though the
-		// alias-only plugin no longer consumes it: this guards against
-		// a regression where a stray ConfigMap would silently come
-		// back, or where ResourceList being non-nil would change Patch
-		// behavior (it should not).
-		ResourceList: []rblnv1beta1.RBLNDevicePluginResourceSpec{
-			{
-				ResourceName:     "ATOM",
-				ResourcePrefix:   "rebellions.ai",
-				ProductCardNames: []string{consts.RBLNCardCA12},
-			},
-		},
 	}
 
 	name := consts.RBLNBaseName + "-" + consts.RBLNSandboxDevicePluginName
@@ -84,8 +72,7 @@ func TestSandboxDevicePluginPatch(t *testing.T) {
 	assertContainerHasVolumeMount(t, initContainer, "host-sys")
 	assertPodHasVolume(t, ds.Spec.Template.Spec, consts.ValidationsVolumeName)
 
-	// alias-only contract: no ConfigMap is created. CRD's ResourceList
-	// is ignored by the binary (env-only).
+	// alias-only contract: no ConfigMap is created (the binary is env-only).
 	cmName := types.NamespacedName{Name: name + "-config", Namespace: testNamespace}
 	assertObjectNotExists(t, c, cmName, &corev1.ConfigMap{})
 

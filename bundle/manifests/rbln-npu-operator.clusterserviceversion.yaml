@@ -23,7 +23,7 @@ metadata:
               "image": "rebellions/rbln-k8s-driver-manager",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v0.2.0"
+              "version": "v0.2.1"
             },
             "priorityClassName": "system-node-critical",
             "registry": "repo.rebellions.ai",
@@ -37,7 +37,7 @@ metadata:
                 "memory": "64Mi"
               }
             },
-            "version": "3.2.0"
+            "version": "3.2.2"
           }
         },
         {
@@ -63,7 +63,7 @@ metadata:
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
               "useGenericResourceName": true,
-              "version": "v0.4.0"
+              "version": "v0.4.1"
             },
             "draKubeletPlugin": {
               "driverName": "npu.rebellions.ai",
@@ -127,37 +127,14 @@ metadata:
                 "drivercred"
               ],
               "registry": "repo.rebellions.ai",
-              "version": "3.2.0"
+              "version": "3.2.2"
             },
             "sandboxDevicePlugin": {
               "enabled": false,
-              "image": "rebellions/k8s-device-plugin",
+              "image": "rebellions/sandbox-device-plugin",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "resourceList": [
-                {
-                  "productCardNames": [
-                    "RBLN-CA12"
-                  ],
-                  "resourceName": "ATOM_PT",
-                  "resourcePrefix": "rebellions.ai"
-                },
-                {
-                  "productCardNames": [
-                    "RBLN-CA25"
-                  ],
-                  "resourceName": "ATOM_MAX_PT",
-                  "resourcePrefix": "rebellions.ai"
-                },
-                {
-                  "productCardNames": [
-                    "RBLN-CR03"
-                  ],
-                  "resourceName": "REBEL_PT",
-                  "resourcePrefix": "rebellions.ai"
-                }
-              ],
-              "version": "v0.3.8"
+              "version": "v0.1.0"
             },
             "validator": {
               "image": "rebellions/rbln-npu-operator-validator",
@@ -170,7 +147,7 @@ metadata:
                 "image": "rebellions/rbln-k8s-driver-manager",
                 "imagePullPolicy": "IfNotPresent",
                 "registry": "docker.io",
-                "version": "v0.2.0"
+                "version": "v0.2.1"
               },
               "enabled": false,
               "image": "rebellions/rbln-vfio-manager",
@@ -184,7 +161,7 @@ metadata:
       ]
     capabilities: Basic Install
     containerImage: docker.io/rebellions/rbln-npu-operator:latest
-    createdAt: "2026-05-30T00:29:03Z"
+    createdAt: "2026-06-25T06:57:18Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -738,21 +715,6 @@ spec:
       - description: Registry override for the RBLN Sandbox Device Plugin image
         displayName: Registry
         path: sandboxDevicePlugin.registry
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ProductCardNames is the name of the product card
-        displayName: Product Card Names
-        path: sandboxDevicePlugin.resourceList[0].productCardNames
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ResourceName is the name of the resource
-        displayName: Resource Name
-        path: sandboxDevicePlugin.resourceList[0].resourceName
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ResourcePrefix is the prefix of the resource
-        displayName: Resource Prefix
-        path: sandboxDevicePlugin.resourceList[0].resourcePrefix
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Resources specifies the resource requirements for the DaemonSet
