@@ -27,6 +27,8 @@ agents:
   queue: "k8s"
 
 env:
+  CHART_VERSION: "${CHART_VERSION:-}"
+  APP_VERSION: "${APP_VERSION:-}"
   HARBOR_HOST: harbor.k8s.rebellions.in
   IMAGE_REGISTRY: harbor.k8s.rebellions.in/rebellions
   VALIDATOR_IMAGE_NAME: harbor.k8s.rebellions.in/rebellions/rbln-npu-operator-validator
