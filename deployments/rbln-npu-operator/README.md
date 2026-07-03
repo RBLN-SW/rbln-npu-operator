@@ -69,6 +69,35 @@ helm install rbln-npu-operator ./rbln-npu-operator \
    helm install rbln-npu-operator ./rbln-npu-operator -f my-values.yaml
    ```
 
+### Upgrades and CRDs
+
+Helm applies the CRDs under `crds/` only on the **first** `helm install` and, by
+design, never updates them on `helm upgrade`. Because the operator's CRD schema
+evolves across releases, this chart keeps the CRDs in sync automatically via a
+`pre-install`/`pre-upgrade` hook Job (`crds.upgrade.enabled`, default `true`) that
+re-applies `crds/` with server-side apply:
+
+```bash
+helm upgrade rbln-npu-operator ./rbln-npu-operator -n rbln-system
+```
+
+The hook uses a `kubectl` image (`crds.upgrade.image`, default
+`registry.k8s.io/kubectl`); pin the tag to match your cluster's API server. No
+manual `kubectl apply` of the CRDs is needed, and existing releases upgrade with
+no one-time migration step.
+
+If you deploy via a GitOps tool (Argo CD / Flux) that already reconciles the
+`crds/` directory, you can disable the hook:
+
+```yaml
+crds:
+  upgrade:
+    enabled: false
+```
+
+CRDs are **preserved** on `helm uninstall` (never deleted), so custom resources
+are not lost.
+
 ## Configuration
 
 ### Workload Types

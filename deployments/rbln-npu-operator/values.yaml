@@ -12,6 +12,21 @@ workloadType: container
 nfd:
   enabled: false
 
+# Keep the CRDs in sync on `helm upgrade` (Helm applies crds/ only on first
+# install and never upgrades them). Set false if a GitOps tool reconciles crds/.
+crds:
+  upgrade:
+    enabled: true
+    image:
+      registry: registry.k8s.io
+      repository: kubectl
+      # Pin to a kubectl compatible with your cluster API server (±1 minor skew).
+      tag: "v1.31.4"
+      pullPolicy: IfNotPresent
+    imagePullSecrets: []
+    tolerations: []
+    resources: {}
+
 # Common defaults applied to all managed DaemonSet pods.
 podDefaults:
   labels: {}
