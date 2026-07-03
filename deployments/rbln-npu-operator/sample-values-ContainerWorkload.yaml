@@ -9,6 +9,12 @@ workloadType: container
 nfd:
   enabled: false
 
+# RDS (Rebellions Device Storage): NPU direct NVMe access. When enabled, the
+# operator deploys a dedicated driver pool onto nodes labeled
+# rebellions.ai/rds.present=true. Binding formats the node's spare NVMe.
+rds:
+  enabled: false
+
 # Common defaults applied to all managed DaemonSet pods.
 podDefaults:
   labels: {}

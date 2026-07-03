@@ -112,7 +112,7 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath strin
 	additionalVolumeMounts, additionalVolumes := h.buildSubscriptionMountsAndVolumes(pool)
 
 	initContainer := h.buildDriverManagerInitContainer()
-	driverContainer := h.buildDriverContainer(additionalVolumeMounts, imagePath)
+	driverContainer := h.buildDriverContainer(additionalVolumeMounts, imagePath, pool.rds)
 
 	volumes := []corev1.Volume{
 		{
@@ -163,9 +163,18 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath strin
 	}
 	volumes = append(volumes, additionalVolumes...)
 
+	// Keep the base driver off rds.present nodes: those run the RDS pool's
+	// pod instead, so without this a labeled node would schedule two driver
+	// pods racing to install the kernel module.
+	var affinity *corev1.Affinity
+	if h.rdsBindingEnabled && !pool.rds {
+		affinity = rdsExclusionAffinity()
+	}
+
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).
 		WithNodeSelector(pool.nodeSelector).
+		WithAffinity(affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithPriorityClassName(h.desiredSpec.PriorityClassName).
@@ -173,6 +182,25 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath strin
 		WithInitContainers([]*corev1.Container{initContainer}).
 		WithContainers([]*corev1.Container{driverContainer}).
 		Build()
+}
+
+// rdsExclusionAffinity matches nodes whose rebellions.ai/rds.present label is
+// absent or not "true"; NotIn (rather than DoesNotExist) keeps the base driver
+// scheduling on nodes explicitly labeled rds.present=false.
+func rdsExclusionAffinity() *corev1.Affinity {
+	return &corev1.Affinity{
+		NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key:      rdsPresentLabelKey,
+						Operator: corev1.NodeSelectorOpNotIn,
+						Values:   []string{labelValueTrue},
+					}},
+				}},
+			},
+		},
+	}
 }
 
 func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Container {
@@ -244,6 +272,7 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 func (h *driverManagerPatcher) buildDriverContainer(
 	additionalVolumeMounts []corev1.VolumeMount,
 	imagePath string,
+	rds bool,
 ) *corev1.Container {
 	pullPolicy := h.resolveImagePullPolicy()
 
@@ -269,7 +298,7 @@ func (h *driverManagerPatcher) buildDriverContainer(
 		WithName(driverManagerContainer).
 		WithCommands([]string{driverInstallerCommand}).
 		WithArgs([]string{driverInstallerInitArg}).
-		WithEnvs(driverContainerEnvs(h.desiredSpec.Env)).
+		WithEnvs(driverContainerEnvs(h.desiredSpec.Env, rds)).
 		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 		WithLifeCycle(&corev1.Lifecycle{
 			PreStop: &corev1.LifecycleHandler{
@@ -302,14 +331,13 @@ func (h *driverManagerPatcher) buildDriverContainer(
 	return container
 }
 
-// driverContainerEnvs merges user-supplied env vars with operator-managed
-// readiness-marker env vars. Operator entries are upserted last so they
-// always win — the marker volume is mounted at the default path, and
-// letting users redirect the env vars would silently break the probe.
-func driverContainerEnvs(userEnv []corev1.EnvVar) []corev1.EnvVar {
+func driverContainerEnvs(userEnv []corev1.EnvVar, rdsBinding bool) []corev1.EnvVar {
 	envs := append([]corev1.EnvVar{}, userEnv...)
 	envs = upsertEnvVar(envs, corev1.EnvVar{Name: driverReadyDirEnvName, Value: defaultDriverReadyDir})
 	envs = upsertEnvVar(envs, corev1.EnvVar{Name: driverReadyFileEnvName, Value: defaultDriverReadyFile})
+	if rdsBinding {
+		envs = upsertEnvVar(envs, corev1.EnvVar{Name: rdsBindingEnvName, Value: rdsBindingEnabledValue})
+	}
 	return envs
 }
 

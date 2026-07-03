@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -296,7 +297,7 @@ func TestBuildDriverContainer(t *testing.T) {
 	h := newTestPatcher(t, "")
 	const imagePath = "repo.rebellions.ai/rebellions/atom/rbln-driver:3.0.0-5.15.0-100-generic-ubuntu22.04"
 
-	container := h.buildDriverContainer(nil, imagePath)
+	container := h.buildDriverContainer(nil, imagePath, false)
 
 	if container.Image != imagePath {
 		t.Fatalf("container image = %q, want %q", container.Image, imagePath)
@@ -364,30 +365,148 @@ func TestBuildDriverPodSpec_HasDriverStateVolume(t *testing.T) {
 	t.Fatalf("pod spec missing %q volume", driverReadyVolumeName)
 }
 
-func TestDriverContainerEnvs_OperatorOverridesUser(t *testing.T) {
-	userEnv := []corev1.EnvVar{
-		{Name: "FOO", Value: "bar"},
-		{Name: driverReadyDirEnvName, Value: "/wrong/path"},
-		{Name: driverReadyFileEnvName, Value: "wrong-file"},
+func TestDriverContainerEnvs(t *testing.T) {
+	tests := map[string]struct {
+		userEnv    []corev1.EnvVar
+		rdsBinding bool
+		want       map[string]string // env vars that must be present with this value
+		absent     []string          // env vars that must not be present
+	}{
+		"operator markers override user-supplied values": {
+			userEnv: []corev1.EnvVar{
+				{Name: "FOO", Value: "bar"},
+				{Name: driverReadyDirEnvName, Value: "/wrong/path"},
+				{Name: driverReadyFileEnvName, Value: "wrong-file"},
+			},
+			want: map[string]string{
+				"FOO":                  "bar",
+				driverReadyDirEnvName:  defaultDriverReadyDir,
+				driverReadyFileEnvName: defaultDriverReadyFile,
+			},
+			absent: []string{rdsBindingEnvName},
+		},
+		"rds binding adds the binding env": {
+			rdsBinding: true,
+			want:       map[string]string{rdsBindingEnvName: rdsBindingEnabledValue},
+		},
 	}
 
-	got := driverContainerEnvs(userEnv)
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			envByName := make(map[string]string)
+			for _, e := range driverContainerEnvs(tt.userEnv, tt.rdsBinding) {
+				envByName[e.Name] = e.Value
+			}
 
-	envByName := make(map[string]string, len(got))
-	for _, env := range got {
-		envByName[env.Name] = env.Value
+			for k, want := range tt.want {
+				if got := envByName[k]; got != want {
+					t.Errorf("env %q = %q, want %q", k, got, want)
+				}
+			}
+			for _, k := range tt.absent {
+				if got, ok := envByName[k]; ok {
+					t.Errorf("env %q = %q, want absent", k, got)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildDriverPodSpec_RDS(t *testing.T) {
+	tests := map[string]struct {
+		rdsBindingEnabled bool
+		poolRDS           bool
+		wantRDSEnv        bool
+		wantRDSSelector   bool
+		wantAffinity      *corev1.Affinity
+	}{
+		"rds pool gets binding env and nodeSelector, no exclusion affinity": {
+			rdsBindingEnabled: true,
+			poolRDS:           true,
+			wantRDSEnv:        true,
+			wantRDSSelector:   true,
+			wantAffinity:      nil,
+		},
+		"base pool is kept off rds nodes and gets no binding env": {
+			rdsBindingEnabled: true,
+			poolRDS:           false,
+			wantRDSEnv:        false,
+			wantRDSSelector:   false,
+			wantAffinity:      wantRDSExclusionAffinity(),
+		},
+		"rds disabled leaves the base pool untouched": {
+			rdsBindingEnabled: false,
+			poolRDS:           false,
+			wantRDSEnv:        false,
+			wantRDSSelector:   false,
+			wantAffinity:      nil,
+		},
 	}
 
-	if envByName["FOO"] != "bar" {
-		t.Fatalf("user-supplied FOO lost: got %q", envByName["FOO"])
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			h := newTestPatcher(t, "")
+			h.rdsBindingEnabled = tt.rdsBindingEnabled
+			pool := nodePool{
+				osRelease: "ubuntu",
+				osVersion: "22.04",
+				kernel:    "5.15.0-100-generic",
+				rds:       tt.poolRDS,
+			}
+			if tt.poolRDS {
+				pool.nodeSelector = map[string]string{rdsPresentLabelKey: labelValueTrue}
+			}
+
+			spec := h.buildDriverPodSpec(pool, "repo.rebellions.ai/rebellions/atom/rbln-driver:3.0.0-5.15.0-100-generic-ubuntu22.04")
+
+			gotEnv := containerHasEnv(spec.Containers, driverManagerContainer, rdsBindingEnvName, rdsBindingEnabledValue)
+			if gotEnv != tt.wantRDSEnv {
+				t.Errorf("%s present = %v, want %v", rdsBindingEnvName, gotEnv, tt.wantRDSEnv)
+			}
+
+			_, gotSelector := spec.NodeSelector[rdsPresentLabelKey]
+			if gotSelector != tt.wantRDSSelector {
+				t.Errorf("nodeSelector[%s] present = %v, want %v", rdsPresentLabelKey, gotSelector, tt.wantRDSSelector)
+			}
+
+			if diff := cmp.Diff(tt.wantAffinity, spec.Affinity); diff != "" {
+				t.Errorf("affinity mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
-	if envByName[driverReadyDirEnvName] != defaultDriverReadyDir {
-		t.Fatalf("operator did not override %s: got %q",
-			driverReadyDirEnvName, envByName[driverReadyDirEnvName])
+}
+
+func containerHasEnv(containers []corev1.Container, containerName, envName, envValue string) bool {
+	for i := range containers {
+		c := &containers[i]
+		if c.Name != containerName {
+			continue
+		}
+		for _, e := range c.Env {
+			if e.Name == envName {
+				return e.Value == envValue
+			}
+		}
 	}
-	if envByName[driverReadyFileEnvName] != defaultDriverReadyFile {
-		t.Fatalf("operator did not override %s: got %q",
-			driverReadyFileEnvName, envByName[driverReadyFileEnvName])
+	return false
+}
+
+// wantRDSExclusionAffinity is the affinity a base-pool driver pod must carry
+// while RDS is enabled: schedule anywhere the rds.present label is absent or
+// not "true", keeping the base driver off RDS-dedicated nodes.
+func wantRDSExclusionAffinity() *corev1.Affinity {
+	return &corev1.Affinity{
+		NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key:      rdsPresentLabelKey,
+						Operator: corev1.NodeSelectorOpNotIn,
+						Values:   []string{labelValueTrue},
+					}},
+				}},
+			},
+		},
 	}
 }
 

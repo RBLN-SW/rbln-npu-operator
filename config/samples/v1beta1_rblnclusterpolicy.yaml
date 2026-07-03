@@ -6,6 +6,8 @@ metadata:
   name: rbln-cluster-policy
 spec:
   workloadType: container
+  rds:
+    enabled: false
   # podDefaults applies to all DaemonSet pods managed by this policy.
   # podDefaults:
   #   labels: {}

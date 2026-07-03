@@ -21,8 +21,9 @@ import (
 
 type driverManagerPatcher struct {
 	basePatcher
-	desiredSpec *rebellionsaiv1alpha1.RBLNDriverSpec
-	checker     ImageChecker
+	desiredSpec       *rebellionsaiv1alpha1.RBLNDriverSpec
+	checker           ImageChecker
+	rdsBindingEnabled bool
 	// ownedNodes is the owner resolver's node snapshot for this instance
 	// from the same reconcile pass. Pools are partitioned from it, never
 	// from a fresh node List: an informer List could lag the resolver's
@@ -43,6 +44,7 @@ func NewDriverManagerPatcher(
 	checker ImageChecker,
 	openshiftVersion string,
 	ownedNodes []corev1.Node,
+	rdsBindingEnabled bool,
 ) (DriverPatcher, error) {
 	if driver == nil {
 		return nil, fmt.Errorf("driver is nil")
@@ -61,9 +63,10 @@ func NewDriverManagerPatcher(
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 		},
-		desiredSpec: &driver.Spec,
-		checker:     checker,
-		ownedNodes:  ownedNodes,
+		desiredSpec:       &driver.Spec,
+		checker:           checker,
+		ownedNodes:        ownedNodes,
+		rdsBindingEnabled: rdsBindingEnabled,
 	}, nil
 }
 
@@ -97,7 +100,7 @@ func (h *driverManagerPatcher) Patch(ctx context.Context, owner *rebellionsaiv1a
 	// a scheduler-level invariant even when selectors of two CRs overlap.
 	nodePools, nodesWithoutFamily := buildNodePools(h.ownedNodes, map[string]string{
 		consts.RBLNDriverOwnerLabelKey: h.instanceName,
-	}, h.log)
+	}, h.rdsBindingEnabled, h.log)
 	h.diagnostics.NodesWithoutFamily = nodesWithoutFamily
 	if len(nodePools) == 0 {
 		if len(nodesWithoutFamily) > 0 {

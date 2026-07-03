@@ -21,6 +21,7 @@ type nodePool struct {
 	kernel       string
 	family       string
 	nodeSelector map[string]string
+	rds          bool
 }
 
 // buildNodePools partitions nodes per family-os-kernel for precompiled
@@ -29,15 +30,17 @@ type nodePool struct {
 // owner assignment share one snapshot by construction. A node missing the
 // family label produces no pool, so it is reported in nodesWithoutFamily
 // instead of staying silently uncovered.
+// When rdsEnabled, nodes labeled rebellions.ai/rds.present=true form their own
+// "-rds" pools so only they carry the RDS binding env and nodeSelector.
 func buildNodePools(
-	nodes []corev1.Node, selector map[string]string, logger logr.Logger,
+	nodes []corev1.Node, selector map[string]string, rdsEnabled bool, logger logr.Logger,
 ) (pools []nodePool, nodesWithoutFamily []string) {
 	nodePoolMap := make(map[string]nodePool)
 
 	nodeSelector := buildNodeSelector(selector)
 
 	for _, node := range nodes {
-		pool, ok := buildNodePool(node, nodeSelector, logger)
+		pool, ok := buildNodePool(node, nodeSelector, rdsEnabled, logger)
 		if !ok {
 			continue
 		}
@@ -62,7 +65,7 @@ func buildNodePools(
 
 func buildNodeSelector(selector map[string]string) map[string]string {
 	nodeSelector := map[string]string{
-		driverManagerDeployLabelKey: "true",
+		driverManagerDeployLabelKey: labelValueTrue,
 	}
 	maps.Copy(nodeSelector, selector)
 	return nodeSelector
@@ -71,7 +74,7 @@ func buildNodeSelector(selector map[string]string) map[string]string {
 // buildNodePool reads a node's NFD and npu.family labels into a nodePool.
 // The bool return covers the os/kernel labels only; family validity is a
 // separate axis, signaled by an empty pool.family for the caller to classify.
-func buildNodePool(node corev1.Node, baseSelector map[string]string, logger logr.Logger) (nodePool, bool) {
+func buildNodePool(node corev1.Node, baseSelector map[string]string, rdsEnabled bool, logger logr.Logger) (nodePool, bool) {
 	nodeLabels := node.GetLabels()
 	nodePool := nodePool{
 		nodeSelector: make(map[string]string),
@@ -101,6 +104,14 @@ func buildNodePool(node corev1.Node, baseSelector map[string]string, logger logr
 	nodePool.kernel = kernelVersion
 	nodePool.name = fmt.Sprintf("%s-%s", nodePool.name, getSanitizedKernelVersion(kernelVersion))
 
+	rds := rdsEnabled && nodeLabels[rdsPresentLabelKey] == labelValueTrue
+	maxPoolNameLength := validation.LabelValueMaxLength
+	if rds {
+		// The "-rds" suffix appended below counts against the same label-value
+		// cap the composed name is checked for.
+		maxPoolNameLength -= len(rdsPoolNameSuffix)
+	}
+
 	// This label comes from the operator's own NodeFeatureRule, not
 	// third-party NFD, so getNodeLabel's "Is NFD installed?" hint would
 	// misattribute a miss. The value is spliced verbatim into DaemonSet
@@ -114,7 +125,7 @@ func buildNodePool(node corev1.Node, baseSelector map[string]string, logger logr
 		case len(validation.IsDNS1123Label(family)) != 0:
 			logger.V(consts.VDebug).Info("NPU family label value is not a valid DNS-1123 label; treating node as unlabeled",
 				"node", node.Name, "label", consts.RBLNNPUFamilyLabelKey, "value", family)
-		case len(composedName) > validation.LabelValueMaxLength:
+		case len(composedName) > maxPoolNameLength:
 			// pool.name becomes a DaemonSet label value, so a family that is
 			// valid on its own can still push the composed name past the
 			// 63-char cap. Letting it through would hard-fail the DaemonSet
@@ -126,6 +137,12 @@ func buildNodePool(node corev1.Node, baseSelector map[string]string, logger logr
 			nodePool.nodeSelector[consts.RBLNNPUFamilyLabelKey] = family
 			nodePool.name = composedName
 		}
+	}
+
+	if rds {
+		nodePool.rds = true
+		nodePool.name += rdsPoolNameSuffix
+		nodePool.nodeSelector[rdsPresentLabelKey] = labelValueTrue
 	}
 
 	return nodePool, true

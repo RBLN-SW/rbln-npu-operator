@@ -15,22 +15,32 @@ import (
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
-func TestShouldSkipDaemonSetUpdateByDriverHash(t *testing.T) {
+func TestShouldSkipDaemonSetUpdate(t *testing.T) {
 	h := &driverManagerPatcher{
 		basePatcher: basePatcher{log: logf.Log},
 	}
 
+	containers := []corev1.Container{{Name: "test", Image: "img:v1"}}
+
 	tests := map[string]struct {
 		current  *appsv1.DaemonSet
+		desired  *appsv1.DaemonSet
 		digest   string
 		wantSkip bool
 	}{
-		"matching annotation hash skips update": {
+		"nil current returns false": {
+			current:  nil,
+			desired:  &appsv1.DaemonSet{},
+			digest:   "abc123",
+			wantSkip: false,
+		},
+		"matching hash and scheduling skips update": {
 			current: &appsv1.DaemonSet{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{driverLastAppliedHashAnnotation: "abc123"},
 				},
 			},
+			desired:  &appsv1.DaemonSet{},
 			digest:   "abc123",
 			wantSkip: true,
 		},
@@ -40,6 +50,7 @@ func TestShouldSkipDaemonSetUpdateByDriverHash(t *testing.T) {
 					Annotations: map[string]string{driverLastAppliedHashAnnotation: "old-hash"},
 				},
 			},
+			desired:  &appsv1.DaemonSet{},
 			digest:   "new-hash",
 			wantSkip: false,
 		},
@@ -48,22 +59,53 @@ func TestShouldSkipDaemonSetUpdateByDriverHash(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}},
 				Spec: appsv1.DaemonSetSpec{
 					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{{Name: "test", Image: "img:v1"}},
-						},
+						Spec: corev1.PodSpec{Containers: containers},
 					},
 				},
 			},
-			digest:   k8sutil.GetObjectHash([]corev1.Container{{Name: "test", Image: "img:v1"}}),
+			desired:  &appsv1.DaemonSet{},
+			digest:   k8sutil.GetObjectHash(containers),
 			wantSkip: true,
+		},
+		"same hash but affinity differs allows update": {
+			current: &appsv1.DaemonSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{driverLastAppliedHashAnnotation: "abc123"},
+				},
+			},
+			desired: &appsv1.DaemonSet{
+				Spec: appsv1.DaemonSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{Affinity: rdsExclusionAffinity()},
+					},
+				},
+			},
+			digest:   "abc123",
+			wantSkip: false,
+		},
+		"same hash but nodeSelector differs allows update": {
+			current: &appsv1.DaemonSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{driverLastAppliedHashAnnotation: "abc123"},
+				},
+			},
+			desired: &appsv1.DaemonSet{
+				Spec: appsv1.DaemonSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{NodeSelector: map[string]string{rdsPresentLabelKey: labelValueTrue}},
+					},
+				},
+			},
+			digest:   "abc123",
+			wantSkip: false,
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := h.shouldSkipDaemonSetUpdateByDriverHash(tc.current, tc.digest)
+			got := h.shouldSkipDaemonSetUpdate(tc.current, tc.desired, tc.digest)
 			if got != tc.wantSkip {
-				t.Fatalf("shouldSkipDaemonSetUpdateByDriverHash() = %v, want %v", got, tc.wantSkip)
+				t.Fatalf("shouldSkipDaemonSetUpdate() = %v, want %v", got, tc.wantSkip)
 			}
 		})
 	}

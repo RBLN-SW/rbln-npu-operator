@@ -6,6 +6,8 @@ metadata:
   name: rbln-cluster-policy
 spec:
   workloadType: {{ .Values.workloadType | quote }}
+  rds:
+    enabled: {{ .Values.rds.enabled }}
   {{- $upgradePolicy := .Values.driver.upgradePolicy }}
   driver:
     {{- with $upgradePolicy }}

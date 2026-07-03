@@ -5870,6 +5870,20 @@ spec:
                       type: object
                     type: array
                 type: object
+              rds:
+                description: RDS enables Rebellions Device Storage (NPU direct NVMe
+                  access) on nodes
+                properties:
+                  enabled:
+                    default: false
+                    description: |-
+                      Enabled provisions a dedicated driver pool that binds RDS on nodes
+                      labeled rebellions.ai/rds.present=true. Binding formats the node's spare
+                      NVMe, so only explicitly-labeled nodes are targeted.
+                    type: boolean
+                required:
+                - enabled
+                type: object
               sandboxDevicePlugin:
                 description: SandboxDevicePlugin component spec
                 properties:

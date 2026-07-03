@@ -55,8 +55,10 @@ func NewDriverService(
 	}
 	s.namespace = namespace
 
+	rdsEnabled := clusterPolicy != nil && clusterPolicy.Spec.RDS.Enabled
+
 	dmp, err := components.NewDriverManagerPatcher(client, apiReader, log, s.namespace, driver, scheme, checker, s.openshiftVersion,
-		ownedNodes)
+		ownedNodes, rdsEnabled)
 	if err != nil {
 		return nil, err
 	}
