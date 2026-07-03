@@ -26,6 +26,13 @@ crds:
       level: info        # error|warning|info|debug
       format: json       # json|text
 
+# RDS (Rebellions Device Storage): NPU direct NVMe access. When enabled, the
+# operator deploys a dedicated driver pool (RBLN_RDS_BINDING=enabled) onto nodes
+# the admin labels rebellions.ai/rds.present=true. Binding formats the node's
+# spare NVMe, so only label such nodes.
+rds:
+  enabled: false
+
 # Common defaults applied to all managed DaemonSet pods.
 podDefaults:
   labels: {}

@@ -3,6 +3,7 @@ package components
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -77,7 +78,7 @@ func (h *driverManagerPatcher) handleDaemonSet(
 			ds.Namespace, ds.Name, existingInstance, h.instanceName)
 	}
 
-	if h.shouldSkipDaemonSetUpdateByDriverHash(current, driverConfigDigest) {
+	if h.shouldSkipDaemonSetUpdate(current, ds, driverConfigDigest) {
 		return nil
 	}
 
@@ -100,23 +101,37 @@ func (h *driverManagerPatcher) getDaemonSet(ctx context.Context, name string) (*
 	return current, nil
 }
 
-func (h *driverManagerPatcher) shouldSkipDaemonSetUpdateByDriverHash(current *appsv1.DaemonSet, driverConfigDigest string) bool {
+func (h *driverManagerPatcher) shouldSkipDaemonSetUpdate(current, desired *appsv1.DaemonSet, driverConfigDigest string) bool {
+	if current == nil {
+		return false
+	}
+
 	currentHash := current.Annotations[driverLastAppliedHashAnnotation]
 	if currentHash == "" {
 		currentHash = k8sutil.GetObjectHash(current.Spec.Template.Spec.Containers)
 	}
-
-	if currentHash == driverConfigDigest {
-		h.log.Info(
-			"Skip DaemonSet update: driver container unchanged",
-			"namespace", current.Namespace,
-			"name", current.Name,
-			"hash", driverConfigDigest,
-		)
-		return true
+	if currentHash != driverConfigDigest {
+		return false
 	}
 
-	return false
+	// The digest covers only the driver container, so compare the pod-level
+	// scheduling fields explicitly. Otherwise toggling the RDS pool split —
+	// which changes the base pod's exclusion affinity but not its container —
+	// would be silently skipped and never applied.
+	curSpec := current.Spec.Template.Spec
+	desSpec := desired.Spec.Template.Spec
+	if !reflect.DeepEqual(curSpec.Affinity, desSpec.Affinity) ||
+		!reflect.DeepEqual(curSpec.NodeSelector, desSpec.NodeSelector) {
+		return false
+	}
+
+	h.log.Info(
+		"Skip DaemonSet update: driver container and scheduling unchanged",
+		"namespace", current.Namespace,
+		"name", current.Name,
+		"hash", driverConfigDigest,
+	)
+	return true
 }
 
 func (h *driverManagerPatcher) driverManagerLabels(pool nodePool) map[string]string {
