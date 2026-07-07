@@ -31,6 +31,14 @@ type RBLNMetricsExporterSpec struct {
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
+
+	// HostPort, when set to a non-zero value, binds the metrics endpoint to this
+	// port on every node (hostPort) so external consumers (e.g. CMDB, external
+	// monitoring) can scrape NPU metrics at <nodeIP>:<hostPort>. 0 (default)
+	// leaves the exporter reachable only through the ClusterIP Service.
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Host port to bind for rbln-metrics-exporter",xDescriptors="urn:alm:descriptor:com.tectonic.ui:number"
+	// +kubebuilder:validation:Optional
+	HostPort int32 `json:"hostPort,omitempty"`
 }
 
 // RBLNDaemonSpec defines the desired state of RBLN Daemon

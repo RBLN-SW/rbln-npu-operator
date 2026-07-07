@@ -17,6 +17,11 @@ import (
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
+const (
+	metricsExporterPortName = "http"
+	metricsExporterPort     = 9090
+)
+
 type metricsExporterPatcher struct {
 	basePatcher
 	desiredSpec *rblnv1beta1.RBLNMetricsExporterSpec
@@ -85,7 +90,7 @@ func (h *metricsExporterPatcher) handleService(ctx context.Context, cp *rblnv1be
 			"prometheus.io/port":   "9090",
 		}
 		svc.Spec.Selector = labelsMap
-		svc.Spec.Ports = []corev1.ServicePort{{Name: "http", Port: 9090, Protocol: corev1.ProtocolTCP, TargetPort: intstr.FromInt32(9090)}}
+		svc.Spec.Ports = []corev1.ServicePort{{Name: metricsExporterPortName, Port: metricsExporterPort, Protocol: corev1.ProtocolTCP, TargetPort: intstr.FromInt32(metricsExporterPort)}}
 		return ctrl.SetControllerReference(cp, svc, h.scheme)
 	})
 	if err != nil {
@@ -99,6 +104,51 @@ func (h *metricsExporterPatcher) handleService(ctx context.Context, cp *rblnv1be
 func (h *metricsExporterPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
 	initContainer := buildToolkitValidationInitContainer(owner.Spec.Validator)
 
+	containerBuilder := k8sutil.NewContainerBuilder().
+		WithName(h.name).
+		WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
+		WithVolumeMounts([]corev1.VolumeMount{
+			{Name: "pod-resources", MountPath: "/var/lib/kubelet/pod-resources", ReadOnly: true},
+			{Name: "sysfs", MountPath: "/sys", ReadOnly: true},
+		}).
+		WithEnvs([]corev1.EnvVar{
+			{
+				Name: "NODE_IP",
+				ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+					APIVersion: "v1", FieldPath: "status.hostIP",
+				}},
+			},
+			{
+				Name: "NODE_NAME",
+				ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+					APIVersion: "v1", FieldPath: "spec.nodeName",
+				}},
+			},
+			{Name: "RBLN_METRICS_EXPORTER_RBLN_DAEMON_URL", Value: "http://$(NODE_IP):50051"},
+			{Name: "PROMETHEUS_METRIC_NAMES", Value: "true"},
+		}).
+		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
+		WithSecurityContext(&corev1.SecurityContext{
+			Privileged:             ptr(true),
+			RunAsUser:              ptr(int64(0)),
+			RunAsGroup:             ptr(int64(0)),
+			ReadOnlyRootFilesystem: ptr(false),
+		})
+
+	// HostPort is opt-in: when set, bind the metrics endpoint on the node so
+	// external consumers (CMDB, external monitoring) can scrape <nodeIP>:<hostPort>.
+	// Unset (0) keeps the exporter reachable only via the ClusterIP Service.
+	if h.desiredSpec.HostPort != 0 {
+		containerBuilder.WithPorts([]corev1.ContainerPort{
+			{
+				Name:          metricsExporterPortName,
+				ContainerPort: metricsExporterPort,
+				HostPort:      h.desiredSpec.HostPort,
+				Protocol:      corev1.ProtocolTCP,
+			},
+		})
+	}
+
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.metrics-exporter": "true"}).
@@ -111,39 +161,7 @@ func (h *metricsExporterPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPoli
 			hostPathVolume("sysfs", "/sys", corev1.HostPathDirectory),
 		}).
 		WithInitContainers([]*corev1.Container{initContainer}).
-		WithContainers([]*corev1.Container{
-			k8sutil.NewContainerBuilder().
-				WithName(h.name).
-				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
-				WithVolumeMounts([]corev1.VolumeMount{
-					{Name: "pod-resources", MountPath: "/var/lib/kubelet/pod-resources", ReadOnly: true},
-					{Name: "sysfs", MountPath: "/sys", ReadOnly: true},
-				}).
-				WithEnvs([]corev1.EnvVar{
-					{
-						Name: "NODE_IP",
-						ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
-							APIVersion: "v1", FieldPath: "status.hostIP",
-						}},
-					},
-					{
-						Name: "NODE_NAME",
-						ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
-							APIVersion: "v1", FieldPath: "spec.nodeName",
-						}},
-					},
-					{Name: "RBLN_METRICS_EXPORTER_RBLN_DAEMON_URL", Value: "http://$(NODE_IP):50051"},
-					{Name: "PROMETHEUS_METRIC_NAMES", Value: "true"},
-				}).
-				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
-				WithSecurityContext(&corev1.SecurityContext{
-					Privileged:             ptr(true),
-					RunAsUser:              ptr(int64(0)),
-					RunAsGroup:             ptr(int64(0)),
-					ReadOnlyRootFilesystem: ptr(false),
-				}).
-				Build(),
-		}).
+		WithContainers([]*corev1.Container{containerBuilder.Build()}).
 		WithTerminationGracePeriodSeconds(0).
 		Build()
 }

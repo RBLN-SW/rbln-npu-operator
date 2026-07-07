@@ -44,6 +44,11 @@ func TestMetricsExporterPatch(t *testing.T) {
 	assertContainerImage(t, mainContainer, "rebellions/metrics-exporter", "latest")
 	assertPrivileged(t, mainContainer)
 
+	// HostPort is opt-in: unset (0) means no container ports are declared.
+	if len(mainContainer.Ports) != 0 {
+		t.Fatalf("expected no container ports when HostPort is unset, got %d", len(mainContainer.Ports))
+	}
+
 	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(ds.Spec.Template.Spec.InitContainers))
 	}
@@ -64,6 +69,41 @@ func TestMetricsExporterPatch(t *testing.T) {
 	}
 	if svc.Spec.Selector[consts.LabelAppName] != consts.OperatorName {
 		t.Fatalf("Service selector %s = %q, want %q", consts.LabelAppName, svc.Spec.Selector[consts.LabelAppName], consts.OperatorName)
+	}
+}
+
+func TestMetricsExporterHostPort(t *testing.T) {
+	scheme := newTestScheme(t)
+	c := newFakeClient(t, scheme)
+	ctx := context.Background()
+
+	owner := newTestOwner()
+	owner.Spec.MetricsExporter = rblnv1beta1.RBLNMetricsExporterSpec{
+		Enabled:  true,
+		Registry: "docker.io",
+		Image:    "rebellions/metrics-exporter",
+		Version:  "latest",
+		HostPort: 9090,
+	}
+
+	name := consts.RBLNBaseName + "-" + consts.RBLNMetricExporterName
+	p := NewMetricsExporterPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
+	if err := p.Patch(ctx, owner); err != nil {
+		t.Fatalf("Patch() error: %v", err)
+	}
+
+	ds := assertDaemonSetBasics(t, c, name, owner.Name)
+	mainContainer := ds.Spec.Template.Spec.Containers[0]
+
+	foundPort := false
+	for _, port := range mainContainer.Ports {
+		if port.ContainerPort == 9090 && port.HostPort == 9090 && port.Protocol == corev1.ProtocolTCP {
+			foundPort = true
+			break
+		}
+	}
+	if !foundPort {
+		t.Fatal("expected container port 9090 with hostPort 9090 TCP")
 	}
 }
 

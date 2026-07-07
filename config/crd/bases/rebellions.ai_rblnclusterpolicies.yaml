@@ -4510,6 +4510,14 @@ spec:
                     description: Enabled indicates if deployment of RBLN metrics exporter
                       is enabled
                     type: boolean
+                  hostPort:
+                    description: |-
+                      HostPort, when set to a non-zero value, binds the metrics endpoint to this
+                      port on every node (hostPort) so external consumers (e.g. CMDB, external
+                      monitoring) can scrape NPU metrics at <nodeIP>:<hostPort>. 0 (default)
+                      leaves the exporter reachable only through the ClusterIP Service.
+                    format: int32
+                    type: integer
                   image:
                     default: rebellions/rbln-metrics-exporter
                     description: RBLN Metrics Exporter image name

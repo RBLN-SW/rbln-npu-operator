@@ -85,6 +85,9 @@ spec:
     image: {{ .Values.metricsExporter.image.repository | quote }}
     imagePullPolicy: {{ .Values.metricsExporter.image.pullPolicy | quote }}
     version: {{ .Values.metricsExporter.image.tag | quote }}
+    {{- if .Values.metricsExporter.hostPort }}
+    hostPort: {{ .Values.metricsExporter.hostPort }}
+    {{- end }}
 
   rblnDaemon:
     enabled: {{ .Values.rblnDaemon.enabled }}

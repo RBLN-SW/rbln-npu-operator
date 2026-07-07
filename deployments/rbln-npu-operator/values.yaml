@@ -189,6 +189,9 @@ metricsExporter:
     repository: rebellions/rbln-metrics-exporter
     tag: v0.2.5
     pullPolicy: IfNotPresent
+  # Opt-in hostPort for external scrapers (CMDB / external monitoring).
+  # 0 disables (ClusterIP-only); set to the metrics port (9090) to bind <nodeIP>:9090.
+  hostPort: 0
 
 # RBLN Daemon configuration
 rblnDaemon:
