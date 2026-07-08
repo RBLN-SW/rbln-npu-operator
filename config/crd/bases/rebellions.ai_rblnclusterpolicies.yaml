@@ -5781,7 +5781,7 @@ spec:
                     type: array
                 type: object
               rds:
-                description: RDS enables Rebellions Device Storage (NPU direct NVMe
+                description: RDS enables Rebellions Direct Storage (NPU direct NVMe
                   access) on nodes
                 properties:
                   deviceSelection:

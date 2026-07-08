@@ -74,7 +74,7 @@ type RBLNClusterPolicySpec struct {
 	// Driver component spec
 	Driver DriverSpec `json:"driver"`
 
-	// RDS enables Rebellions Device Storage (NPU direct NVMe access) on nodes
+	// RDS enables Rebellions Direct Storage (NPU direct NVMe access) on nodes
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="RDS",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	RDS RBLNRDSSpec `json:"rds,omitempty"`

@@ -591,7 +591,7 @@ spec:
         path: podDefaults.tolerations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
-      - description: RDS enables Rebellions Device Storage (NPU direct NVMe access)
+      - description: RDS enables Rebellions Direct Storage (NPU direct NVMe access)
           on nodes
         displayName: RDS
         path: rds
