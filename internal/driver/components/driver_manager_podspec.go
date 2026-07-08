@@ -163,6 +163,14 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath strin
 	}
 	volumes = append(volumes, additionalVolumes...)
 
+	initContainers := []*corev1.Container{initContainer}
+	if pool.rds {
+		volumes = append(volumes, h.rdsBindVolumes()...)
+		// Appended (not prepended): handleDaemonSet injects DRIVER_CONFIG_DIGEST
+		// into InitContainers[0], so the k8s-driver-manager init must stay first.
+		initContainers = append(initContainers, h.buildRDSBindConfigSelectInitContainer())
+	}
+
 	// Keep the base driver off rds.present nodes: those run the RDS pool's
 	// pod instead, so without this a labeled node would schedule two driver
 	// pods racing to install the kernel module.
@@ -179,7 +187,7 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath strin
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithPriorityClassName(h.desiredSpec.PriorityClassName).
 		WithVolumes(volumes).
-		WithInitContainers([]*corev1.Container{initContainer}).
+		WithInitContainers(initContainers).
 		WithContainers([]*corev1.Container{driverContainer}).
 		Build()
 }
@@ -293,6 +301,9 @@ func (h *driverManagerPatcher) buildDriverContainer(
 		},
 	}
 	volumeMounts = append(volumeMounts, additionalVolumeMounts...)
+	if rds {
+		volumeMounts = append(volumeMounts, rdsBindConfVolumeMount())
+	}
 
 	container := k8sutil.NewContainerBuilder().
 		WithName(driverManagerContainer).

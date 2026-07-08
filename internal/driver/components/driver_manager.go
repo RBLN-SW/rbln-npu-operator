@@ -21,9 +21,10 @@ import (
 
 type driverManagerPatcher struct {
 	basePatcher
-	desiredSpec       *rebellionsaiv1alpha1.RBLNDriverSpec
-	checker           ImageChecker
-	rdsBindingEnabled bool
+	desiredSpec        *rebellionsaiv1alpha1.RBLNDriverSpec
+	checker            ImageChecker
+	rdsBindingEnabled  bool
+	rdsDeviceSelection map[string][]string
 	// ownedNodes is the owner resolver's node snapshot for this instance
 	// from the same reconcile pass. Pools are partitioned from it, never
 	// from a fresh node List: an informer List could lag the resolver's
@@ -45,6 +46,7 @@ func NewDriverManagerPatcher(
 	openshiftVersion string,
 	ownedNodes []corev1.Node,
 	rdsBindingEnabled bool,
+	rdsDeviceSelection map[string][]string,
 ) (DriverPatcher, error) {
 	if driver == nil {
 		return nil, fmt.Errorf("driver is nil")
@@ -63,10 +65,11 @@ func NewDriverManagerPatcher(
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 		},
-		desiredSpec:       &driver.Spec,
-		checker:           checker,
-		ownedNodes:        ownedNodes,
-		rdsBindingEnabled: rdsBindingEnabled,
+		desiredSpec:        &driver.Spec,
+		checker:            checker,
+		ownedNodes:         ownedNodes,
+		rdsBindingEnabled:  rdsBindingEnabled,
+		rdsDeviceSelection: rdsDeviceSelection,
 	}, nil
 }
 
@@ -91,6 +94,9 @@ func (h *driverManagerPatcher) Patch(ctx context.Context, owner *rebellionsaiv1a
 		return err
 	}
 	if err := h.handleConfigMap(ctx, owner); err != nil {
+		return err
+	}
+	if err := h.handleRDSBindConfigMap(ctx, owner); err != nil {
 		return err
 	}
 
