@@ -1,6 +1,6 @@
 package v1beta1
 
-// RBLNRDSSpec configures RDS (Rebellions Device Storage): NPU direct-DMA access
+// RBLNRDSSpec configures RDS (Rebellions Direct Storage): NPU direct-DMA access
 // to a node's spare NVMe SSD, exposed to containers as /dev/rblnfs*.
 type RBLNRDSSpec struct {
 	// Enabled provisions a dedicated driver pool that binds RDS on nodes
