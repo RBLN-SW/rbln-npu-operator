@@ -8,6 +8,12 @@ spec:
   workloadType: container
   rds:
     enabled: false
+    # deviceSelection: per-node RDS bind allowlist. Omit → auto opt-out on every
+    # rds.present node. BDFs are node-specific PCI addresses.
+    # deviceSelection:
+    #   - nodeName: udc-06
+    #     targetBDFs:
+    #       - "0000:d8:00.0"
   # podDefaults applies to all DaemonSet pods managed by this policy.
   # podDefaults:
   #   labels: {}
