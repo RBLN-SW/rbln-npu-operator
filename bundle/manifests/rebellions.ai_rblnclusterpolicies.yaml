@@ -5871,9 +5871,40 @@ spec:
                     type: array
                 type: object
               rds:
-                description: RDS enables Rebellions Device Storage (NPU direct NVMe
+                description: RDS enables Rebellions Direct Storage (NPU direct NVMe
                   access) on nodes
                 properties:
+                  deviceSelection:
+                    description: |-
+                      DeviceSelection restricts, per node, which NVMe PCI devices RDS binds
+                      (an allowlist written to /etc/rebellions/rblnfs-bind.conf as TARGET_BDFS).
+                      Omit → every rds.present node uses the bind script's default auto opt-out.
+                    items:
+                      description: RBLNRDSDeviceSelection pins the RDS bind allowlist
+                        for one node.
+                      properties:
+                        nodeName:
+                          description: NodeName targets a node by its .metadata.name.
+                          minLength: 1
+                          type: string
+                        targetBDFs:
+                          description: TargetBDFs is the allowlist of PCI BDFs RDS
+                            may bind on that node.
+                          items:
+                            description: PCIDeviceAddress is a PCI address in BDF
+                              notation, e.g. "0000:d8:00.0".
+                            pattern: ^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$
+                            type: string
+                          minItems: 1
+                          type: array
+                      required:
+                      - nodeName
+                      - targetBDFs
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - nodeName
+                    x-kubernetes-list-type: map
                   enabled:
                     default: false
                     description: |-

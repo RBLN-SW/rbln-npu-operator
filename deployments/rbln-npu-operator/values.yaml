@@ -26,7 +26,7 @@ crds:
       level: info        # error|warning|info|debug
       format: json       # json|text
 
-# RDS (Rebellions Device Storage): NPU direct NVMe access. When enabled, the
+# RDS (Rebellions Direct Storage): NPU direct NVMe access. When enabled, the
 # operator deploys a dedicated driver pool (RBLN_RDS_BINDING=enabled) onto nodes
 # the admin labels rebellions.ai/rds.present=true. Binding formats the node's
 # spare NVMe, so only label such nodes.
@@ -36,7 +36,7 @@ rds:
   # (TARGET_BDFS allowlist). Omit → each rds.present node uses the bind
   # script's default auto opt-out. BDFs are node-specific PCI addresses.
   # deviceSelection:
-  #   - nodeName: udc-06
+  #   - nodeName: npu-worker01
   #     targetBDFs:
   #       - "0000:d8:00.0"
 
