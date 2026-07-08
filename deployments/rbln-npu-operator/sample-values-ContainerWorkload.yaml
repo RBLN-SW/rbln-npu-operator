@@ -14,6 +14,13 @@ nfd:
 # rebellions.ai/rds.present=true. Binding formats the node's spare NVMe.
 rds:
   enabled: false
+  # deviceSelection restricts, per node, which NVMe PCI devices RDS binds
+  # (TARGET_BDFS allowlist). Omit → each rds.present node uses the bind
+  # script's default auto opt-out. BDFs are node-specific PCI addresses.
+  # deviceSelection:
+  #   - nodeName: udc-06
+  #     targetBDFs:
+  #       - "0000:d8:00.0"
 
 # Common defaults applied to all managed DaemonSet pods.
 podDefaults:
