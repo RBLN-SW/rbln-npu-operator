@@ -26,7 +26,7 @@ func TestNewDriverManagerPatcher_NilDriver(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
 
-	_, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, nil, scheme, &fakeChecker{}, "", nil, false)
+	_, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, nil, scheme, &fakeChecker{}, "", nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error for nil driver, got nil")
 	}
@@ -36,7 +36,7 @@ func TestNewDriverManagerPatcher_NilChecker(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
 
-	_, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, newTestOwner(), scheme, nil, "", nil, false)
+	_, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, newTestOwner(), scheme, nil, "", nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error for nil checker, got nil")
 	}
@@ -60,7 +60,7 @@ func TestDriverManagerPatcher_Patch(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", []corev1.Node{*node}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", []corev1.Node{*node}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestDriverManagerPatcher_Patch_OpenShift(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "v4.14.0", []corev1.Node{*node}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "v4.14.0", []corev1.Node{*node}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestDriverManagerPatcher_Patch_NoMatchingNodesDeletesStaleDaemonSets(t *tes
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", nil, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", nil, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestDriverManagerPatcher_Patch_KeepsExistingDaemonSetsWhenOwnedNodesLackFam
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", []corev1.Node{*node}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", []corev1.Node{*node}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestDriverManagerPatcher_Patch_MixedFamilyKeepsValidPoolDaemonSet(t *testin
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", []corev1.Node{*labeledNode, *unlabeledNode}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", []corev1.Node{*labeledNode, *unlabeledNode}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestDriverManagerPatcher_Patch_MissingImageDoesNotBlockSiblingPoolCreate(t 
 	}
 	checker := &fakeChecker{verdicts: map[string]registry.Verdict{refA: registry.VerdictNotFound}}
 
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*nodeA, *nodeB}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*nodeA, *nodeB}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -481,7 +481,7 @@ func TestDriverManagerPatcher_RDSToggleUpdatesBaseDaemonSet(t *testing.T) {
 	patch := func(rdsEnabled bool) {
 		t.Helper()
 		p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "",
-			[]corev1.Node{*rdsNode, *plainNode}, rdsEnabled)
+			[]corev1.Node{*rdsNode, *plainNode}, rdsEnabled, nil)
 		if err != nil {
 			t.Fatalf("NewDriverManagerPatcher(rds=%v) error: %v", rdsEnabled, err)
 		}
@@ -625,7 +625,7 @@ func TestDriverManagerPatcher_Patch_PassesOnlyResolvablePullSecrets(t *testing.T
 	owner.Spec.ImagePullSecrets = []string{"ghost-secret", "real-secret"}
 
 	checker := &fakeChecker{}
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -664,7 +664,7 @@ func TestDriverManagerPatcher_Patch_UnreadablePullSecretStillBlocksAndIsReported
 	}
 	checker := &fakeChecker{verdicts: map[string]registry.Verdict{ref: registry.VerdictNotFound}}
 
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -708,7 +708,7 @@ func TestDriverManagerPatcher_Patch_FastFailsMissingImagePool(t *testing.T) {
 	}
 
 	checker := &fakeChecker{verdicts: map[string]registry.Verdict{refA: registry.VerdictNotFound}}
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*nodeA, *nodeB}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*nodeA, *nodeB}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -767,7 +767,7 @@ func TestDriverManagerPatcher_Patch_KeepsExistingDaemonSetWhenImageMissing(t *te
 	}
 	checker := &fakeChecker{verdicts: map[string]registry.Verdict{ref: registry.VerdictNotFound}}
 
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -807,7 +807,7 @@ func TestDriverManagerPatcher_Patch_NonBlockingVerdictsStillCreateDaemonSet(t *t
 			}
 			checker := &fakeChecker{verdicts: map[string]registry.Verdict{ref: verdict}}
 
-			p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false)
+			p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false, nil)
 			if err != nil {
 				t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 			}
@@ -842,7 +842,7 @@ func TestDriverManagerPatcher_Patch_DiagnosticsResetBetweenPatches(t *testing.T)
 	}
 	checker := &fakeChecker{verdicts: map[string]registry.Verdict{ref: registry.VerdictNotFound}}
 
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -879,7 +879,7 @@ func TestDriverManagerPatcher_Diagnostics_ReturnsCopy(t *testing.T) {
 	}
 	checker := &fakeChecker{verdicts: map[string]registry.Verdict{ref: registry.VerdictNotFound}}
 
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -923,7 +923,7 @@ func TestDriverManagerPatcher_Diagnostics_MissingImagePoolsSorted(t *testing.T) 
 	}
 	checker := &fakeChecker{verdicts: verdicts}
 
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*nodeZulu, *nodeAlpha, *nodeMike}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*nodeZulu, *nodeAlpha, *nodeMike}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -976,7 +976,7 @@ func TestDriverManagerPatcher_Patch_DefersReapWhenSuccessorImageMissing(t *testi
 	}
 	checker := &fakeChecker{verdicts: map[string]registry.Verdict{ref: registry.VerdictNotFound}}
 
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, checker, "", []corev1.Node{*node}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -1013,7 +1013,7 @@ func TestDriverManagerPatcher_Patch_DefersReapWhenNodesLackFamilyLabel(t *testin
 	ctx := context.Background()
 	owner := newTestOwner()
 
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", []corev1.Node{*labeled, *unlabeled}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", []corev1.Node{*labeled, *unlabeled}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -1043,7 +1043,7 @@ func TestDriverManagerPatcher_Patch_FlatLegacyDaemonSetIsOrdinaryStale(t *testin
 	ctx := context.Background()
 	owner := newTestOwner()
 
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", []corev1.Node{*node}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", []corev1.Node{*node}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -1085,7 +1085,7 @@ func TestDriverManagerPatcher_Patch_ReapsDaemonSetsWithForegroundDeletion(t *tes
 		Build()
 
 	owner := newTestOwner()
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", nil, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", nil, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -1120,7 +1120,7 @@ func TestDriverManagerPatcher_Patch_RefusesCrossInstanceDaemonSetCollision(t *te
 	before := &appsv1.DaemonSet{}
 	assertObjectExists(t, c, dsKey, before)
 
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", []corev1.Node{*node}, false)
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", []corev1.Node{*node}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
