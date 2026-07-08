@@ -8,6 +8,10 @@ spec:
   workloadType: {{ .Values.workloadType | quote }}
   rds:
     enabled: {{ .Values.rds.enabled }}
+    {{- with .Values.rds.deviceSelection }}
+    deviceSelection:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
   {{- $upgradePolicy := .Values.driver.upgradePolicy }}
   driver:
     {{- with $upgradePolicy }}
