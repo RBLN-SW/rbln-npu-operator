@@ -40,6 +40,14 @@ const (
 	rdsBindingEnabledValue                    = "enabled"
 	rdsPoolNameSuffix                         = "-rds"
 	labelValueTrue                            = "true"
+	rdsBindConfigMapSuffix                    = "rds-bind-config"
+	rdsBindConfigVolumeName                   = "rds-bind-config"
+	rdsBindConfVolumeName                     = "rds-bind-conf"
+	rdsBindConfigSelectInitContainer          = "rds-bind-config-select"
+	rdsBindConfigMountDir                     = "/rds-bind-config"
+	rdsBindConfWorkDir                        = "/rds-bind-conf"
+	rdsBindConfContainerPath                  = "/etc/rebellions/rblnfs-bind.conf"
+	rdsBindConfFileName                       = "rblnfs-bind.conf"
 	// driverCtrReadyFile is the cross-component "driver container ready" marker
 	// published under consts.ValidationsMountPath by the driver startup probe
 	// and removed by its preStop hook.
