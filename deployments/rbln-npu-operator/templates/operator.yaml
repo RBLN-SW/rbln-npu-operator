@@ -54,7 +54,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-          image: {{ default "docker.io" .Values.operator.image.registry }}/{{ .Values.operator.image.repository }}:{{ .Values.operator.image.tag | default .Chart.AppVersion }}
+          image: {{ include "rbln-npu-operator.operatorImage" . }}
           imagePullPolicy: {{ .Values.operator.image.pullPolicy }}
           ports:
             - containerPort: 8081

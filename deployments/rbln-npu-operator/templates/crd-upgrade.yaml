@@ -1,8 +1,11 @@
 {{- if .Values.crds.upgrade.enabled }}
 {{- /*
-Helm applies crds/ only on first install and never upgrades them; this hook
-re-applies them on upgrade. server-side apply is required — the RBLNClusterPolicy
-CRD exceeds the 256Ki client-side last-applied-configuration annotation limit.
+Helm applies crds/ only on first install and never on upgrade; this hook
+re-applies the CRDs baked into the operator image via the manage-crds binary
+(server-side apply). No ConfigMap (so no 1Mi limit) and no external kubectl
+image. No hardcoded UID: the UBI operator image is non-root by default, so it
+satisfies runAsNonRoot on vanilla Kubernetes and lets OpenShift's SCC assign a
+UID from the namespace range.
 */}}
 {{- $name := printf "%s-crd-upgrade" (include "rbln-npu-operator.fullname" .) }}
 {{- $hookAnnotations := dict "helm.sh/hook" "pre-install,pre-upgrade" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded" }}
@@ -60,24 +63,6 @@ subjects:
     name: {{ $name }}
     namespace: {{ .Release.Namespace }}
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ $name }}
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "rbln-npu-operator.labels" . | nindent 4 }}
-    app.kubernetes.io/component: crd-upgrade
-  annotations:
-    {{- toYaml $hookAnnotations | nindent 4 }}
-    helm.sh/hook-weight: "0"
-data:
-  {{- /* A ConfigMap is capped at 1Mi; split per-CRD if crds/ outgrows it. */}}
-{{- range $path, $_ := .Files.Glob "crds/*.yaml" }}
-  {{ base $path }}: |-
-{{ $.Files.Get $path | indent 4 }}
-{{- end }}
----
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -109,26 +94,16 @@ spec:
       {{- end }}
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65532
-        runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: crd-upgrade
-          image: {{ default "registry.k8s.io" .Values.crds.upgrade.image.registry }}/{{ .Values.crds.upgrade.image.repository }}:{{ .Values.crds.upgrade.image.tag }}
-          imagePullPolicy: {{ .Values.crds.upgrade.image.pullPolicy }}
+          image: {{ include "rbln-npu-operator.operatorImage" . }}
+          imagePullPolicy: {{ .Values.operator.image.pullPolicy }}
           command:
-            - kubectl
+            - /usr/bin/manage-crds
           args:
-            - apply
-            - --server-side
-            - --force-conflicts
-            - -f
-            - /etc/rbln-crds
-          env:
-            # kubectl caches discovery under $HOME; point it at a writable path.
-            - name: HOME
-              value: /tmp
+            - --crd-dir=/opt/rbln/crds
           {{- with .Values.crds.upgrade.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -138,12 +113,4 @@ spec:
             capabilities:
               drop:
                 - ALL
-          volumeMounts:
-            - name: crds
-              mountPath: /etc/rbln-crds
-              readOnly: true
-      volumes:
-        - name: crds
-          configMap:
-            name: {{ $name }}
 {{- end }}
