@@ -135,8 +135,15 @@ cmd-validator: ## Build the validator executable
 		go build -o rbln-validator $(BUILD_FLAGS) $(MODULE)/cmd/rbln-validator
 	@echo "rbln-validator executable built successfully."
 
+.PHONY: cmd-manage-crds
+cmd-manage-crds: ## Build the manage-crds executable
+	@echo "Building manage-crds executable..."
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
+		go build -o manage-crds $(BUILD_FLAGS) $(MODULE)/cmd/manage-crds
+	@echo "manage-crds executable built successfully."
+
 .PHONY: cmds
-cmds: cmd cmd-validator ## Build all executables
+cmds: cmd cmd-validator cmd-manage-crds ## Build all executables
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
