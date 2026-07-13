@@ -1,7 +1,7 @@
 {{- if .Values.crds.upgrade.enabled }}
 {{- /*
 Helm applies crds/ only on first install and never on upgrade; this hook
-re-applies the CRDs baked into the operator image via the manage-crds binary
+re-applies the CRDs baked into the operator image via the crd-apply binary
 (server-side apply). No ConfigMap (so no 1Mi limit) and no external kubectl
 image. No hardcoded UID: the UBI operator image is non-root by default, so it
 satisfies runAsNonRoot on vanilla Kubernetes and lets OpenShift's SCC assign a
@@ -101,7 +101,7 @@ spec:
           image: {{ include "rbln-npu-operator.operatorImage" . }}
           imagePullPolicy: {{ .Values.operator.image.pullPolicy }}
           command:
-            - /usr/bin/manage-crds
+            - /usr/bin/crd-apply
           args:
             - --crd-dir=/opt/rbln/crds
           {{- with .Values.crds.upgrade.resources }}

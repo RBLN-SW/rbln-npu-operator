@@ -80,7 +80,7 @@ evolves across releases, this chart keeps the CRDs in sync automatically via a
 helm upgrade rbln-npu-operator ./rbln-npu-operator -n rbln-system
 ```
 
-The hook runs the operator image's `manage-crds` binary, which server-side-applies
+The hook runs the operator image's `crd-apply` binary, which server-side-applies
 the CRDs baked into the image at `/opt/rbln/crds`. There is no separate `kubectl`
 image to pin, no ConfigMap size limit, and no manual `kubectl apply` step. Because
 the operator image is non-root by default and sets no fixed UID, the hook runs on

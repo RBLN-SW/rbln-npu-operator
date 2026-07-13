@@ -8,7 +8,7 @@ bin/*
 Dockerfile.cross
 /npu-operator
 /rbln-validator
-/manage-crds
+/crd-apply
 
 # Test binary, built with `go test -c`
 *.test

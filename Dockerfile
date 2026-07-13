@@ -38,7 +38,7 @@ RUN microdnf install -y util-linux-core && microdnf clean all -y
 
 COPY --from=builder /workspace/npu-operator /usr/bin/
 COPY --from=builder /workspace/rbln-validator /usr/bin/
-COPY --from=builder /workspace/manage-crds /usr/bin/
+COPY --from=builder /workspace/crd-apply /usr/bin/
 COPY config/crd/bases/ /opt/rbln/crds/
 COPY LICENSE /licenses/LICENSE
 
