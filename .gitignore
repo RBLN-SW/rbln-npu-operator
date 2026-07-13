@@ -6,9 +6,9 @@
 *.dylib
 bin/*
 Dockerfile.cross
-npu-operator
-rbln-validator
-manage-crds
+/npu-operator
+/rbln-validator
+/manage-crds
 
 # Test binary, built with `go test -c`
 *.test

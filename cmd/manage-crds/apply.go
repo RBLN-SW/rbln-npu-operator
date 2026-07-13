@@ -30,9 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// applyManifests server-side-applies every YAML document found in *.yaml files
-// under dir, using fieldOwner as the field manager. It is idempotent: applying
-// the same manifests repeatedly converges without conflict.
 func applyManifests(ctx context.Context, c client.Client, dir, fieldOwner string) error {
 	files, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
 	if err != nil {

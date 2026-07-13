@@ -67,7 +67,6 @@ func TestApplyManifests(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "widget.yaml")
 
-	// Create: applying a fresh CRD manifest makes the CRD exist.
 	if err := os.WriteFile(path, []byte(widgetCRD("")), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +77,6 @@ func TestApplyManifests(t *testing.T) {
 		t.Fatalf("get after create: %v", err)
 	}
 
-	// Update: re-applying a changed manifest propagates the change (the upgrade path).
 	if err := os.WriteFile(path, []byte(widgetCRD("\n  labels:\n    hook-test: updated")), 0o600); err != nil {
 		t.Fatal(err)
 	}
