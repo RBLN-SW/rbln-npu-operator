@@ -45,3 +45,10 @@ Selector labels
 app.kubernetes.io/name: {{ include "rbln-npu-operator.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Operator image reference (shared by the controller Deployment and the CRD hook).
+*/}}
+{{- define "rbln-npu-operator.operatorImage" -}}
+{{- printf "%s/%s:%s" (default "docker.io" .Values.operator.image.registry) .Values.operator.image.repository (.Values.operator.image.tag | default .Chart.AppVersion) -}}
+{{- end }}

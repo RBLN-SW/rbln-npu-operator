@@ -12,6 +12,15 @@ workloadType: container
 nfd:
   enabled: false
 
+# Keep the CRDs in sync on `helm upgrade` (Helm applies crds/ only on first
+# install and never upgrades them). Set false if a GitOps tool reconciles crds/.
+crds:
+  upgrade:
+    enabled: true
+    imagePullSecrets: []
+    tolerations: []
+    resources: {}
+
 # Common defaults applied to all managed DaemonSet pods.
 podDefaults:
   labels: {}

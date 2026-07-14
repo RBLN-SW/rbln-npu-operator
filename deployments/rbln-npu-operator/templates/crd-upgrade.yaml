@@ -1,0 +1,116 @@
+{{- if .Values.crds.upgrade.enabled }}
+{{- /*
+Helm applies crds/ only on first install and never on upgrade; this hook
+re-applies the CRDs baked into the operator image via the crd-apply binary
+(server-side apply). No ConfigMap (so no 1Mi limit) and no external kubectl
+image. No hardcoded UID: the UBI operator image is non-root by default, so it
+satisfies runAsNonRoot on vanilla Kubernetes and lets OpenShift's SCC assign a
+UID from the namespace range.
+*/}}
+{{- $name := printf "%s-crd-upgrade" (include "rbln-npu-operator.fullname" .) }}
+{{- $hookAnnotations := dict "helm.sh/hook" "pre-install,pre-upgrade" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbln-npu-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crd-upgrade
+  annotations:
+    {{- toYaml $hookAnnotations | nindent 4 }}
+    helm.sh/hook-weight: "0"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "rbln-npu-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crd-upgrade
+  annotations:
+    {{- toYaml $hookAnnotations | nindent 4 }}
+    helm.sh/hook-weight: "0"
+rules:
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+  - list
+  - create
+  - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "rbln-npu-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crd-upgrade
+  annotations:
+    {{- toYaml $hookAnnotations | nindent 4 }}
+    helm.sh/hook-weight: "0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbln-npu-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crd-upgrade
+  annotations:
+    {{- toYaml $hookAnnotations | nindent 4 }}
+    helm.sh/hook-weight: "1"
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "rbln-npu-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: crd-upgrade
+    spec:
+      serviceAccountName: {{ $name }}
+      restartPolicy: OnFailure
+      {{- with .Values.crds.upgrade.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.crds.upgrade.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: crd-upgrade
+          image: {{ include "rbln-npu-operator.operatorImage" . }}
+          imagePullPolicy: {{ .Values.operator.image.pullPolicy }}
+          command:
+            - /usr/bin/crd-apply
+          args:
+            - --crd-dir=/opt/rbln/crds
+          {{- with .Values.crds.upgrade.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+{{- end }}

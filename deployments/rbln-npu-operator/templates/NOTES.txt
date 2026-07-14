@@ -10,5 +10,10 @@ To learn more about the release, try:
 To view the RBLNClusterPolicy custom resource:
 
   $ kubectl get rblnclusterpolicy
+{{- if .Values.crds.upgrade.enabled }}
+
+The operator CRDs are kept in sync automatically on each `helm upgrade` by a
+pre-upgrade hook Job (disable with crds.upgrade.enabled=false).
+{{- end }}
 
 For more information, visit: https://github.com/rebellions-sw/rbln-npu-operator
