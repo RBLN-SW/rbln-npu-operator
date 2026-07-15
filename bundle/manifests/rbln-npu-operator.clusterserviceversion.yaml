@@ -55,7 +55,7 @@ metadata:
               "image": "rebellions/rbln-container-toolkit",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v0.2.1"
+              "version": "v0.2.3"
             },
             "devicePlugin": {
               "enabled": true,
