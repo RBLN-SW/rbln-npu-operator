@@ -228,7 +228,7 @@ containerToolkit:
   image:
     registry: docker.io
     repository: rebellions/rbln-container-toolkit
-    tag: v0.2.1
+    tag: v0.2.3
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
