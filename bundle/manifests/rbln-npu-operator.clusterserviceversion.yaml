@@ -109,7 +109,7 @@ metadata:
               "image": "rebellions/rbln-metrics-exporter",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v0.2.5"
+              "version": "v0.3.1"
             },
             "npuFeatureDiscovery": {
               "enabled": true,
