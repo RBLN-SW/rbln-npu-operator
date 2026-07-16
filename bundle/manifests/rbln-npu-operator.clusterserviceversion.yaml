@@ -63,7 +63,7 @@ metadata:
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
               "useGenericResourceName": true,
-              "version": "v0.4.1"
+              "version": "v0.4.2"
             },
             "draKubeletPlugin": {
               "driverName": "npu.rebellions.ai",
@@ -161,7 +161,7 @@ metadata:
       ]
     capabilities: Basic Install
     containerImage: docker.io/rebellions/rbln-npu-operator:latest
-    createdAt: "2026-06-25T06:57:18Z"
+    createdAt: "2026-07-16T06:44:50Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"

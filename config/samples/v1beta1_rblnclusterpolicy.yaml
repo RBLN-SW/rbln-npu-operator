@@ -40,7 +40,7 @@ spec:
     enabled: true
     registry: docker.io
     image: rebellions/k8s-device-plugin
-    version: v0.4.1
+    version: v0.4.2
     imagePullPolicy: IfNotPresent
     useGenericResourceName: true
   draKubeletPlugin:
