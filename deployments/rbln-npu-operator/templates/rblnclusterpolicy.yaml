@@ -67,6 +67,9 @@ spec:
     version: {{ .Values.devicePlugin.image.tag | quote }}
     imagePullPolicy: {{ .Values.devicePlugin.image.pullPolicy | quote }}
     useGenericResourceName: {{ .Values.devicePlugin.useGenericResourceName }}
+    {{- with .Values.devicePlugin.otlpEndpoint }}
+    otlpEndpoint: {{ . | quote }}
+    {{- end }}
 
   draKubeletPlugin:
     enabled: {{ .Values.draKubeletPlugin.enabled }}

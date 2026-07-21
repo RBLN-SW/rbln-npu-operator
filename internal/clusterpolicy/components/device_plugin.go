@@ -77,6 +77,9 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 	envs := []corev1.EnvVar{
 		{Name: "USE_GENERIC_RESOURCE_NAME", Value: strconv.FormatBool(h.desiredSpec.UseGenericResourceName)},
 	}
+	if h.desiredSpec.OtlpEndpoint != "" {
+		envs = append(envs, corev1.EnvVar{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: h.desiredSpec.OtlpEndpoint})
+	}
 
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).

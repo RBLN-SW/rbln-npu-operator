@@ -2248,6 +2248,12 @@ spec:
                       type: string
                     description: Labels specifies the labels for the DaemonSet pods
                     type: object
+                  otlpEndpoint:
+                    description: |-
+                      OtlpEndpoint is the OTLP gRPC endpoint (host:port, or a scheme-qualified URL) the
+                      device plugin exports allocation traces to. Forwarded to the device plugin container
+                      as the OTEL_EXPORTER_OTLP_ENDPOINT environment variable. Empty disables tracing.
+                    type: string
                   registry:
                     default: docker.io
                     description: Registry override for the RBLN Device Plugin image
