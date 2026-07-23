@@ -3,9 +3,11 @@ package upgrade
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/metrics"
 )
 
 type applyStateStep struct {
@@ -28,6 +30,15 @@ func (m *ClusterUpgradeStateManagerImpl) logNodeStates(currentState *ClusterUpgr
 		logArgs = append(logArgs, logKeyForNodeState(state), len(currentState.NodeStates[state]))
 	}
 	m.log.Info("Node states:", logArgs...)
+}
+
+// recordNodeStateMetrics publishes every managed state's node count,
+// including zeros, so stale series don't survive a reconcile.
+func recordNodeStateMetrics(currentState *ClusterUpgradeState) {
+	for _, state := range managedUpgradeStates {
+		label := strings.ToLower(logKeyForNodeState(state))
+		metrics.DriverUpgradeNodes.WithLabelValues(label).Set(float64(len(currentState.NodeStates[state])))
+	}
 }
 
 func (m *ClusterUpgradeStateManagerImpl) runApplyStateStep(step applyStateStep) error {
@@ -60,6 +71,7 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 	rebootRequired := rebootConfig != nil && rebootConfig.Enable
 
 	m.logNodeStates(currentState)
+	recordNodeStateMetrics(currentState)
 
 	steps := []applyStateStep{
 		{

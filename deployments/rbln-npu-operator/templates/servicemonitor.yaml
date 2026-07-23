@@ -1,0 +1,33 @@
+{{- $metrics := .Values.operator.metrics }}
+{{- if and $metrics $metrics.enabled $metrics.serviceMonitor $metrics.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "rbln-npu-operator.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rbln-npu-operator.labels" . | nindent 4 }}
+    control-plane: controller-manager
+    {{- with $metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  endpoints:
+    - path: /metrics
+      port: https
+      scheme: https
+      interval: {{ $metrics.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ $metrics.serviceMonitor.scrapeTimeout | default "10s" }}
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        # The operator serves a self-signed in-memory cert.
+        insecureSkipVerify: true
+      {{- with $metrics.serviceMonitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  selector:
+    matchLabels:
+      {{- include "rbln-npu-operator.selectorLabels" . | nindent 6 }}
+      control-plane: controller-manager
+{{- end }}

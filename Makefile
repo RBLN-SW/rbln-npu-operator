@@ -56,7 +56,8 @@ sync-crds:
 RBAC_SYNC_MAP := \
 	config/rbac/role.yaml:deployments/rbln-npu-operator/templates/rbac/clusterrole-controller.yaml \
 	config/rbac/leader_election_role.yaml:deployments/rbln-npu-operator/templates/rbac/role-controller.yaml \
-	config/rbac/metrics_auth_role.yaml:deployments/rbln-npu-operator/templates/rbac/clusterrole-metrics.yaml
+	config/rbac/metrics_auth_role.yaml:deployments/rbln-npu-operator/templates/rbac/clusterrole-metrics.yaml \
+	config/rbac/metrics_reader_role.yaml:deployments/rbln-npu-operator/templates/rbac/clusterrole-metrics-reader.yaml
 
 .PHONY: sync-rbac
 sync-rbac: ## Regenerate Helm chart RBAC rules from config/rbac (single source of truth).

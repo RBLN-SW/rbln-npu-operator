@@ -24,13 +24,18 @@ import (
 
 	rblnv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/metrics"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
 )
 
 const (
 	plannedRequeueInterval = time.Second * 10
-	DriverLabelKey         = "app.kubernetes.io/component"
-	DriverLabelValue       = "rbln-driver"
+	// statusPendingRequeueInterval retries a policy whose status the policy
+	// controller has not decided yet (avoids racing it on fresh CRs).
+	statusPendingRequeueInterval = time.Second * 5
+	DriverLabelKey               = "app.kubernetes.io/component"
+	DriverLabelValue             = "rbln-driver"
 )
 
 type UpgradeReconciler struct {
@@ -57,14 +62,24 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err != nil {
 		r.Log.Error(err, "error getting RBLNClusterPolicy object")
 		if apierrors.IsNotFound(err) {
-			return reconcile.Result{}, nil
+			return reconcile.Result{}, r.cleanupIfNoPoliciesLeft(ctx)
 		}
 		return reconcile.Result{}, err
+	}
+
+	// An ignored (non-singleton) policy must not touch cluster-wide upgrade
+	// state; an undecided one is retried until the policy controller settles it.
+	switch clusterPolicy.Status.State {
+	case consts.RBLNStateIgnored:
+		return reconcile.Result{}, nil
+	case "":
+		return reconcile.Result{RequeueAfter: statusPendingRequeueInterval}, nil
 	}
 
 	if clusterPolicy.Spec.Driver.UpgradePolicy == nil ||
 		!clusterPolicy.Spec.Driver.UpgradePolicy.AutoUpgrade {
 		r.Log.Info("Auto-upgrade disabled; cleaning upgrade state and skipping reconciliation")
+		metrics.DriverUpgradeNodes.Reset()
 		return ctrl.Result{}, r.removeNodeUpgradeStateLabels(ctx)
 	}
 
@@ -84,6 +99,21 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	return ctrl.Result{RequeueAfter: plannedRequeueInterval}, nil
+}
+
+// cleanupIfNoPoliciesLeft resets cluster-wide upgrade state only when no
+// RBLNClusterPolicy remains, so deleting an ignored CR cannot wipe the
+// state owned by the active one.
+func (r *UpgradeReconciler) cleanupIfNoPoliciesLeft(ctx context.Context) error {
+	list := &rblnv1beta1.RBLNClusterPolicyList{}
+	if err := r.List(ctx, list); err != nil {
+		return err
+	}
+	if len(list.Items) > 0 {
+		return nil
+	}
+	metrics.DriverUpgradeNodes.Reset()
+	return r.removeNodeUpgradeStateLabels(ctx)
 }
 
 // removeNodeUpgradeStateLabels loops over nodes in the cluster and removes "rebellions.ai/npu-driver-upgrade-state"

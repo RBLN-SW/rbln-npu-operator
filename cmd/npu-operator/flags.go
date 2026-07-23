@@ -25,7 +25,7 @@ func parseFlags() startOptions {
 	}
 
 	flag.StringVar(&opts.MetricsAddr, "metrics-bind-address", opts.MetricsAddr,
-		"Metrics bind address. Use :8443 for HTTPS, or :8080 for HTTP, or leave as 0 to disable.")
+		"Metrics bind address, e.g. :8443. Served over HTTPS with authn/authz. Leave as 0 to disable.")
 	flag.StringVar(&opts.ProbeAddr, "health-probe-bind-address", opts.ProbeAddr,
 		"The address the probe endpoint binds to.")
 	flag.BoolVar(&opts.EnableLeaderElection, "leader-elect", opts.EnableLeaderElection,

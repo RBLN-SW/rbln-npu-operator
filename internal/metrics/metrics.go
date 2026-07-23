@@ -69,6 +69,12 @@ var (
 		Name:      "driver_pool_ready_ratio",
 		Help:      "Per-pool ratio of ready pods to desired pods for the driver-manager DaemonSet.",
 	}, []string{"driver", "pool"})
+
+	DriverUpgradeNodes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "driver_upgrade_nodes",
+		Help:      "Number of nodes per driver upgrade state.",
+	}, []string{"state"})
 )
 
 func init() {
@@ -80,5 +86,6 @@ func init() {
 		NPUNodes,
 		WorkloadCoverage,
 		DriverPoolReady,
+		DriverUpgradeNodes,
 	)
 }
