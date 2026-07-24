@@ -100,11 +100,14 @@ jobs:
           TAG: ${{ github.ref_name }}
           VALUES_FILE: deployments/rbln-npu-operator/values.yaml
         run: |
+          # resolve <yq path> [repo key] [tag key] — key names default to the
+          # Helm convention (repository/tag); node-reboot's block follows the
+          # CRD ImageSpec convention (image/version) instead.
           resolve() {
-            local component="$1"
-            local registry=$(yq ".${component}.image.registry" "$VALUES_FILE")
-            local repository=$(yq ".${component}.image.repository" "$VALUES_FILE")
-            local tag=$(yq ".${component}.image.tag" "$VALUES_FILE")
+            local path="$1" repo_key="${2:-repository}" tag_key="${3:-tag}"
+            local registry=$(yq "${path}.registry" "$VALUES_FILE")
+            local repository=$(yq "${path}.${repo_key}" "$VALUES_FILE")
+            local tag=$(yq "${path}.${tag_key}" "$VALUES_FILE")
             local image="${registry}/${repository}:${tag}"
             local digest=$(regctl image digest "${image}")
             echo "${registry}/${repository}@${digest}"
@@ -112,24 +115,42 @@ jobs:
 
           OPERATOR_DIGEST=$(regctl image digest "docker.io/rebellions/rbln-npu-operator:${TAG}")
           echo "operator=docker.io/rebellions/rbln-npu-operator@${OPERATOR_DIGEST}" >> $GITHUB_OUTPUT
-          echo "device_plugin=$(resolve devicePlugin)" >> $GITHUB_OUTPUT
-          echo "metrics_exporter=$(resolve metricsExporter)" >> $GITHUB_OUTPUT
-          echo "npu_feature_discovery=$(resolve npuFeatureDiscovery)" >> $GITHUB_OUTPUT
-          echo "vfio_manager=$(resolve vfioManager)" >> $GITHUB_OUTPUT
+          # Validator is versioned with the release tag itself (values.yaml
+          # leaves its tag empty to fall back to appVersion).
+          VALIDATOR_DIGEST=$(regctl image digest "docker.io/rebellions/rbln-npu-operator-validator:${TAG}")
+          echo "validator=docker.io/rebellions/rbln-npu-operator-validator@${VALIDATOR_DIGEST}" >> $GITHUB_OUTPUT
+          echo "device_plugin=$(resolve .devicePlugin.image)" >> $GITHUB_OUTPUT
+          echo "metrics_exporter=$(resolve .metricsExporter.image)" >> $GITHUB_OUTPUT
+          echo "npu_feature_discovery=$(resolve .npuFeatureDiscovery.image)" >> $GITHUB_OUTPUT
+          echo "vfio_manager=$(resolve .vfioManager.image)" >> $GITHUB_OUTPUT
+          echo "container_toolkit=$(resolve .containerToolkit.image)" >> $GITHUB_OUTPUT
+          echo "dra_kubelet_plugin=$(resolve .draKubeletPlugin.image)" >> $GITHUB_OUTPUT
+          echo "sandbox_device_plugin=$(resolve .sandboxDevicePlugin.image)" >> $GITHUB_OUTPUT
+          echo "node_reboot=$(resolve .driver.upgradePolicy.reboot.image image version)" >> $GITHUB_OUTPUT
       - name: Update image digests in manager config
         env:
           OPERATOR_DIGEST: ${{ steps.digests.outputs.operator }}
+          VALIDATOR_DIGEST: ${{ steps.digests.outputs.validator }}
           DEVICE_PLUGIN_DIGEST: ${{ steps.digests.outputs.device_plugin }}
           METRICS_EXPORTER_DIGEST: ${{ steps.digests.outputs.metrics_exporter }}
           NPU_FEATURE_DISCOVERY_DIGEST: ${{ steps.digests.outputs.npu_feature_discovery }}
           VFIO_MANAGER_DIGEST: ${{ steps.digests.outputs.vfio_manager }}
+          CONTAINER_TOOLKIT_DIGEST: ${{ steps.digests.outputs.container_toolkit }}
+          DRA_KUBELET_PLUGIN_DIGEST: ${{ steps.digests.outputs.dra_kubelet_plugin }}
+          SANDBOX_DEVICE_PLUGIN_DIGEST: ${{ steps.digests.outputs.sandbox_device_plugin }}
+          NODE_REBOOT_DIGEST: ${{ steps.digests.outputs.node_reboot }}
         run: |
           FILE=config/manager/manager.yaml
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_NPU_OPERATOR")).value = env(OPERATOR_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_NPU_OPERATOR_VALIDATOR")).value = env(VALIDATOR_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_K8S_DEVICE_PLUGIN")).value = env(DEVICE_PLUGIN_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_METRICS_EXPORTER")).value = env(METRICS_EXPORTER_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_NPU_FEATURE_DISCOVERY")).value = env(NPU_FEATURE_DISCOVERY_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_VFIO_MANAGER")).value = env(VFIO_MANAGER_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_CONTAINER_TOOLKIT")).value = env(CONTAINER_TOOLKIT_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_DRA_KUBELET_PLUGIN")).value = env(DRA_KUBELET_PLUGIN_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN")).value = env(SANDBOX_DEVICE_PLUGIN_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_NODE_REBOOT")).value = env(NODE_REBOOT_DIGEST)' "$FILE"
       - name: Generate bundle
         env:
           TAG: ${{ github.ref_name }}

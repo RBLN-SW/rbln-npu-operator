@@ -161,7 +161,7 @@ metadata:
       ]
     capabilities: Basic Install
     containerImage: docker.io/rebellions/rbln-npu-operator:latest
-    createdAt: "2026-07-16T06:45:47Z"
+    createdAt: "2026-07-24T09:20:30Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -1136,15 +1136,25 @@ spec:
                     fieldRef:
                       fieldPath: metadata.namespace
                 - name: RELATED_IMAGE_RBLN_NPU_OPERATOR
-                  value: docker.io/rebellions/rbln-npu-operator@sha256:f3dfd53e159c0ab05d65ca93f8d783659b33acd0a015b38975c26106b14a1600
+                  value: docker.io/rebellions/rbln-npu-operator@sha256:0a42f022468877057a4d09ff15a660ac0ec6e709dfc90653588fa544b64a40b3
                 - name: RELATED_IMAGE_RBLN_K8S_DEVICE_PLUGIN
-                  value: docker.io/rebellions/k8s-device-plugin@sha256:d6a1b7653fa4978dc34e71a62d48a99537218f248c933871bbe5f8d5ff5a6e5d
+                  value: docker.io/rebellions/k8s-device-plugin@sha256:85ba52ca521deffa63e24c6f7f50fe9b891bc994398b25781485094cb041bfe4
                 - name: RELATED_IMAGE_RBLN_METRICS_EXPORTER
-                  value: docker.io/rebellions/rbln-metrics-exporter@sha256:f696d75b40e948cad25a1bc14c43e256463acb55477a7787b1be4e7086908240
+                  value: docker.io/rebellions/rbln-metrics-exporter@sha256:1de89c95357c6958e7d7be4fbdf2ae4ba4d9c91f879988a65e8f0bef32ac7c7a
                 - name: RELATED_IMAGE_RBLN_NPU_FEATURE_DISCOVERY
-                  value: docker.io/rebellions/rbln-npu-feature-discovery@sha256:02ea11356b04e05d2dbbdd7b60286aec239e846e4beb26fdf515f61535b3e885
+                  value: docker.io/rebellions/rbln-npu-feature-discovery@sha256:f9a31fa0bde0072230565bf7fc0e27bdb1904321db2395dc366f5954f156c0e1
                 - name: RELATED_IMAGE_VFIO_MANAGER
-                  value: docker.io/rebellions/rbln-vfio-manager@sha256:c9abcf882ddceb17a0f6b65463de1d4232d5d773994ff75e0aa2beef4c8ce87d
+                  value: docker.io/rebellions/rbln-vfio-manager@sha256:f468876573e8ba6d726bc6443314d2ae039b3b341fb6de4623fd40cfc53772b5
+                - name: RELATED_IMAGE_RBLN_NPU_OPERATOR_VALIDATOR
+                  value: docker.io/rebellions/rbln-npu-operator-validator@sha256:3d4f724ec5ee14a42ff950211c2daa409d4f8f89597a474c929cc27a22a84468
+                - name: RELATED_IMAGE_RBLN_CONTAINER_TOOLKIT
+                  value: docker.io/rebellions/rbln-container-toolkit@sha256:49e1300d034a130a7d2a421c60aa8dd3e878f94520c810c5db69a04ea0bb4e09
+                - name: RELATED_IMAGE_DRA_KUBELET_PLUGIN
+                  value: docker.io/rebellions/k8s-dra-driver-npu@sha256:a132091e93e55b74d39a978d83b8866268a4a662288151eafab17c61042c03f6
+                - name: RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN
+                  value: docker.io/rebellions/sandbox-device-plugin@sha256:9cdd4000438025e7bbcff5c6b021eba0ae9f565a4ab7af4e6c1f43849f7820f2
+                - name: RELATED_IMAGE_NODE_REBOOT
+                  value: docker.io/rebellions/rbln-node-reboot@sha256:429fb4af61dfdf808bf6da3bc89513ef6934f3a5992ed8826216a52095e67788
                 image: docker.io/rebellions/rbln-npu-operator:v0.3.4
                 imagePullPolicy: Always
                 livenessProbe:
@@ -1243,14 +1253,24 @@ spec:
     name: rebellions
     url: https://rebellions.ai/
   relatedImages:
-  - image: docker.io/rebellions/rbln-npu-operator@sha256:f3dfd53e159c0ab05d65ca93f8d783659b33acd0a015b38975c26106b14a1600
+  - image: docker.io/rebellions/rbln-npu-operator@sha256:0a42f022468877057a4d09ff15a660ac0ec6e709dfc90653588fa544b64a40b3
     name: rbln-npu-operator
-  - image: docker.io/rebellions/k8s-device-plugin@sha256:d6a1b7653fa4978dc34e71a62d48a99537218f248c933871bbe5f8d5ff5a6e5d
+  - image: docker.io/rebellions/k8s-device-plugin@sha256:85ba52ca521deffa63e24c6f7f50fe9b891bc994398b25781485094cb041bfe4
     name: rbln-k8s-device-plugin
-  - image: docker.io/rebellions/rbln-metrics-exporter@sha256:f696d75b40e948cad25a1bc14c43e256463acb55477a7787b1be4e7086908240
+  - image: docker.io/rebellions/rbln-metrics-exporter@sha256:1de89c95357c6958e7d7be4fbdf2ae4ba4d9c91f879988a65e8f0bef32ac7c7a
     name: rbln-metrics-exporter
-  - image: docker.io/rebellions/rbln-npu-feature-discovery@sha256:02ea11356b04e05d2dbbdd7b60286aec239e846e4beb26fdf515f61535b3e885
+  - image: docker.io/rebellions/rbln-npu-feature-discovery@sha256:f9a31fa0bde0072230565bf7fc0e27bdb1904321db2395dc366f5954f156c0e1
     name: rbln-npu-feature-discovery
-  - image: docker.io/rebellions/rbln-vfio-manager@sha256:c9abcf882ddceb17a0f6b65463de1d4232d5d773994ff75e0aa2beef4c8ce87d
+  - image: docker.io/rebellions/rbln-vfio-manager@sha256:f468876573e8ba6d726bc6443314d2ae039b3b341fb6de4623fd40cfc53772b5
     name: vfio-manager
+  - image: docker.io/rebellions/rbln-npu-operator-validator@sha256:3d4f724ec5ee14a42ff950211c2daa409d4f8f89597a474c929cc27a22a84468
+    name: rbln-npu-operator-validator
+  - image: docker.io/rebellions/rbln-container-toolkit@sha256:49e1300d034a130a7d2a421c60aa8dd3e878f94520c810c5db69a04ea0bb4e09
+    name: rbln-container-toolkit
+  - image: docker.io/rebellions/k8s-dra-driver-npu@sha256:a132091e93e55b74d39a978d83b8866268a4a662288151eafab17c61042c03f6
+    name: dra-kubelet-plugin
+  - image: docker.io/rebellions/sandbox-device-plugin@sha256:9cdd4000438025e7bbcff5c6b021eba0ae9f565a4ab7af4e6c1f43849f7820f2
+    name: sandbox-device-plugin
+  - image: docker.io/rebellions/rbln-node-reboot@sha256:429fb4af61dfdf808bf6da3bc89513ef6934f3a5992ed8826216a52095e67788
+    name: node-reboot
   version: 0.3.4
