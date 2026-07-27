@@ -6,4 +6,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: docker.io/rebellions/rbln-npu-operator
-  newTag: v0.3.4
+  newTag: v0.4.4

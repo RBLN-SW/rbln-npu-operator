@@ -90,11 +90,11 @@ jobs:
             local tag=$(yq "${path}.${tag_key}" "$VALUES_FILE")
             local image="${registry}/${repository}:${tag}"
             local digest=$(regctl image digest "${image}")
-            echo "${registry}/${repository}@${digest}"
+            echo "${image}@${digest}"
           }
 
-          export OPERATOR_DIGEST="${OPERATOR_IMAGE}@$(regctl image digest "${OPERATOR_IMAGE}:${GITHUB_SHA}")"
-          export VALIDATOR_DIGEST="${VALIDATOR_IMAGE}@$(regctl image digest "${VALIDATOR_IMAGE}:${GITHUB_SHA}")"
+          export OPERATOR_DIGEST="${OPERATOR_IMAGE}:${GITHUB_SHA}@$(regctl image digest "${OPERATOR_IMAGE}:${GITHUB_SHA}")"
+          export VALIDATOR_DIGEST="${VALIDATOR_IMAGE}:${GITHUB_SHA}@$(regctl image digest "${VALIDATOR_IMAGE}:${GITHUB_SHA}")"
           export DEVICE_PLUGIN_DIGEST=$(resolve .devicePlugin.image)
           export METRICS_EXPORTER_DIGEST=$(resolve .metricsExporter.image)
           export NPU_FEATURE_DISCOVERY_DIGEST=$(resolve .npuFeatureDiscovery.image)

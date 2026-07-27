@@ -110,15 +110,15 @@ jobs:
             local tag=$(yq "${path}.${tag_key}" "$VALUES_FILE")
             local image="${registry}/${repository}:${tag}"
             local digest=$(regctl image digest "${image}")
-            echo "${registry}/${repository}@${digest}"
+            echo "${image}@${digest}"
           }
 
           OPERATOR_DIGEST=$(regctl image digest "docker.io/rebellions/rbln-npu-operator:${TAG}")
-          echo "operator=docker.io/rebellions/rbln-npu-operator@${OPERATOR_DIGEST}" >> $GITHUB_OUTPUT
+          echo "operator=docker.io/rebellions/rbln-npu-operator:${TAG}@${OPERATOR_DIGEST}" >> $GITHUB_OUTPUT
           # Validator is versioned with the release tag itself (values.yaml
           # leaves its tag empty to fall back to appVersion).
           VALIDATOR_DIGEST=$(regctl image digest "docker.io/rebellions/rbln-npu-operator-validator:${TAG}")
-          echo "validator=docker.io/rebellions/rbln-npu-operator-validator@${VALIDATOR_DIGEST}" >> $GITHUB_OUTPUT
+          echo "validator=docker.io/rebellions/rbln-npu-operator-validator:${TAG}@${VALIDATOR_DIGEST}" >> $GITHUB_OUTPUT
           echo "device_plugin=$(resolve .devicePlugin.image)" >> $GITHUB_OUTPUT
           echo "metrics_exporter=$(resolve .metricsExporter.image)" >> $GITHUB_OUTPUT
           echo "npu_feature_discovery=$(resolve .npuFeatureDiscovery.image)" >> $GITHUB_OUTPUT
