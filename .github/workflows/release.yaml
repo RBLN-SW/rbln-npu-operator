@@ -127,6 +127,7 @@ jobs:
           echo "dra_kubelet_plugin=$(resolve .draKubeletPlugin.image)" >> $GITHUB_OUTPUT
           echo "sandbox_device_plugin=$(resolve .sandboxDevicePlugin.image)" >> $GITHUB_OUTPUT
           echo "node_reboot=$(resolve .driver.upgradePolicy.reboot.image image version)" >> $GITHUB_OUTPUT
+          echo "driver_manager=$(resolve .driver.manager.image)" >> $GITHUB_OUTPUT
       - name: Update image digests in manager config
         env:
           OPERATOR_DIGEST: ${{ steps.digests.outputs.operator }}
@@ -139,6 +140,7 @@ jobs:
           DRA_KUBELET_PLUGIN_DIGEST: ${{ steps.digests.outputs.dra_kubelet_plugin }}
           SANDBOX_DEVICE_PLUGIN_DIGEST: ${{ steps.digests.outputs.sandbox_device_plugin }}
           NODE_REBOOT_DIGEST: ${{ steps.digests.outputs.node_reboot }}
+          DRIVER_MANAGER_DIGEST: ${{ steps.digests.outputs.driver_manager }}
         run: |
           FILE=config/manager/manager.yaml
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_NPU_OPERATOR")).value = env(OPERATOR_DIGEST)' "$FILE"
@@ -151,6 +153,7 @@ jobs:
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_DRA_KUBELET_PLUGIN")).value = env(DRA_KUBELET_PLUGIN_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN")).value = env(SANDBOX_DEVICE_PLUGIN_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_NODE_REBOOT")).value = env(NODE_REBOOT_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_DRIVER_MANAGER")).value = env(DRIVER_MANAGER_DIGEST)' "$FILE"
       - name: Generate bundle
         env:
           TAG: ${{ github.ref_name }}

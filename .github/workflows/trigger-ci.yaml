@@ -103,6 +103,7 @@ jobs:
           export DRA_KUBELET_PLUGIN_DIGEST=$(resolve .draKubeletPlugin.image)
           export SANDBOX_DEVICE_PLUGIN_DIGEST=$(resolve .sandboxDevicePlugin.image)
           export NODE_REBOOT_DIGEST=$(resolve .driver.upgradePolicy.reboot.image image version)
+          export DRIVER_MANAGER_DIGEST=$(resolve .driver.manager.image)
 
           FILE=config/manager/manager.yaml
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_NPU_OPERATOR")).value = env(OPERATOR_DIGEST)' "$FILE"
@@ -115,6 +116,7 @@ jobs:
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_DRA_KUBELET_PLUGIN")).value = env(DRA_KUBELET_PLUGIN_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN")).value = env(SANDBOX_DEVICE_PLUGIN_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_NODE_REBOOT")).value = env(NODE_REBOOT_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_DRIVER_MANAGER")).value = env(DRIVER_MANAGER_DIGEST)' "$FILE"
       - name: Build and push OLM bundle + catalog (dev)
         env:
           VERSION: v0.0.0-dev
