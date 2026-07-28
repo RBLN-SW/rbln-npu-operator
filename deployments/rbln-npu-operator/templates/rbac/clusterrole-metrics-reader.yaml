@@ -1,0 +1,13 @@
+# Bind to the scraper's ServiceAccount to authorize GET /metrics.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "rbln-npu-operator.fullname" . }}-metrics-reader
+  labels:
+    {{- include "rbln-npu-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics-auth
+rules:
+- nonResourceURLs:
+  - "/metrics"
+  verbs:
+  - get

@@ -24,6 +24,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	// +kubebuilder:scaffold:imports
@@ -50,8 +51,11 @@ func run(opts startOptions) error {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
+		// HTTPS + authn/authz; scrapers need a SA token.
 		Metrics: metricsserver.Options{
-			BindAddress: opts.MetricsAddr,
+			BindAddress:    opts.MetricsAddr,
+			SecureServing:  true,
+			FilterProvider: filters.WithAuthenticationAndAuthorization,
 		},
 		WebhookServer:          webhook.NewServer(webhook.Options{}),
 		HealthProbeBindAddress: opts.ProbeAddr,

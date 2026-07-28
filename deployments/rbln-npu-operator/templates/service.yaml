@@ -1,3 +1,4 @@
+{{- if and .Values.operator.metrics .Values.operator.metrics.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -8,9 +9,10 @@ metadata:
 spec:
   ports:
     - name: https
-      port: {{ .Values.operator.service.port }}
+      port: {{ .Values.operator.metrics.port | default 8443 }}
       protocol: TCP
-      targetPort: {{ .Values.operator.service.targetPort }}
+      targetPort: https
   selector:
     {{- include "rbln-npu-operator.selectorLabels" . | nindent 4 }}
     control-plane: controller-manager
+{{- end }}

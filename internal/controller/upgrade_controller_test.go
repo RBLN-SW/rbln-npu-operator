@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
 )
 
@@ -125,6 +126,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
 
 			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("nil-policy", nil))
+			markClusterPolicyState(ctx, nn, consts.RBLNStateReady)
 		})
 
 		It("cleans upgrade state labels and does not requeue", func() {
@@ -152,6 +154,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("disabled-policy", &rblnv1beta1.DriverUpgradePolicySpec{
 				AutoUpgrade: false,
 			}))
+			markClusterPolicyState(ctx, nn, consts.RBLNStateReady)
 		})
 
 		It("cleans upgrade state labels and does not requeue", func() {
@@ -181,6 +184,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("build-err-policy", &rblnv1beta1.DriverUpgradePolicySpec{
 				AutoUpgrade: true,
 			}))
+			markClusterPolicyState(ctx, nn, consts.RBLNStateReady)
 		})
 
 		It("returns the error", func() {
@@ -207,6 +211,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("apply-err-policy", &rblnv1beta1.DriverUpgradePolicySpec{
 				AutoUpgrade: true,
 			}))
+			markClusterPolicyState(ctx, nn, consts.RBLNStateReady)
 		})
 
 		It("returns the error", func() {
@@ -228,12 +233,70 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("happy-policy", &rblnv1beta1.DriverUpgradePolicySpec{
 				AutoUpgrade: true,
 			}))
+			markClusterPolicyState(ctx, nn, consts.RBLNStateReady)
 		})
 
 		It("requeues after planned interval (10s)", func() {
 			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
+		})
+	})
+
+	Context("When the policy status is not decided yet", func() {
+		var nn types.NamespacedName
+
+		BeforeEach(func() {
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
+			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("pending-policy", nil))
+		})
+
+		It("requeues shortly and leaves upgrade state untouched", func() {
+			reconciler := newTestUpgradeReconciler(&mockStateManager{})
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: statusPendingRequeueInterval}))
+			expectNodeHasLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
+		})
+	})
+
+	Context("When the policy is ignored (non-singleton)", func() {
+		var nn types.NamespacedName
+
+		BeforeEach(func() {
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
+			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("ignored-policy", nil))
+			markClusterPolicyState(ctx, nn, consts.RBLNStateIgnored)
+		})
+
+		It("returns without touching upgrade state", func() {
+			reconciler := newTestUpgradeReconciler(&mockStateManager{})
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+			expectNodeHasLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
+		})
+	})
+
+	Context("When a deleted policy leaves an active one behind", func() {
+		var activeNN types.NamespacedName
+
+		BeforeEach(func() {
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
+			activeNN = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("surviving-policy", &rblnv1beta1.DriverUpgradePolicySpec{
+				AutoUpgrade: true,
+			}))
+			markClusterPolicyState(ctx, activeNN, consts.RBLNStateReady)
+		})
+
+		It("does not clean cluster-wide upgrade state", func() {
+			reconciler := newTestUpgradeReconciler(&mockStateManager{})
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "already-deleted-policy"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+			expectNodeHasLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
 		})
 	})
 })
@@ -255,6 +318,24 @@ func newTestUpgradeReconciler(sm upgrade.ClusterUpgradeStateManager) *UpgradeRec
 // ---------------------------------------------------------------------------
 // Fixture builders
 // ---------------------------------------------------------------------------
+
+func expectNodeHasLabel(ctx context.Context, nodeName, key, value string) {
+	GinkgoHelper()
+	var node corev1.Node
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
+	Expect(node.Labels).To(HaveKeyWithValue(key, value),
+		"expected node %s to keep label %s=%s", nodeName, key, value)
+}
+
+// markClusterPolicyState settles the status the policy controller would
+// normally decide, so the upgrade reconciler's status guard passes.
+func markClusterPolicyState(ctx context.Context, nn types.NamespacedName, state string) {
+	GinkgoHelper()
+	policy := &rblnv1beta1.RBLNClusterPolicy{}
+	Expect(k8sClient.Get(ctx, nn, policy)).To(Succeed())
+	policy.Status.State = state
+	Expect(k8sClient.Status().Update(ctx, policy)).To(Succeed())
+}
 
 func newUpgradeClusterPolicyFixture(name string, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec) *rblnv1beta1.RBLNClusterPolicy {
 	return &rblnv1beta1.RBLNClusterPolicy{

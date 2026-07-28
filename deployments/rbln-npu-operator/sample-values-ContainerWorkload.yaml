@@ -38,11 +38,12 @@ operator:
     requests:
       cpu: 50m
       memory: 128Mi
-  # Service configuration
-  service:
-    type: ClusterIP
+  # Operator self-metrics (HTTPS + authn/authz). See values.yaml.
+  metrics:
+    enabled: true
     port: 8443
-    targetPort: 8443
+    serviceMonitor:
+      enabled: false
   # Pod security context
   securityContext:
     runAsNonRoot: true

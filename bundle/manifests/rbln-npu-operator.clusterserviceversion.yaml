@@ -161,7 +161,7 @@ metadata:
       ]
     capabilities: Basic Install
     containerImage: docker.io/rebellions/rbln-npu-operator:latest
-    createdAt: "2026-06-25T06:57:18Z"
+    createdAt: "2026-07-24T04:14:44Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -176,7 +176,7 @@ metadata:
     operators.operatorframework.io/builder: operator-sdk-v1.38.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
     support: Rebellions
-  name: rbln-npu-operator.v0.3.4
+  name: rbln-npu-operator.v0.0.0-dev
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -1145,7 +1145,7 @@ spec:
                   value: docker.io/rebellions/rbln-npu-feature-discovery@sha256:02ea11356b04e05d2dbbdd7b60286aec239e846e4beb26fdf515f61535b3e885
                 - name: RELATED_IMAGE_VFIO_MANAGER
                   value: docker.io/rebellions/rbln-vfio-manager@sha256:c9abcf882ddceb17a0f6b65463de1d4232d5d773994ff75e0aa2beef4c8ce87d
-                image: docker.io/rebellions/rbln-npu-operator:v0.3.4
+                image: example.com/rbln-npu-operator:dev
                 imagePullPolicy: Always
                 livenessProbe:
                   httpGet:
@@ -1253,4 +1253,4 @@ spec:
     name: rbln-npu-feature-discovery
   - image: docker.io/rebellions/rbln-vfio-manager@sha256:c9abcf882ddceb17a0f6b65463de1d4232d5d773994ff75e0aa2beef4c8ce87d
     name: vfio-manager
-  version: 0.3.4
+  version: 0.0.0-dev
