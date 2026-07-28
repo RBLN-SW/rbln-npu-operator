@@ -68,11 +68,13 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// An ignored (non-singleton) policy must not touch cluster-wide upgrade
-	// state; an undecided one is retried until the policy controller settles it.
-	switch clusterPolicy.Status.State {
-	case consts.RBLNStateIgnored:
+	// state; an undecided or stale status is retried until the policy
+	// controller settles the current generation.
+	if clusterPolicy.Status.State == consts.RBLNStateIgnored {
 		return reconcile.Result{}, nil
-	case "":
+	}
+	if clusterPolicy.Status.State == "" ||
+		clusterPolicy.Status.ObservedGeneration != clusterPolicy.Generation {
 		return reconcile.Result{RequeueAfter: statusPendingRequeueInterval}, nil
 	}
 
@@ -138,6 +140,20 @@ func (r *UpgradeReconciler) removeNodeUpgradeStateLabels(ctx context.Context) er
 	return nil
 }
 
+// clusterPolicyUpgradePredicate also fires on status transitions (state or
+// observed generation): a promoted successor changes only status, and the
+// GenerationChangedPredicate alone would never wake this controller.
+var clusterPolicyUpgradePredicate = predicate.TypedFuncs[*rblnv1beta1.RBLNClusterPolicy]{
+	CreateFunc:  func(event.TypedCreateEvent[*rblnv1beta1.RBLNClusterPolicy]) bool { return true },
+	DeleteFunc:  func(event.TypedDeleteEvent[*rblnv1beta1.RBLNClusterPolicy]) bool { return true },
+	GenericFunc: func(event.TypedGenericEvent[*rblnv1beta1.RBLNClusterPolicy]) bool { return false },
+	UpdateFunc: func(e event.TypedUpdateEvent[*rblnv1beta1.RBLNClusterPolicy]) bool {
+		return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() ||
+			e.ObjectOld.Status.State != e.ObjectNew.Status.State ||
+			e.ObjectOld.Status.ObservedGeneration != e.ObjectNew.Status.ObservedGeneration
+	},
+}
+
 //nolint:dupl
 func (r *UpgradeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	c, err := controller.New("upgrade-controller", mgr, controller.Options{
@@ -152,7 +168,7 @@ func (r *UpgradeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 		mgr.GetCache(),
 		&rblnv1beta1.RBLNClusterPolicy{},
 		&handler.TypedEnqueueRequestForObject[*rblnv1beta1.RBLNClusterPolicy]{},
-		predicate.TypedGenerationChangedPredicate[*rblnv1beta1.RBLNClusterPolicy]{}),
+		clusterPolicyUpgradePredicate),
 	)
 	if err != nil {
 		return err

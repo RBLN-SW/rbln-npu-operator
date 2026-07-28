@@ -158,6 +158,31 @@ max(rbln_operator_workload_coverage_state) >= 3
 min(rbln_operator_driver_pool_ready_ratio) < 1
 ```
 
+## Operator Events
+
+The operator records Kubernetes Events for state transitions and failures, so
+`kubectl describe` shows what happened and when. Reasons are a stable contract:
+
+| Reason | Type | Object | When |
+|--------|------|--------|------|
+| `DriverUpgradeStarted` | Normal | Node | upgrade-required → cordon-required |
+| `NodeDrained` | Normal | Node | node drain succeeded |
+| `NodeDrainFailed` | Warning | Node | cordon or drain failed |
+| `DriverUpgradeCompleted` | Normal | Node | in-progress state → upgrade-done |
+| `DriverUpgradeFailed` | Warning | Node | non-Failed state → upgrade-failed |
+| `ComponentApplyFailed` | Warning | RBLNClusterPolicy | component apply failed |
+| `DriverInstallFailed` | Warning | RBLNDriver | driver component apply failed |
+| `AllComponentsReady` | Normal | RBLNClusterPolicy | transition to ready |
+| `DriverReady` | Normal | RBLNDriver | transition to ready |
+| `PolicyIgnored` | Normal | RBLNClusterPolicy | non-singleton policy ignored |
+
+Steady-state reconciles do not re-emit Normal events. Inspect with:
+
+```bash
+kubectl get events -A --field-selector involvedObject.kind=Node,involvedObject.name=<node> --sort-by=.lastTimestamp
+kubectl describe rblnclusterpolicy <name>
+```
+
 ## Support & Resources
 
 - Helm chart & source: [RBLN NPU Operator Helm chart](https://github.com/rebellions-sw/rbln-npu-operator/tree/main/deployments/rbln-npu-operator)

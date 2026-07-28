@@ -100,6 +100,4 @@ const (
 	nullString = "null"
 	// trueString avoids duplicated true literal usage.
 	trueString = "true"
-
-	DriverEventReason = "RBLNDriverUpgrade"
 )

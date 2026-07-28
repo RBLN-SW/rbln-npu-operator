@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -14,9 +15,11 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -34,6 +37,9 @@ const (
 	minDelayCR       = 100 * time.Millisecond
 	maxDelayCR       = 3 * time.Second
 	nfdCheckInterval = 30 * time.Second
+	// singletonRecheckInterval re-evaluates ignored policies so a survivor
+	// is promoted even if the deletion mapper missed.
+	singletonRecheckInterval = 30 * time.Second
 )
 
 type RBLNClusterPolicyReconciler struct {
@@ -43,6 +49,39 @@ type RBLNClusterPolicyReconciler struct {
 	SingletonCRName string
 	ClusterInfo     *clusterinfo.Info
 	Conditions      *conditions.Updater
+	Recorder        record.EventRecorder
+	// singletonMu guards SingletonCRName: the deletion mapper runs on the
+	// informer goroutine, concurrently with the reconcile worker.
+	singletonMu sync.Mutex
+}
+
+func (r *RBLNClusterPolicyReconciler) singletonOwner() string {
+	r.singletonMu.Lock()
+	defer r.singletonMu.Unlock()
+	return r.SingletonCRName
+}
+
+// claimSingletonIfVacant makes the named policy the singleton when none is
+// set; returns the resulting owner.
+func (r *RBLNClusterPolicyReconciler) claimSingletonIfVacant(name string) string {
+	r.singletonMu.Lock()
+	defer r.singletonMu.Unlock()
+	if r.SingletonCRName == "" {
+		r.SingletonCRName = name
+	}
+	return r.SingletonCRName
+}
+
+// clearSingletonIf atomically clears ownership only if it still belongs to
+// name, so a freshly promoted policy is never clobbered.
+func (r *RBLNClusterPolicyReconciler) clearSingletonIf(name string) bool {
+	r.singletonMu.Lock()
+	defer r.singletonMu.Unlock()
+	if r.SingletonCRName == name {
+		r.SingletonCRName = ""
+		return true
+	}
+	return false
 }
 
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusterversions;proxies,verbs=get;list;watch
@@ -72,7 +111,9 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 	if ignored {
-		return ctrl.Result{}, nil
+		// Periodic recheck is the promotion fallback when the deletion
+		// mapper misses (e.g. its List failed).
+		return ctrl.Result{RequeueAfter: singletonRecheckInterval}, nil
 	}
 
 	if err := instance.Spec.Validate(); err != nil {
@@ -128,6 +169,10 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	if err := service.PatchComponents(ctx); err != nil {
 		r.Log.Error(err, "Failed to patch components in RBLNClusterPolicy Scope")
+		if r.Recorder != nil {
+			r.Recorder.Event(instance, corev1.EventTypeWarning, consts.RBLNEventReasonComponentApplyFailed,
+				fmt.Sprintf("Failed to apply component: %v", err))
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -151,8 +196,7 @@ func (r *RBLNClusterPolicyReconciler) fetchClusterPolicy(
 	instance := &rblnv1beta1.RBLNClusterPolicy{}
 	if err := r.Get(ctx, req.NamespacedName, instance); err != nil {
 		if kapierrors.IsNotFound(err) {
-			if r.SingletonCRName == req.Name {
-				r.SingletonCRName = ""
+			if r.clearSingletonIf(req.Name) {
 				r.Log.V(consts.LogLevelInfo).Info("singleton RBLNClusterPolicy cleared", "name", req.Name)
 			}
 			return nil, nil
@@ -170,17 +214,18 @@ func (r *RBLNClusterPolicyReconciler) handleSingletonPolicy(
 	ctx context.Context,
 	instance *rblnv1beta1.RBLNClusterPolicy,
 ) (bool, error) {
-	if r.SingletonCRName != "" && r.SingletonCRName != instance.Name {
+	owner := r.claimSingletonIfVacant(instance.Name)
+	if owner != instance.Name {
 		r.Log.V(consts.LogLevelDebug).Info("Set RBLNClusterPolicy status as ignored")
+		wasIgnored := instance.Status.State == consts.RBLNStateIgnored
 		if err := r.Conditions.SetPolicyIgnored(ctx, instance, "Another RBLNClusterPolicy is already active; this policy is ignored"); err != nil {
 			return false, err
 		}
+		if !wasIgnored && r.Recorder != nil {
+			r.Recorder.Event(instance, corev1.EventTypeNormal, consts.RBLNConditionReasonPolicyIgnored,
+				"Another RBLNClusterPolicy is already active; this policy is ignored")
+		}
 		return true, nil
-	}
-
-	if r.SingletonCRName == "" {
-		r.SingletonCRName = instance.Name
-		r.Log.Info("Set singleton RBLNClusterPolicy", "name", instance.Name)
 	}
 
 	return false, nil
@@ -197,6 +242,7 @@ func (r *RBLNClusterPolicyReconciler) reconcileStatus(
 	if err := r.Get(ctx, client.ObjectKeyFromObject(policy), instance); err != nil {
 		return false, fmt.Errorf("get cluster policy for status update: %w", err)
 	}
+	prevState := instance.Status.State
 
 	instance.Status.Namespace = namespace
 	instance.Status.Components = componentStatuses
@@ -221,6 +267,10 @@ func (r *RBLNClusterPolicyReconciler) reconcileStatus(
 
 	if err := r.Client.Status().Update(ctx, instance); err != nil {
 		return false, fmt.Errorf("update cluster policy status: %w", err)
+	}
+	if state == consts.RBLNStateReady && prevState != consts.RBLNStateReady && r.Recorder != nil {
+		r.Recorder.Event(instance, corev1.EventTypeNormal,
+			consts.RBLNConditionReasonAllComponentsReady, "All NPU components are ready")
 	}
 	return state == consts.RBLNStateReady, nil
 }
@@ -305,16 +355,46 @@ func (r *RBLNClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				),
 			)),
 		).
+		Watches(
+			&rblnv1beta1.RBLNClusterPolicy{},
+			handler.EnqueueRequestsFromMapFunc(r.policyDeleted),
+			builder.WithPredicates(predicate.Funcs{
+				CreateFunc:  func(event.CreateEvent) bool { return false },
+				UpdateFunc:  func(event.UpdateEvent) bool { return false },
+				DeleteFunc:  func(event.DeleteEvent) bool { return true },
+				GenericFunc: func(event.GenericEvent) bool { return false },
+			}),
+		).
 		Complete(r)
 }
 
+// policyDeleted re-enqueues every remaining policy when one is deleted, so a
+// surviving ignored policy is re-evaluated and can be promoted to singleton.
+func (r *RBLNClusterPolicyReconciler) policyDeleted(ctx context.Context, o client.Object) []ctrl.Request {
+	if r.clearSingletonIf(o.GetName()) {
+		r.Log.V(consts.LogLevelInfo).Info("singleton RBLNClusterPolicy cleared", "name", o.GetName())
+	}
+	list := &rblnv1beta1.RBLNClusterPolicyList{}
+	if err := r.List(ctx, list); err != nil {
+		// Mapper errors are not retried; the periodic requeue scheduled by
+		// ignored-policy reconciles still promotes a survivor eventually.
+		r.Log.Error(err, "Failed to list policies after deletion")
+		return nil
+	}
+	reqs := make([]ctrl.Request, 0, len(list.Items))
+	for i := range list.Items {
+		reqs = append(reqs, ctrl.Request{NamespacedName: client.ObjectKey{Name: list.Items[i].Name}})
+	}
+	return reqs
+}
+
 func (r *RBLNClusterPolicyReconciler) singletonRequest(_ context.Context, o client.Object) []ctrl.Request {
-	if r.SingletonCRName != "" {
+	if owner := r.singletonOwner(); owner != "" {
 		r.Log.V(consts.LogLevelDebug).Info("Rebellions Node label changed, triggering reconcile", "node", o.GetName())
 		return []ctrl.Request{
 			{
 				NamespacedName: client.ObjectKey{
-					Name: r.SingletonCRName,
+					Name: owner,
 				},
 			},
 		}
