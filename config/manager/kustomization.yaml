@@ -5,5 +5,5 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 images:
 - name: controller
-  newName: example.com/rbln-npu-operator
-  newTag: dev
+  newName: docker.io/rebellions/rbln-npu-operator
+  newTag: v0.3.4
