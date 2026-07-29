@@ -23,7 +23,7 @@ metadata:
               "image": "rebellions/rbln-k8s-driver-manager",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v0.2.1@sha256:b3ac7c05de270adc3adac0c6330c5c20a7676447bd6aaae52d97f588f7b0b39d"
+              "version": "v0.2.1"
             },
             "priorityClassName": "system-node-critical",
             "registry": "repo.rebellions.ai",
@@ -55,7 +55,7 @@ metadata:
               "image": "rebellions/rbln-container-toolkit",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v0.2.3@sha256:49e1300d034a130a7d2a421c60aa8dd3e878f94520c810c5db69a04ea0bb4e09"
+              "version": "v0.2.3"
             },
             "devicePlugin": {
               "enabled": true,
@@ -63,7 +63,7 @@ metadata:
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
               "useGenericResourceName": true,
-              "version": "v0.4.2@sha256:85ba52ca521deffa63e24c6f7f50fe9b891bc994398b25781485094cb041bfe4"
+              "version": "v0.4.2"
             },
             "draKubeletPlugin": {
               "driverName": "npu.rebellions.ai",
@@ -74,7 +74,7 @@ metadata:
               "kubeletPluginsDirectoryPath": "/var/lib/kubelet/plugins",
               "kubeletRegistrarDirectoryPath": "/var/lib/kubelet/plugins_registry",
               "registry": "docker.io",
-              "version": "v0.1.2@sha256:a132091e93e55b74d39a978d83b8866268a4a662288151eafab17c61042c03f6"
+              "version": "v0.1.2"
             },
             "driver": {
               "upgradePolicy": {
@@ -95,7 +95,7 @@ metadata:
                   "image": {
                     "image": "rebellions/rbln-node-reboot",
                     "registry": "docker.io",
-                    "version": "v1.0.0@sha256:429fb4af61dfdf808bf6da3bc89513ef6934f3a5992ed8826216a52095e67788"
+                    "version": "v1.0.0"
                   },
                   "rebootTimeoutSeconds": 0
                 },
@@ -109,14 +109,14 @@ metadata:
               "image": "rebellions/rbln-metrics-exporter",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v0.3.1@sha256:14d7ac9700e506463ae17ff4ec7c34cb6662dac02c5ed3e40777b2d0f3a64a2b"
+              "version": "v0.3.1"
             },
             "npuFeatureDiscovery": {
               "enabled": true,
               "image": "rebellions/rbln-npu-feature-discovery",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v0.2.1@sha256:f9a31fa0bde0072230565bf7fc0e27bdb1904321db2395dc366f5954f156c0e1"
+              "version": "v0.2.1"
             },
             "rblnDaemon": {
               "enabled": false,
@@ -127,33 +127,33 @@ metadata:
                 "drivercred"
               ],
               "registry": "repo.rebellions.ai",
-              "version": "3.2.2@sha256:6a55de6beaf391ee6d0247b5444d055a0b170e76c93998f92452d3b77e63b686"
+              "version": "3.2.2"
             },
             "sandboxDevicePlugin": {
               "enabled": false,
               "image": "rebellions/sandbox-device-plugin",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v0.1.0@sha256:9cdd4000438025e7bbcff5c6b021eba0ae9f565a4ab7af4e6c1f43849f7820f2"
+              "version": "v0.1.0"
             },
             "validator": {
               "image": "rebellions/rbln-npu-operator-validator",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v0.4.3@sha256:242801b1af68d89550918eccb460eecb2591622449e28342f044327e49675672"
+              "version": "v0.4.3"
             },
             "vfioManager": {
               "driverManager": {
                 "image": "rebellions/rbln-k8s-driver-manager",
                 "imagePullPolicy": "IfNotPresent",
                 "registry": "docker.io",
-                "version": "v0.2.1@sha256:b3ac7c05de270adc3adac0c6330c5c20a7676447bd6aaae52d97f588f7b0b39d"
+                "version": "v0.2.1"
               },
               "enabled": false,
               "image": "rebellions/rbln-vfio-manager",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v1.0.0@sha256:f468876573e8ba6d726bc6443314d2ae039b3b341fb6de4623fd40cfc53772b5"
+              "version": "v1.0.0"
             },
             "workloadType": "container"
           }
@@ -161,7 +161,7 @@ metadata:
       ]
     capabilities: Basic Install
     containerImage: docker.io/rebellions/rbln-npu-operator:latest
-    createdAt: "2026-07-28T13:15:53Z"
+    createdAt: "2026-07-28T14:13:38Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
