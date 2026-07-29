@@ -20,7 +20,7 @@ func newTestNodeUpgradeStateProvider(t *testing.T) *NodeUpgradeStateProvider {
 		t.Fatalf("add scheme: %v", err)
 	}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	return NewNodeUpgradeStateProvider(k8sClient, logr.Discard())
+	return NewNodeUpgradeStateProvider(k8sClient, logr.Discard(), nil)
 }
 
 func newTestNode(name string, annotations map[string]string) *corev1.Node {

@@ -256,7 +256,31 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{RequeueAfter: statusPendingRequeueInterval}))
-			expectNodeHasLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
+			expectNodeKeepsUpgradeRequiredLabel(ctx, nodeName)
+		})
+	})
+
+	Context("When the policy status is stale (old generation)", func() {
+		var nn types.NamespacedName
+
+		BeforeEach(func() {
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
+			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("stale-gen-policy", nil))
+			markClusterPolicyState(ctx, nn, consts.RBLNStateReady)
+
+			By("bumping the spec so Generation moves past ObservedGeneration")
+			policy := &rblnv1beta1.RBLNClusterPolicy{}
+			Expect(k8sClient.Get(ctx, nn, policy)).To(Succeed())
+			policy.Spec.DevicePlugin.Enabled = !policy.Spec.DevicePlugin.Enabled
+			Expect(k8sClient.Update(ctx, policy)).To(Succeed())
+		})
+
+		It("requeues shortly and leaves upgrade state untouched", func() {
+			reconciler := newTestUpgradeReconciler(&mockStateManager{})
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: statusPendingRequeueInterval}))
+			expectNodeKeepsUpgradeRequiredLabel(ctx, nodeName)
 		})
 	})
 
@@ -274,7 +298,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
-			expectNodeHasLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
+			expectNodeKeepsUpgradeRequiredLabel(ctx, nodeName)
 		})
 	})
 
@@ -296,7 +320,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
-			expectNodeHasLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, "upgrade-required")
+			expectNodeKeepsUpgradeRequiredLabel(ctx, nodeName)
 		})
 	})
 })
@@ -319,12 +343,12 @@ func newTestUpgradeReconciler(sm upgrade.ClusterUpgradeStateManager) *UpgradeRec
 // Fixture builders
 // ---------------------------------------------------------------------------
 
-func expectNodeHasLabel(ctx context.Context, nodeName, key, value string) {
+func expectNodeKeepsUpgradeRequiredLabel(ctx context.Context, nodeName string) {
 	GinkgoHelper()
 	var node corev1.Node
 	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
-	Expect(node.Labels).To(HaveKeyWithValue(key, value),
-		"expected node %s to keep label %s=%s", nodeName, key, value)
+	Expect(node.Labels).To(HaveKeyWithValue(upgrade.UpgradeStateLabelKey, "upgrade-required"),
+		"expected node %s to keep its upgrade state label", nodeName)
 }
 
 // markClusterPolicyState settles the status the policy controller would
@@ -334,6 +358,7 @@ func markClusterPolicyState(ctx context.Context, nn types.NamespacedName, state 
 	policy := &rblnv1beta1.RBLNClusterPolicy{}
 	Expect(k8sClient.Get(ctx, nn, policy)).To(Succeed())
 	policy.Status.State = state
+	policy.Status.ObservedGeneration = policy.Generation
 	Expect(k8sClient.Status().Update(ctx, policy)).To(Succeed())
 }
 

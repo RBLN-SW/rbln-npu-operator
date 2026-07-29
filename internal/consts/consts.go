@@ -73,6 +73,19 @@ const (
 	RBLNConditionReasonConflictingSelector  = "ConflictingNodeSelector"
 )
 
+// Event reasons — observability contract, keep stable. AllComponentsReady and
+// PolicyIgnored events reuse the condition reason strings above.
+const (
+	RBLNEventReasonDriverUpgradeStarted   = "DriverUpgradeStarted"
+	RBLNEventReasonNodeDrained            = "NodeDrained"
+	RBLNEventReasonNodeDrainFailed        = "NodeDrainFailed"
+	RBLNEventReasonDriverUpgradeCompleted = "DriverUpgradeCompleted"
+	RBLNEventReasonDriverUpgradeFailed    = "DriverUpgradeFailed"
+	RBLNEventReasonComponentApplyFailed   = "ComponentApplyFailed"
+	RBLNEventReasonDriverInstallFailed    = "DriverInstallFailed"
+	RBLNEventReasonDriverReady            = "DriverReady"
+)
+
 // Base name prefix for all RBLN components
 const RBLNBaseName = "rbln"
 

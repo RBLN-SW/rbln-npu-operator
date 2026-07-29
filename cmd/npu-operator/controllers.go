@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
@@ -22,32 +23,38 @@ func registerControllers(ctx context.Context, mgr ctrl.Manager) error {
 	}
 	setupLog.Info("openshift version", "version", clusterInfo.OpenShiftVersion)
 
-	if err := registerClusterPolicyController(mgr, clusterInfo); err != nil {
+	// One recorder shared by every controller, so all events report the same source.
+	recorder := mgr.GetEventRecorderFor(operatorName)
+
+	if err := registerClusterPolicyController(mgr, clusterInfo, recorder); err != nil {
 		return err
 	}
-	if err := registerUpgradeController(ctx, mgr); err != nil {
+	if err := registerUpgradeController(ctx, mgr, recorder); err != nil {
 		return err
 	}
-	if err := registerDriverController(mgr, clusterInfo); err != nil {
+	if err := registerDriverController(mgr, clusterInfo, recorder); err != nil {
 		return err
 	}
 	return nil
 }
 
-func registerClusterPolicyController(mgr ctrl.Manager, clusterInfo *clusterinfo.Info) error {
+func registerClusterPolicyController(
+	mgr ctrl.Manager, clusterInfo *clusterinfo.Info, recorder record.EventRecorder,
+) error {
 	if err := (&controller.RBLNClusterPolicyReconciler{
 		Client:      mgr.GetClient(),
 		Log:         ctrl.Log.WithName("controllers").WithName("RBLNClusterPolicy"),
 		Scheme:      mgr.GetScheme(),
 		ClusterInfo: clusterInfo,
 		Conditions:  conditions.NewUpdater(mgr.GetClient()),
+		Recorder:    recorder,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup RBLNClusterPolicy: %w", err)
 	}
 	return nil
 }
 
-func registerUpgradeController(ctx context.Context, mgr ctrl.Manager) error {
+func registerUpgradeController(ctx context.Context, mgr ctrl.Manager, recorder record.EventRecorder) error {
 	namespace := os.Getenv("OPERATOR_NAMESPACE")
 	if namespace == "" {
 		return fmt.Errorf("OPERATOR_NAMESPACE environment variable is not set")
@@ -58,7 +65,7 @@ func registerUpgradeController(ctx context.Context, mgr ctrl.Manager) error {
 	stateManager, err := upgrade.NewClusterUpgradeStateManager(
 		upgradeLogger,
 		mgr.GetConfig(),
-		mgr.GetEventRecorderFor(operatorName),
+		recorder,
 		mgr.GetScheme(),
 	)
 	if err != nil {
@@ -81,7 +88,7 @@ func registerUpgradeController(ctx context.Context, mgr ctrl.Manager) error {
 	return nil
 }
 
-func registerDriverController(mgr ctrl.Manager, clusterInfo *clusterinfo.Info) error {
+func registerDriverController(mgr ctrl.Manager, clusterInfo *clusterinfo.Info, recorder record.EventRecorder) error {
 	if err := (&controller.RBLNDriverReconciler{
 		Client:      mgr.GetClient(),
 		APIReader:   mgr.GetAPIReader(),
@@ -89,6 +96,7 @@ func registerDriverController(mgr ctrl.Manager, clusterInfo *clusterinfo.Info) e
 		Scheme:      mgr.GetScheme(),
 		ClusterInfo: clusterInfo,
 		Conditions:  conditions.NewUpdater(mgr.GetClient()),
+		Recorder:    recorder,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup RBLNDriver: %w", err)
 	}

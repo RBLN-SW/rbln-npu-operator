@@ -29,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -231,6 +232,47 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			By("marking the cluster policy as not ready (NFD not found)")
 			expectReadyCondition(ctx, nn, consts.RBLNConditionReasonNFDNotFound)
 		})
+
+		It("emits no contract events for this non-goal condition", func() {
+			recorder := record.NewFakeRecorder(8)
+			reconciler.Recorder = recorder
+			reconcileClusterPolicyWithResult(ctx, reconciler, nn)
+			expectNoPolicyEvent(recorder)
+		})
+	})
+
+	Context("When the policy transitions to Ready", func() {
+		var readyNS string
+
+		BeforeEach(func() {
+			readyNS = createTestNamespace(ctx, "rbln-ready-event")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", readyNS)
+			reconciler = newTestClusterPolicyReconciler("")
+			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("ready-event-policy"))
+		})
+
+		It("emits AllComponentsReady once on transition and not on repeats", func() {
+			recorder := record.NewFakeRecorder(8)
+			reconciler.Recorder = recorder
+
+			policy := &rblnv1beta1.RBLNClusterPolicy{}
+			Expect(k8sClient.Get(ctx, nn, policy)).To(Succeed())
+			readyWorkloads := []rblnv1beta1.RBLNWorkloadStatus{{
+				Type:  "container",
+				State: rblnv1beta1.WorkloadStateReady,
+			}}
+
+			By("first Ready transition emits exactly one event")
+			allReady, err := reconciler.reconcileStatus(ctx, policy, readyNS, nil, readyWorkloads)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(allReady).To(BeTrue())
+			expectPolicyEvent(recorder, corev1.EventTypeNormal, consts.RBLNConditionReasonAllComponentsReady)
+
+			By("repeated Ready reconcile emits nothing")
+			_, err = reconciler.reconcileStatus(ctx, policy, readyNS, nil, readyWorkloads)
+			Expect(err).NotTo(HaveOccurred())
+			expectNoPolicyEvent(recorder)
+		})
 	})
 
 	Context("When reconciling multiple cluster policies", func() {
@@ -256,8 +298,8 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			By("reconciling the second cluster policy")
 			result := reconcileClusterPolicyWithResult(ctx, reconciler, ignoredNN)
 
-			By("returning without requeue")
-			Expect(result).To(Equal(ctrl.Result{}))
+			By("requeueing periodically as the promotion fallback")
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: singletonRecheckInterval}))
 
 			By("marking the second policy as ignored")
 			expectReadyCondition(ctx, ignoredNN, consts.RBLNConditionReasonPolicyIgnored)
@@ -265,6 +307,22 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			By("keeping resources only in the active policy namespace")
 			expectResource(ctx, &appsv1.DaemonSet{}, "rbln-device-plugin", activeNS, 5*time.Second)
 			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-device-plugin", ignoredNS, 5*time.Second)
+		})
+
+		It("emits PolicyIgnored once on transition and stays silent on repeats", func() {
+			recorder := record.NewFakeRecorder(8)
+			reconciler.Recorder = recorder
+
+			reconcileClusterPolicy(ctx, reconciler, activeNN)
+			drainPolicyEvents(recorder)
+
+			By("first ignored reconcile emits exactly one PolicyIgnored")
+			reconcileClusterPolicyWithResult(ctx, reconciler, ignoredNN)
+			expectPolicyEvent(recorder, corev1.EventTypeNormal, consts.RBLNConditionReasonPolicyIgnored)
+
+			By("repeated ignored reconcile emits nothing")
+			reconcileClusterPolicyWithResult(ctx, reconciler, ignoredNN)
+			expectNoPolicyEvent(recorder)
 		})
 	})
 
@@ -333,6 +391,36 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 // ---------------------------------------------------------------------------
 // Reconciler factory
 // ---------------------------------------------------------------------------
+
+// drainPolicyEvents empties the recorder so a spec only sees its own events.
+func drainPolicyEvents(rec *record.FakeRecorder) {
+	for {
+		select {
+		case <-rec.Events:
+		default:
+			return
+		}
+	}
+}
+
+func expectPolicyEvent(rec *record.FakeRecorder, eventType, reason string) {
+	GinkgoHelper()
+	select {
+	case raw := <-rec.Events:
+		Expect(raw).To(HavePrefix(eventType + " " + reason))
+	case <-time.After(2 * time.Second):
+		Fail("timed out waiting for event " + reason)
+	}
+}
+
+func expectNoPolicyEvent(rec *record.FakeRecorder) {
+	GinkgoHelper()
+	select {
+	case raw := <-rec.Events:
+		Fail("unexpected event: " + raw)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
 
 func newTestClusterPolicyReconciler(openShiftVersion string) *RBLNClusterPolicyReconciler {
 	return &RBLNClusterPolicyReconciler{

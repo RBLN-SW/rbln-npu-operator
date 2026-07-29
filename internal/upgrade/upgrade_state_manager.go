@@ -76,7 +76,7 @@ func NewClusterUpgradeStateManager(
 		return &ClusterUpgradeStateManagerImpl{}, fmt.Errorf("error creating k8s interface: %v", err)
 	}
 
-	nodeUpgradeStateProvider := NewNodeUpgradeStateProvider(k8sClient, log)
+	nodeUpgradeStateProvider := NewNodeUpgradeStateProvider(k8sClient, log, eventRecorder)
 	manager := &ClusterUpgradeStateManagerImpl{
 		log:                      log,
 		k8sClient:                k8sClient,

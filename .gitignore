@@ -47,3 +47,6 @@ CLAUDE.md
 
 # Rendered FBC catalog output (make catalog)
 /catalog/
+
+# Local planning docs (never ship in PRs)
+/docs/plans/

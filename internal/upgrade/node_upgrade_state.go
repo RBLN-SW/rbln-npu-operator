@@ -8,20 +8,27 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 type NodeUpgradeStateProvider struct {
-	K8sClient client.Client
-	Log       logr.Logger
-	nodeMutex KeyedMutex
+	K8sClient     client.Client
+	Log           logr.Logger
+	nodeMutex     KeyedMutex
+	eventRecorder record.EventRecorder
 }
 
-func NewNodeUpgradeStateProvider(k8sClient client.Client, log logr.Logger) *NodeUpgradeStateProvider {
+func NewNodeUpgradeStateProvider(
+	k8sClient client.Client, log logr.Logger, eventRecorder record.EventRecorder,
+) *NodeUpgradeStateProvider {
 	return &NodeUpgradeStateProvider{
-		K8sClient: k8sClient,
-		Log:       log,
-		nodeMutex: KeyedMutex{},
+		K8sClient:     k8sClient,
+		Log:           log,
+		nodeMutex:     KeyedMutex{},
+		eventRecorder: eventRecorder,
 	}
 }
 
@@ -40,23 +47,66 @@ func (p *NodeUpgradeStateProvider) GetNode(ctx context.Context, nodeName string)
 func (p *NodeUpgradeStateProvider) ChangeNodeUpgradeState(
 	ctx context.Context, node *corev1.Node, newNodeState string,
 ) error {
+	unlock := p.nodeMutex.Lock(node.Name)
+	defer unlock()
+
+	current := corev1.Node{}
+	if err := p.K8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, &current); err != nil {
+		return err
+	}
+	oldNodeState := current.Labels[UpgradeStateLabelKey]
+	if oldNodeState == newNodeState {
+		return nil
+	}
+
 	p.Log.Info("Updating node upgrade state",
 		"node", node.Name,
 		"new state", newNodeState)
 
-	err := p.patchNodeLabels(ctx, node, map[string]any{UpgradeStateLabelKey: newNodeState})
+	err := p.patchNodeLabelsLocked(ctx, &current, map[string]any{UpgradeStateLabelKey: newNodeState})
 	if err != nil {
 		p.Log.Error(err, "Failed to patch node state label on a node object",
-			"node", node,
+			"node", node.Name,
 			"state", newNodeState)
 		return err
 	}
+
+	// The client is uncached, so a successful patch IS the commit point: a
+	// verification GET here could fail transiently after the label already
+	// changed, and the same-state guard would then swallow the event forever.
+	if current.Labels == nil {
+		current.Labels = map[string]string{}
+	}
+	current.Labels[UpgradeStateLabelKey] = newNodeState
+	p.recordStateTransitionEvent(&current, oldNodeState, newNodeState)
+	if node.Labels == nil {
+		node.Labels = map[string]string{}
+	}
+	node.Labels[UpgradeStateLabelKey] = newNodeState
 
 	p.Log.Info("Successfully changed node upgrade state label",
 		"node", node.Name,
 		"new state", newNodeState)
 
 	return nil
+}
+
+// recordStateTransitionEvent emits only the contract transitions (upgrade
+// started/completed/failed); everything else — including the initial
+// unknown→done bootstrap — stays silent.
+func (p *NodeUpgradeStateProvider) recordStateTransitionEvent(node *corev1.Node, oldState, newState string) {
+	switch {
+	case newState == UpgradeStateCordonRequired && oldState == UpgradeStateUpgradeRequired:
+		recordEvent(p.eventRecorder, node, corev1.EventTypeNormal,
+			consts.RBLNEventReasonDriverUpgradeStarted, "Driver upgrade started; node will be cordoned")
+	case newState == UpgradeStateDone && IsInProgressUpgradeState(oldState):
+		recordEvent(p.eventRecorder, node, corev1.EventTypeNormal,
+			consts.RBLNEventReasonDriverUpgradeCompleted, "Driver upgrade completed; node is schedulable")
+	case newState == UpgradeStateFailed && oldState != UpgradeStateFailed:
+		recordEvent(p.eventRecorder, node, corev1.EventTypeWarning,
+			consts.RBLNEventReasonDriverUpgradeFailed,
+			fmt.Sprintf("Driver upgrade failed at state %q", logKeyForNodeState(oldState)))
+	}
 }
 
 func (p *NodeUpgradeStateProvider) ChangeNodeUpgradeAnnotation(
@@ -135,12 +185,10 @@ func (p *NodeUpgradeStateProvider) patchNodeAnnotations(
 	return p.K8sClient.Patch(ctx, node, patch)
 }
 
-func (p *NodeUpgradeStateProvider) patchNodeLabels(
+// patchNodeLabelsLocked assumes the caller holds the node's mutex.
+func (p *NodeUpgradeStateProvider) patchNodeLabelsLocked(
 	ctx context.Context, node *corev1.Node, labels map[string]any,
 ) error {
-	unlock := p.nodeMutex.Lock(node.Name)
-	defer unlock()
-
 	patchString, err := json.Marshal(map[string]any{
 		"metadata": map[string]any{
 			"labels": labels,
