@@ -69,6 +69,54 @@ jobs:
         run: |
           docker buildx imagetools create --tag "${OPERATOR_IMAGE}:dev" "${OPERATOR_IMAGE}:${GITHUB_SHA}"
           docker buildx imagetools create --tag "${VALIDATOR_IMAGE}:dev" "${VALIDATOR_IMAGE}:${GITHUB_SHA}"
+      - name: Install regctl and yq
+        run: |
+          REGCTL_VERSION=$(grep '^REGCTL_VERSION' versions.mk | cut -d'=' -f2 | tr -d ' ?')
+          sudo curl -sSL "https://github.com/regclient/regclient/releases/download/${REGCTL_VERSION}/regctl-linux-amd64" \
+            -o /usr/local/bin/regctl
+          sudo chmod +x /usr/local/bin/regctl
+
+          sudo curl -sSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" \
+            -o /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+      - name: Resolve and pin RELATED_IMAGE digests (dev)
+        env:
+          VALUES_FILE: deployments/rbln-npu-operator/values.yaml
+        run: |
+          resolve() {
+            local path="$1" repo_key="${2:-repository}" tag_key="${3:-tag}"
+            local registry=$(yq "${path}.registry" "$VALUES_FILE")
+            local repository=$(yq "${path}.${repo_key}" "$VALUES_FILE")
+            local tag=$(yq "${path}.${tag_key}" "$VALUES_FILE")
+            local image="${registry}/${repository}:${tag}"
+            local digest=$(regctl image digest "${image}")
+            echo "${image}@${digest}"
+          }
+
+          export OPERATOR_DIGEST="${OPERATOR_IMAGE}:${GITHUB_SHA}@$(regctl image digest "${OPERATOR_IMAGE}:${GITHUB_SHA}")"
+          export VALIDATOR_DIGEST="${VALIDATOR_IMAGE}:${GITHUB_SHA}@$(regctl image digest "${VALIDATOR_IMAGE}:${GITHUB_SHA}")"
+          export DEVICE_PLUGIN_DIGEST=$(resolve .devicePlugin.image)
+          export METRICS_EXPORTER_DIGEST=$(resolve .metricsExporter.image)
+          export NPU_FEATURE_DISCOVERY_DIGEST=$(resolve .npuFeatureDiscovery.image)
+          export VFIO_MANAGER_DIGEST=$(resolve .vfioManager.image)
+          export CONTAINER_TOOLKIT_DIGEST=$(resolve .containerToolkit.image)
+          export DRA_KUBELET_PLUGIN_DIGEST=$(resolve .draKubeletPlugin.image)
+          export SANDBOX_DEVICE_PLUGIN_DIGEST=$(resolve .sandboxDevicePlugin.image)
+          export NODE_REBOOT_DIGEST=$(resolve .driver.upgradePolicy.reboot.image image version)
+          export DRIVER_MANAGER_DIGEST=$(resolve .driver.manager.image)
+
+          FILE=config/manager/manager.yaml
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_NPU_OPERATOR")).value = env(OPERATOR_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_NPU_OPERATOR_VALIDATOR")).value = env(VALIDATOR_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_K8S_DEVICE_PLUGIN")).value = env(DEVICE_PLUGIN_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_METRICS_EXPORTER")).value = env(METRICS_EXPORTER_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_NPU_FEATURE_DISCOVERY")).value = env(NPU_FEATURE_DISCOVERY_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_VFIO_MANAGER")).value = env(VFIO_MANAGER_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_CONTAINER_TOOLKIT")).value = env(CONTAINER_TOOLKIT_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_DRA_KUBELET_PLUGIN")).value = env(DRA_KUBELET_PLUGIN_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN")).value = env(SANDBOX_DEVICE_PLUGIN_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_NODE_REBOOT")).value = env(NODE_REBOOT_DIGEST)' "$FILE"
+          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_DRIVER_MANAGER")).value = env(DRIVER_MANAGER_DIGEST)' "$FILE"
       - name: Build and push OLM bundle + catalog (dev)
         env:
           VERSION: v0.0.0-dev
