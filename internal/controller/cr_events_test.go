@@ -93,6 +93,41 @@ var _ = Describe("CR event contract", Ordered, func() {
 			expectPolicyEvent(recorder, corev1.EventTypeWarning, consts.RBLNEventReasonDriverInstallFailed)
 			expectNoPolicyEvent(recorder)
 		})
+
+		It("emits ConflictingNodeSelector once when another driver claims the same nodes", func() {
+			// The validator short-circuits when the selector matches no node.
+			selector := map[string]string{"rebellions.ai/conflict-event-pool": "true"}
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+				Name:   "conflict-event-worker",
+				Labels: selector,
+			}}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, node) })
+
+			By("reconciling the first driver so it owns the selector")
+			driverA := newDriverFixture("conflict-driver-a")
+			driverA.Spec.NodeSelector = selector
+			nn1 := createDriverFixture(ctx, driverA)
+			reconcileDriver(ctx, reconciler, nn1)
+
+			spy := &crSpyRecorder{}
+			reconciler.Recorder = spy
+			driverB := newDriverFixture("conflict-driver-b")
+			driverB.Spec.NodeSelector = selector
+			nn2 := createDriverFixture(ctx, driverB)
+
+			By("the conflicting driver gets one Warning plus a matching condition")
+			reconcileDriverWithResult(ctx, reconciler, nn2)
+			Expect(spy.reasons).To(Equal([]string{consts.RBLNConditionReasonConflictingSelector}))
+			conflicting, ok := spy.objects[0].(*rebellionsaiv1alpha1.RBLNDriver)
+			Expect(ok).To(BeTrue(), "involvedObject must be the RBLNDriver")
+			Expect(conflicting.Name).To(Equal("conflict-driver-b"))
+			expectDriverNotReadyCondition(ctx, nn2, consts.RBLNConditionReasonConflictingSelector)
+
+			By("re-reconciling the unchanged spec stays silent")
+			reconcileDriverWithResult(ctx, reconciler, nn2)
+			Expect(spy.reasons).To(HaveLen(1))
+		})
 	})
 
 	Context("RBLNDriver non-goal conditions", func() {
@@ -139,6 +174,9 @@ var _ = Describe("CR event contract", Ordered, func() {
 			policy, ok := spy.objects[0].(*rblnv1beta1.RBLNClusterPolicy)
 			Expect(ok).To(BeTrue(), "involvedObject must be the RBLNClusterPolicy")
 			Expect(policy.Name).To(Equal("apply-fail-policy"))
+
+			By("the failure also reaches .status, which outlives the event")
+			expectReadyCondition(ctx, nn, consts.RBLNEventReasonComponentApplyFailed)
 		})
 	})
 })

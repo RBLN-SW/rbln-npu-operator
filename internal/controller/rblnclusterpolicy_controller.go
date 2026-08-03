@@ -169,9 +169,13 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	if err := service.PatchComponents(ctx); err != nil {
 		r.Log.Error(err, "Failed to patch components in RBLNClusterPolicy Scope")
-		if r.Recorder != nil {
-			r.Recorder.Event(instance, corev1.EventTypeWarning, consts.RBLNEventReasonComponentApplyFailed,
-				fmt.Sprintf("Failed to apply component: %v", err))
+		recordEvent(r.Recorder, instance, corev1.EventTypeWarning, consts.RBLNEventReasonComponentApplyFailed,
+			fmt.Sprintf("Failed to apply component: %v", err))
+		// Events are garbage collected, so the failure reason has to reach
+		// .status too or it is lost an hour later.
+		if statusErr := r.Conditions.SetPolicyNotReady(ctx, instance,
+			consts.RBLNEventReasonComponentApplyFailed, err.Error()); statusErr != nil {
+			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{}, err
 	}
@@ -221,8 +225,8 @@ func (r *RBLNClusterPolicyReconciler) handleSingletonPolicy(
 		if err := r.Conditions.SetPolicyIgnored(ctx, instance, "Another RBLNClusterPolicy is already active; this policy is ignored"); err != nil {
 			return false, err
 		}
-		if !wasIgnored && r.Recorder != nil {
-			r.Recorder.Event(instance, corev1.EventTypeNormal, consts.RBLNConditionReasonPolicyIgnored,
+		if !wasIgnored {
+			recordEvent(r.Recorder, instance, corev1.EventTypeNormal, consts.RBLNConditionReasonPolicyIgnored,
 				"Another RBLNClusterPolicy is already active; this policy is ignored")
 		}
 		return true, nil
@@ -268,9 +272,9 @@ func (r *RBLNClusterPolicyReconciler) reconcileStatus(
 	if err := r.Client.Status().Update(ctx, instance); err != nil {
 		return false, fmt.Errorf("update cluster policy status: %w", err)
 	}
-	if state == consts.RBLNStateReady && prevState != consts.RBLNStateReady && r.Recorder != nil {
-		r.Recorder.Event(instance, corev1.EventTypeNormal,
-			consts.RBLNConditionReasonAllComponentsReady, "All NPU components are ready")
+	// Reusing the condition's reason/message keeps the two from drifting apart.
+	if state == consts.RBLNStateReady && prevState != consts.RBLNStateReady {
+		recordEvent(r.Recorder, instance, corev1.EventTypeNormal, reason, message)
 	}
 	return state == consts.RBLNStateReady, nil
 }
@@ -332,8 +336,8 @@ func summariseWorkloadStatuses(workloads []rblnv1beta1.RBLNWorkloadStatus) (stat
 			"Progressing workload(s): " + strings.Join(progressing, ", ")
 	default:
 		return consts.RBLNStateReady,
-			consts.RBLNConditionReasonAllWorkloadsReady,
-			"All workloads are ready"
+			consts.RBLNConditionReasonAllActiveWorkloadsReady,
+			"All workloads with NPU nodes are ready"
 	}
 }
 

@@ -26,6 +26,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	kapierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -122,8 +123,18 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	if err := nodeSelectorValidator.Validate(ctx, instance); err != nil {
 		r.Log.Info("WARNING: nodeSelector validation failed; skip reconcile", "name", req.Name, "error", err.Error())
+		// Read before SetDriverNotReady, which mutates status in place. The
+		// generation clause re-notifies when an edited spec still conflicts.
+		ready := apimeta.FindStatusCondition(instance.Status.Conditions, consts.RBLNConditionTypeReady)
+		firstConflict := ready == nil ||
+			ready.Reason != consts.RBLNConditionReasonConflictingSelector ||
+			ready.ObservedGeneration != instance.Generation
 		_ = r.Conditions.SetDriverNotReady(ctx, instance, conditions.DriverSummary{},
 			consts.RBLNConditionReasonConflictingSelector, err.Error())
+		if firstConflict {
+			recordEvent(r.Recorder, instance, corev1.EventTypeWarning,
+				consts.RBLNConditionReasonConflictingSelector, err.Error())
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -140,10 +151,8 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	if err := driverService.PatchComponents(ctx); err != nil {
 		r.Log.Error(err, "failed to patch driver manager resources")
-		if r.Recorder != nil {
-			r.Recorder.Event(instance, corev1.EventTypeWarning, consts.RBLNEventReasonDriverInstallFailed,
-				fmt.Sprintf("Driver installation failed: %v", err))
-		}
+		recordEvent(r.Recorder, instance, corev1.EventTypeWarning, consts.RBLNEventReasonDriverInstallFailed,
+			fmt.Sprintf("Driver installation failed: %v", err))
 		_ = r.Conditions.SetDriverError(ctx, instance, err)
 		return ctrl.Result{}, err
 	}
@@ -176,11 +185,11 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	metrics.DriverReconcileStatus.WithLabelValues(instance.Name).Set(metrics.ReconcileStatusSuccess)
 	wasReady := instance.Status.State == consts.RBLNStateReady
 	if err := r.Conditions.SetDriverReady(ctx, instance, summary,
-		consts.RBLNConditionReasonAllComponentsReady, "All driver components are Ready"); err != nil {
+		consts.RBLNConditionReasonAllDriverPoolsReady, "All driver pools are ready"); err != nil {
 		return ctrl.Result{}, err
 	}
-	if !wasReady && r.Recorder != nil {
-		r.Recorder.Event(instance, corev1.EventTypeNormal, consts.RBLNEventReasonDriverReady,
+	if !wasReady {
+		recordEvent(r.Recorder, instance, corev1.EventTypeNormal, consts.RBLNEventReasonDriverReady,
 			fmt.Sprintf("Driver ready on %d/%d nodes", ready, desired))
 	}
 	return ctrl.Result{}, nil
