@@ -59,8 +59,8 @@ func expectEvent(t *testing.T, rec *record.FakeRecorder, eventType, reason, msgS
 	}
 }
 
-func TestRecordEventNilSafe(t *testing.T) {
-	recordEvent(nil, nil, "Normal", "AnyReason", "no panic expected")
+func TestRecordNodeEventNilSafe(t *testing.T) {
+	recordNodeEvent(nil, nil, "Normal", "AnyReason", "no panic expected")
 }
 
 // spyRecorder captures involvedObject, which FakeRecorder discards.

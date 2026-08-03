@@ -83,7 +83,7 @@ func (m *DrainManager) ScheduleNodesDrain(ctx context.Context, drainConfig *Drai
 				err := drain.RunCordonOrUncordon(drainHelper, node, true)
 				if err != nil {
 					m.Log.Error(err, "Failed to cordon node", "node", node.Name)
-					recordEvent(m.eventRecorder, node, corev1.EventTypeWarning,
+					recordNodeEvent(m.eventRecorder, node, corev1.EventTypeWarning,
 						consts.RBLNEventReasonNodeDrainFailed,
 						fmt.Sprintf("Failed to cordon node: %v", err))
 					m.changeNodeUpgradeStateAsync(ctx, node, UpgradeStateFailed)
@@ -94,14 +94,14 @@ func (m *DrainManager) ScheduleNodesDrain(ctx context.Context, drainConfig *Drai
 				err = drain.RunNodeDrain(drainHelper, node.Name)
 				if err != nil {
 					m.Log.Error(err, "Failed to drain node", "node", node.Name)
-					recordEvent(m.eventRecorder, node, corev1.EventTypeWarning,
+					recordNodeEvent(m.eventRecorder, node, corev1.EventTypeWarning,
 						consts.RBLNEventReasonNodeDrainFailed,
 						fmt.Sprintf("Failed to drain node: %v", err))
 					m.changeNodeUpgradeStateAsync(ctx, node, UpgradeStateFailed)
 					return
 				}
 				m.Log.Info("Drained the node", "node", node.Name)
-				recordEvent(m.eventRecorder, node, corev1.EventTypeNormal,
+				recordNodeEvent(m.eventRecorder, node, corev1.EventTypeNormal,
 					consts.RBLNEventReasonNodeDrained,
 					"Node drained for driver upgrade (workload pods evicted)")
 

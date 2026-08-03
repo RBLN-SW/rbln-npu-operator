@@ -1,14 +1,14 @@
 package upgrade
 
 import (
-	"k8s.io/apimachinery/pkg/runtime"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 )
 
-// recordEvent is nil-safe so test managers without a recorder never panic.
-func recordEvent(recorder record.EventRecorder, object runtime.Object, eventType, reason, message string) {
-	if recorder == nil || object == nil {
+// recordNodeEvent is nil-safe so test managers without a recorder never panic.
+func recordNodeEvent(recorder record.EventRecorder, node *corev1.Node, eventType, reason, message string) {
+	if recorder == nil {
 		return
 	}
-	recorder.Event(object, eventType, reason, message)
+	recorder.Event(node, eventType, reason, message)
 }
