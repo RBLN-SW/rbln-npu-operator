@@ -44,6 +44,10 @@ env:
   SENTINEL_RBLN_DAEMON_IMAGE_REGISTRY: harbor.ssw.rbln.in
   SENTINEL_RBLN_DAEMON_IMAGE_REPOSITORY: rebellions-dev/rbln-daemon
   SENTINEL_RBLN_DAEMON_IMAGE_TAG: "${SENTINEL_RBLN_DAEMON_IMAGE_TAG:-3.2.0}"
+  # Compiler paired with the installed driver above (docs.rbln.ai version
+  # matrix) — used by the model-zoo inference runs (container/dra/vm).
+  SENTINEL_COMPILER_VERSION: "${SENTINEL_COMPILER_VERSION:-rebel-compiler==0.10.4.post1}"
+  SENTINEL_COMPILER_UPGRADE_VERSION: "${SENTINEL_COMPILER_UPGRADE_VERSION:-rebel-compiler==0.11.1}"
 
   # ---- Operand image override (global; operands only) ------------------------
   # Retarget every controller-deployed operand (device-plugin, dra-kubelet-plugin,
