@@ -12,7 +12,7 @@ import (
 //
 //	uncovered (most actionable) → notReady / WorkloadUncovered
 //	progressing                 → notReady / WorkloadProgressing
-//	all ready or empty          → ready    / AllWorkloadsReady
+//	all ready or empty          → ready    / AllActiveWorkloadsReady
 //
 // These transitions are the user-facing contract of the workload-indexed
 // status redesign, so the table covers every state combination that affects
@@ -30,8 +30,8 @@ func TestSummariseWorkloadStatuses(t *testing.T) {
 				{Type: consts.RBLNWorkloadConfigVMPassthrough, State: rblnv1beta1.WorkloadStateReady},
 			},
 			wantState:   consts.RBLNStateReady,
-			wantReason:  consts.RBLNConditionReasonAllWorkloadsReady,
-			wantMessage: "All workloads are ready",
+			wantReason:  consts.RBLNConditionReasonAllActiveWorkloadsReady,
+			wantMessage: "All workloads with NPU nodes are ready",
 		},
 		"all empty": {
 			workloads: []rblnv1beta1.RBLNWorkloadStatus{
@@ -39,7 +39,7 @@ func TestSummariseWorkloadStatuses(t *testing.T) {
 				{Type: consts.RBLNWorkloadConfigVMPassthrough, State: rblnv1beta1.WorkloadStateEmpty},
 			},
 			wantState:  consts.RBLNStateReady,
-			wantReason: consts.RBLNConditionReasonAllWorkloadsReady,
+			wantReason: consts.RBLNConditionReasonAllActiveWorkloadsReady,
 		},
 		"ready + empty": {
 			workloads: []rblnv1beta1.RBLNWorkloadStatus{
@@ -47,7 +47,7 @@ func TestSummariseWorkloadStatuses(t *testing.T) {
 				{Type: consts.RBLNWorkloadConfigVMPassthrough, State: rblnv1beta1.WorkloadStateEmpty},
 			},
 			wantState:  consts.RBLNStateReady,
-			wantReason: consts.RBLNConditionReasonAllWorkloadsReady,
+			wantReason: consts.RBLNConditionReasonAllActiveWorkloadsReady,
 		},
 		"uncovered wins over progressing": {
 			workloads: []rblnv1beta1.RBLNWorkloadStatus{
@@ -70,7 +70,7 @@ func TestSummariseWorkloadStatuses(t *testing.T) {
 		"empty input → ready": {
 			workloads:  nil,
 			wantState:  consts.RBLNStateReady,
-			wantReason: consts.RBLNConditionReasonAllWorkloadsReady,
+			wantReason: consts.RBLNConditionReasonAllActiveWorkloadsReady,
 		},
 	}
 

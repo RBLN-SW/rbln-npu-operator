@@ -97,13 +97,13 @@ func (p *NodeUpgradeStateProvider) ChangeNodeUpgradeState(
 func (p *NodeUpgradeStateProvider) recordStateTransitionEvent(node *corev1.Node, oldState, newState string) {
 	switch {
 	case newState == UpgradeStateCordonRequired && oldState == UpgradeStateUpgradeRequired:
-		recordEvent(p.eventRecorder, node, corev1.EventTypeNormal,
+		recordNodeEvent(p.eventRecorder, node, corev1.EventTypeNormal,
 			consts.RBLNEventReasonDriverUpgradeStarted, "Driver upgrade started; node will be cordoned")
 	case newState == UpgradeStateDone && IsInProgressUpgradeState(oldState):
-		recordEvent(p.eventRecorder, node, corev1.EventTypeNormal,
+		recordNodeEvent(p.eventRecorder, node, corev1.EventTypeNormal,
 			consts.RBLNEventReasonDriverUpgradeCompleted, "Driver upgrade completed; node is schedulable")
 	case newState == UpgradeStateFailed && oldState != UpgradeStateFailed:
-		recordEvent(p.eventRecorder, node, corev1.EventTypeWarning,
+		recordNodeEvent(p.eventRecorder, node, corev1.EventTypeWarning,
 			consts.RBLNEventReasonDriverUpgradeFailed,
 			fmt.Sprintf("Driver upgrade failed at state %q", logKeyForNodeState(oldState)))
 	}

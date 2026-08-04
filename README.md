@@ -163,24 +163,42 @@ min(rbln_operator_driver_pool_ready_ratio) < 1
 The operator records Kubernetes Events for state transitions and failures, so
 `kubectl describe` shows what happened and when. Reasons are a stable contract:
 
-| Reason | Type | Object | When |
-|--------|------|--------|------|
-| `DriverUpgradeStarted` | Normal | Node | upgrade-required → cordon-required |
-| `NodeDrained` | Normal | Node | node drain succeeded |
-| `NodeDrainFailed` | Warning | Node | cordon or drain failed |
-| `DriverUpgradeCompleted` | Normal | Node | in-progress state → upgrade-done |
-| `DriverUpgradeFailed` | Warning | Node | non-Failed state → upgrade-failed |
-| `ComponentApplyFailed` | Warning | RBLNClusterPolicy | component apply failed |
-| `DriverInstallFailed` | Warning | RBLNDriver | driver component apply failed |
-| `AllComponentsReady` | Normal | RBLNClusterPolicy | transition to ready |
-| `DriverReady` | Normal | RBLNDriver | transition to ready |
-| `PolicyIgnored` | Normal | RBLNClusterPolicy | non-singleton policy ignored |
+| Reason | Type | Object | When | Paired `Ready` condition |
+|--------|------|--------|------|--------------------------|
+| `DriverUpgradeStarted` | Normal | Node | upgrade-required → cordon-required | — (node label) |
+| `NodeDrained` | Normal | Node | node drain succeeded | — (node label) |
+| `NodeDrainFailed` | Warning | Node | cordon or drain failed | — (node label) |
+| `DriverUpgradeCompleted` | Normal | Node | in-progress state → upgrade-done | — (node label) |
+| `DriverUpgradeFailed` | Warning | Node | non-Failed state → upgrade-failed | — (node label) |
+| `ComponentApplyFailed` | Warning | RBLNClusterPolicy | component apply failed | `False / ComponentApplyFailed` |
+| `DriverInstallFailed` | Warning | RBLNDriver | driver component apply failed | `False / Error` |
+| `ConflictingNodeSelector` | Warning | RBLNDriver | another driver already claims these nodes | `False / ConflictingNodeSelector` |
+| `AllActiveWorkloadsReady` | Normal | RBLNClusterPolicy | transition to ready | `True / AllActiveWorkloadsReady` |
+| `DriverReady` | Normal | RBLNDriver | transition to ready | `True / AllDriverPoolsReady` |
+| `PolicyIgnored` | Normal | RBLNClusterPolicy | non-singleton policy ignored | `False / PolicyIgnored` |
 
-Steady-state reconciles do not re-emit Normal events. Inspect with:
+Steady-state reconciles do not re-emit Normal events, and the transition-scoped
+Warnings (`ConflictingNodeSelector`) fire once per spec generation rather than on
+every retry.
+
+Events are **not durable**: the API server garbage-collects them (default
+`kube-apiserver --event-ttl=1h`). Treat them as the recent-history view, use
+`.status.conditions` for the current authoritative state, and use the
+`rbln_operator_*` metrics above for long-term trends and alerting. Every
+CR-scoped failure above is mirrored into a condition for exactly this reason.
+
+If an expected event is missing, note that client-go's spam filter keys on
+`(source, object, type)` and **ignores the reason** — one bucket of 25 events per
+object, refilling at 1 per 5 minutes. Splitting a failure across more reasons
+does not raise that budget.
+
+Both CRDs are cluster-scoped, so their events land in the `default` namespace
+(not the operator's namespace). Inspect with:
 
 ```bash
 kubectl get events -A --field-selector involvedObject.kind=Node,involvedObject.name=<node> --sort-by=.lastTimestamp
 kubectl describe rblnclusterpolicy <name>
+kubectl describe rblndriver <name>
 ```
 
 ## Support & Resources

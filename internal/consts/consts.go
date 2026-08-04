@@ -58,23 +58,23 @@ const (
 
 // Condition reasons
 const (
-	RBLNConditionReasonNFDNotFound          = "NodeFeatureDiscoveryNotFound"
-	RBLNConditionReasonNoRBLNNodes          = "NoRBLNNodesDiscovered"
-	RBLNConditionReasonPolicyIgnored        = "PolicyIgnored"
-	RBLNConditionReasonAllComponentsReady   = "AllComponentsReady"
-	RBLNConditionReasonAllWorkloadsReady    = "AllWorkloadsReady"
-	RBLNConditionReasonWorkloadUncovered    = "WorkloadUncovered"
-	RBLNConditionReasonWorkloadProgressing  = "WorkloadProgressing"
-	RBLNConditionReasonError                = "Error"
-	RBLNConditionReasonReconcileFailed      = "ReconcileFailed"
-	RBLNConditionReasonMissingClusterPolicy = "MissingClusterPolicy"
-	RBLNConditionReasonInvalidSpec          = "InvalidSpec"
-	RBLNConditionReasonDriverPoolNotReady   = "DriverPoolNotReady"
-	RBLNConditionReasonConflictingSelector  = "ConflictingNodeSelector"
+	RBLNConditionReasonNFDNotFound             = "NodeFeatureDiscoveryNotFound"
+	RBLNConditionReasonNoRBLNNodes             = "NoRBLNNodesDiscovered"
+	RBLNConditionReasonPolicyIgnored           = "PolicyIgnored"
+	RBLNConditionReasonAllDriverPoolsReady     = "AllDriverPoolsReady"
+	RBLNConditionReasonAllActiveWorkloadsReady = "AllActiveWorkloadsReady"
+	RBLNConditionReasonWorkloadUncovered       = "WorkloadUncovered"
+	RBLNConditionReasonWorkloadProgressing     = "WorkloadProgressing"
+	RBLNConditionReasonError                   = "Error"
+	RBLNConditionReasonReconcileFailed         = "ReconcileFailed"
+	RBLNConditionReasonMissingClusterPolicy    = "MissingClusterPolicy"
+	RBLNConditionReasonInvalidSpec             = "InvalidSpec"
+	RBLNConditionReasonDriverPoolNotReady      = "DriverPoolNotReady"
+	RBLNConditionReasonConflictingSelector     = "ConflictingNodeSelector"
 )
 
-// Event reasons — observability contract, keep stable. AllComponentsReady and
-// PolicyIgnored events reuse the condition reason strings above.
+// Event reasons — observability contract, keep stable. A reason string means
+// one thing across both CRs.
 const (
 	RBLNEventReasonDriverUpgradeStarted   = "DriverUpgradeStarted"
 	RBLNEventReasonNodeDrained            = "NodeDrained"

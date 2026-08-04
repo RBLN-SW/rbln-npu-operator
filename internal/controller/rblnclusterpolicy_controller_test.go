@@ -251,7 +251,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("ready-event-policy"))
 		})
 
-		It("emits AllComponentsReady once on transition and not on repeats", func() {
+		It("emits AllActiveWorkloadsReady once on transition and not on repeats", func() {
 			recorder := record.NewFakeRecorder(8)
 			reconciler.Recorder = recorder
 
@@ -266,7 +266,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			allReady, err := reconciler.reconcileStatus(ctx, policy, readyNS, nil, readyWorkloads)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(allReady).To(BeTrue())
-			expectPolicyEvent(recorder, corev1.EventTypeNormal, consts.RBLNConditionReasonAllComponentsReady)
+			expectPolicyEvent(recorder, corev1.EventTypeNormal, consts.RBLNConditionReasonAllActiveWorkloadsReady)
 
 			By("repeated Ready reconcile emits nothing")
 			_, err = reconciler.reconcileStatus(ctx, policy, readyNS, nil, readyWorkloads)
