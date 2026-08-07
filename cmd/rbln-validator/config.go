@@ -16,6 +16,7 @@ const (
 
 	envOutputDir            = "OUTPUT_DIR"
 	envSleepIntervalSeconds = "SLEEP_INTERVAL_SECONDS"
+	envNodeName             = "NODE_NAME"
 )
 
 type rootConfig struct {
@@ -26,6 +27,13 @@ type rootConfig struct {
 type toolkitConfig struct {
 	outputDir            string
 	sleepIntervalSeconds int
+}
+
+type gateConfig struct {
+	outputDir            string
+	sleepIntervalSeconds int
+	component            string
+	nodeName             string
 }
 
 func newRootConfig() *rootConfig {
@@ -57,6 +65,15 @@ func (o *rootConfig) toolkitConfig() *toolkitConfig {
 	return &toolkitConfig{
 		outputDir:            o.outputDir,
 		sleepIntervalSeconds: o.sleepIntervalSeconds,
+	}
+}
+
+func (o *rootConfig) gateConfig(component string) *gateConfig {
+	return &gateConfig{
+		outputDir:            o.outputDir,
+		sleepIntervalSeconds: o.sleepIntervalSeconds,
+		component:            component,
+		nodeName:             os.Getenv(envNodeName),
 	}
 }
 
