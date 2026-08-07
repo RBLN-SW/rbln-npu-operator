@@ -131,7 +131,12 @@ func (h *rblnDaemonPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *
 		}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{Name: rblnDaemonVarRunVolumeName, MountPath: rblnDaemonVarRunPath},
-			{Name: rblnDaemonSysVolumeName, MountPath: rblnDaemonSysPath, ReadOnly: true},
+			// /sys must be read-write: smd's EnableVfs writes
+			// /sys/bus/pci/devices/<bdf>/sriov_numvfs to partition PFs into
+			// VFs, and a ReadOnly hostPath mount fails that with EROFS even
+			// in a privileged container. Scoping rw to /sys/bus/pci does not
+			// work either — its entries are symlinks back into /sys/devices.
+			{Name: rblnDaemonSysVolumeName, MountPath: rblnDaemonSysPath},
 			{Name: rblnDaemonDebugVolumeName, MountPath: rblnDaemonDebugPath},
 			{Name: rblnDaemonLogVolumeName, MountPath: rblnDaemonLogPath},
 		}).

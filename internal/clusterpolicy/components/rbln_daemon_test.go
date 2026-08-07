@@ -52,6 +52,17 @@ func TestRBLNDaemonPatch(t *testing.T) {
 		t.Fatalf("command = %q, want %q", mainContainer.Command[0], rblnDaemonCommand)
 	}
 
+	sysMountRW := false
+	for _, vm := range mainContainer.VolumeMounts {
+		if vm.Name == rblnDaemonSysVolumeName && vm.MountPath == rblnDaemonSysPath && !vm.ReadOnly {
+			sysMountRW = true
+			break
+		}
+	}
+	if !sysMountRW {
+		t.Fatal("expected /sys mounted read-write: smd EnableVfs writes sriov_numvfs (EROFS otherwise)")
+	}
+
 	if !ds.Spec.Template.Spec.HostNetwork {
 		t.Fatal("expected pod HostNetwork=true (binds node :50051 directly, no portmap DNAT)")
 	}
