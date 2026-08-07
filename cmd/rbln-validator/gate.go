@@ -95,6 +95,7 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 	}
 
 	interval := time.Duration(cfg.sleepIntervalSeconds) * time.Second
+	slog.Info("gate started", "component", cfg.component, "node", cfg.nodeName)
 
 	for {
 		labels, err := rt.getNodeLabels(ctx, cfg.nodeName)
@@ -121,6 +122,7 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 
 		missing := statusfile.Missing(cfg.outputDir, readyFiles)
 		if len(missing) == 0 {
+			slog.Info("gate passed", "component", cfg.component, "partitioned", partitioned, "readyFiles", readyFiles)
 			return nil
 		}
 		slog.Info("waiting for status files", "dir", cfg.outputDir, "missing", missing, "partitioned", partitioned)
