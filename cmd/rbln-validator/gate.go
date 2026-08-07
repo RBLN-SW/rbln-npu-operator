@@ -23,15 +23,17 @@ import (
 // component waits for toolkit-ready; components that advertise NPU devices
 // must additionally wait for partition-ready on partitioned nodes, so they
 // never expose a full PF that is about to be carved into VFs. partition-ready
-// is written by the partition-manager once VF partitioning is applied; until
-// then, blocking device advertisement on partitioned nodes is the intended
-// fail-closed behavior.
+// is written by the partition-manager once VF partitioning is applied, so the
+// partition-manager itself must never wait for it — it would deadlock on the
+// marker it owns. Until the manager runs, blocking device advertisement on
+// partitioned nodes is the intended fail-closed behavior.
 var componentWaitsForPartition = map[string]bool{
 	consts.RBLNDevicePluginName:     true,
 	consts.RBLNDRAKubeletPluginName: true,
 	consts.RBLNMetricExporterName:   false,
 	consts.RBLNFeatureDiscoveryName: false,
 	consts.RBLNDaemonName:           false,
+	consts.RBLNPartitionManagerName: false,
 }
 
 type gateRuntime struct {

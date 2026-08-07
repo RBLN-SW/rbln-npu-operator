@@ -115,6 +115,20 @@ func TestRunGate(t *testing.T) {
 			},
 			want: want{sleepCallCount: 0},
 		},
+		"PartitionManagerNeverWaitsForPartitionReady": {
+			reason: "the partition-manager owns partition-ready, so waiting for it on a partitioned node would deadlock",
+			fields: fields{
+				getter: &fakeNodeLabelsGetter{results: []nodeLabelsResult{
+					{labels: map[string]string{consts.RBLNPartitionLabelKey: consts.RBLNPartitionModeVF4}},
+				}},
+			},
+			args: args{
+				component:     consts.RBLNPartitionManagerName,
+				nodeName:      "node-1",
+				existingFiles: []string{toolkitReadyFile},
+			},
+			want: want{sleepCallCount: 0},
+		},
 		"LabelRemovedDuringWaitUnblocks": {
 			reason: "labels are re-read every poll: aborting partitioning drops the partition-ready requirement",
 			fields: fields{
@@ -246,6 +260,7 @@ func TestComponentGateTableCoversAllGatedOperands(t *testing.T) {
 		consts.RBLNMetricExporterName,
 		consts.RBLNFeatureDiscoveryName,
 		consts.RBLNDaemonName,
+		consts.RBLNPartitionManagerName,
 	}
 	if len(componentWaitsForPartition) != len(wantComponents) {
 		t.Fatalf("gate table has %d entries, want %d", len(componentWaitsForPartition), len(wantComponents))

@@ -123,6 +123,11 @@ const (
 	RBLNMetricExporterName = "metrics-exporter"
 )
 
+// Partition manager constants
+const (
+	RBLNPartitionManagerName = "partition-manager"
+)
+
 // RBLN daemon constants
 const (
 	RBLNDaemonName = "rbln-daemon"

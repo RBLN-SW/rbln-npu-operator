@@ -198,6 +198,16 @@ draKubeletPlugin:
   kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
   healthcheckPort: 51515
 
+# NPU Partition Manager configuration
+partitionManager:
+  enabled: false
+  image:
+    registry: docker.io
+    repository: rebellions/k8s-partition-manager
+    tag: v0.1.0
+    pullPolicy: IfNotPresent
+  env: []
+
 # NPU Metrics Exporter configuration
 metricsExporter:
   enabled: true
