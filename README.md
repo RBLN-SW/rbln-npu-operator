@@ -90,22 +90,32 @@ Admin label contract (values are lowercase; `vf2` is not supported):
 
 No partition labels means the node is not partitioned.
 
-Every gated operand (device-plugin, dra-kubelet-plugin, metrics-exporter,
+Every gated operand (device-plugin, dra-kubelet-plugin, partition-manager, metrics-exporter,
 npu-feature-discovery) starts with a single `component-gate` init container
 running `rbln-validator gate --component <name>`. On every poll the gate re-reads the node's
 partition labels from the Kubernetes API (each component's ServiceAccount carries a
-`<name>-node-viewer` ClusterRole with `nodes get`) and waits for the component's readiness
+`<name>-node-viewer` ClusterRole with `nodes get`; the partition-manager's own ClusterRole
+already grants it) and waits for the component's readiness
 files — so one DaemonSet per component serves both partitioned and non-partitioned nodes,
 and a label change is honored at the next pod (re)start without any intermediate state:
 
 | Component (container workload) | Non-partitioned node | Partitioned node (any `vf1`/`vf4`) |
 |---|---|---|
 | device-plugin, dra-kubelet-plugin | `toolkit-ready` | `toolkit-ready` + `partition-ready` |
-| metrics-exporter, npu-feature-discovery | `toolkit-ready` | `toolkit-ready` |
+| partition-manager, metrics-exporter, npu-feature-discovery | `toolkit-ready` | `toolkit-ready` |
 
 The driver-managed `rbln-smd` keeps its own driver-ready init container. On
 `vm-passthrough` nodes, the DRA component gate waits for every Rebellions NPU
 to bind to `vfio-pci` instead of waiting for toolkit or partition markers.
+
+`partition-ready` is written by the partition-manager operand (`partitionManager` in the
+policy spec, disabled by default): a per-node agent that converges every Rebellions PF to
+its labeled VF count — cordon, drain NPU pods, switch VFs through rbln-smd, rewrite the
+marker, uncordon — and reports the result on the node's `NPUPartitionReady` condition.
+The manager owns `partition-ready`, so its own gate never waits for it. It dials rbln-smd
+node-locally at `127.0.0.1:50051`; use it with a driver-managed or host-installed
+rbln-smd. With `partitionManager` disabled, device-plugin and dra-kubelet-plugin
+intentionally stay blocked on partitioned nodes (fail-closed).
 
 The gate is **fail-closed**: on API errors or invalid label values it retries forever instead
 of assuming an unpartitioned node — misreading a `vf4` node would let components advertise
@@ -113,9 +123,6 @@ full PFs that are about to be carved into VFs. Fix the label to unblock the node
 
 Current limitations:
 
-- `partition-ready` is written by the partition-manager once VF partitioning is applied.
-  Until it runs, device-plugin and dra-kubelet-plugin intentionally stay blocked on
-  partitioned nodes (fail-closed).
 - The gate only runs at pod start. Already-running pods do not react to label changes;
   restarting the affected operand pods after a partition transition is the
   partition-manager's responsibility.

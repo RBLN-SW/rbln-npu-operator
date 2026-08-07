@@ -56,7 +56,7 @@ func TestDevicePluginPatch(t *testing.T) {
 	if fr == nil {
 		t.Fatalf("NODE_NAME env var missing or has no FieldRef")
 	}
-	if fr.APIVersion != "v1" || fr.FieldPath != "spec.nodeName" {
+	if fr.APIVersion != "v1" || fr.FieldPath != testNodeNameFieldPath {
 		t.Fatalf("NODE_NAME FieldRef = %+v, want {APIVersion: v1, FieldPath: spec.nodeName}", fr)
 	}
 

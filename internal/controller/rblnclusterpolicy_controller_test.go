@@ -691,7 +691,6 @@ func cleanupClusterScopedRBAC(ctx context.Context) {
 		"rbln-dra-kubelet-plugin-node-viewer",
 		"rbln-metrics-exporter-node-viewer",
 		"rbln-npu-feature-discovery-node-viewer",
-		"rbln-daemon-node-viewer",
 	}
 	for _, name := range names {
 		_ = k8sClient.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: name}})

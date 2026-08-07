@@ -116,6 +116,20 @@ func TestRunGate(t *testing.T) {
 			},
 			want: want{sleepCallCount: 0},
 		},
+		"PartitionManagerNeverWaitsForPartitionReady": {
+			reason: "the partition-manager owns partition-ready, so waiting for it on a partitioned node would deadlock",
+			fields: fields{
+				getter: &fakeNodeLabelsGetter{results: []nodeLabelsResult{
+					{labels: map[string]string{consts.RBLNPartitionLabelKey: consts.RBLNPartitionModeVF4}},
+				}},
+			},
+			args: args{
+				component:     consts.RBLNPartitionManagerName,
+				nodeName:      "node-1",
+				existingFiles: []string{toolkitReadyFile},
+			},
+			want: want{sleepCallCount: 0},
+		},
 		"LabelRemovedDuringWaitUnblocks": {
 			reason: "labels are re-read every poll: aborting partitioning drops the partition-ready requirement",
 			fields: fields{
@@ -246,6 +260,7 @@ func TestComponentGateTableCoversAllGatedOperands(t *testing.T) {
 		consts.RBLNDRAKubeletPluginName,
 		consts.RBLNMetricExporterName,
 		consts.RBLNFeatureDiscoveryName,
+		consts.RBLNPartitionManagerName,
 	}
 	if len(componentWaitsForPartition) != len(wantComponents) {
 		t.Fatalf("gate table has %d entries, want %d", len(componentWaitsForPartition), len(wantComponents))
@@ -268,7 +283,10 @@ func TestRunGateDRAWorkloads(t *testing.T) {
 	}{
 		{name: "ContainerWaitsForPartition", workload: consts.RBLNWorkloadConfigContainer, toolkitReady: true},
 		{name: "VMWaitsForVFIOWithoutToolkit", workload: consts.RBLNWorkloadConfigVMPassthrough, wantVFIOCalls: 2},
-		{name: "VMDoesNotTrustStaleToolkitMarker", workload: consts.RBLNWorkloadConfigVMPassthrough, toolkitReady: true, wantVFIOCalls: 2},
+		{
+			name: "VMDoesNotTrustStaleToolkitMarker", workload: consts.RBLNWorkloadConfigVMPassthrough,
+			toolkitReady: true, wantVFIOCalls: 2,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			outputDir := t.TempDir()
@@ -309,7 +327,10 @@ func TestRunGateDRAWorkloads(t *testing.T) {
 					}
 				},
 			}
-			cfg := &gateConfig{outputDir: outputDir, sleepIntervalSeconds: 1, component: consts.RBLNDRAKubeletPluginName, nodeName: "node-1"}
+			cfg := &gateConfig{
+				outputDir: outputDir, sleepIntervalSeconds: 1,
+				component: consts.RBLNDRAKubeletPluginName, nodeName: "node-1",
+			}
 			if err := runGate(context.Background(), cfg, rt); err != nil {
 				t.Fatal(err)
 			}

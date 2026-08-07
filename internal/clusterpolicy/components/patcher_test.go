@@ -164,6 +164,8 @@ func envFieldRef(envs []corev1.EnvVar, name string) *corev1.ObjectFieldSelector 
 	return nil
 }
 
+const testNodeNameFieldPath = "spec.nodeName"
+
 func assertGateInitContainer(t *testing.T, ds *appsv1.DaemonSet, componentName string) {
 	t.Helper()
 	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
@@ -182,7 +184,7 @@ func assertGateInitContainer(t *testing.T, ds *appsv1.DaemonSet, componentName s
 		t.Fatalf("init container args = %v, want %v", ic.Args, wantArgs)
 	}
 	nodeNameRef := envFieldRef(ic.Env, "NODE_NAME")
-	if nodeNameRef == nil || nodeNameRef.FieldPath != "spec.nodeName" {
+	if nodeNameRef == nil || nodeNameRef.FieldPath != testNodeNameFieldPath {
 		t.Fatalf("component-gate NODE_NAME fieldRef = %+v, want spec.nodeName", nodeNameRef)
 	}
 	if nodeNameRef.APIVersion != "v1" {

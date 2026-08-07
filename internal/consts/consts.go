@@ -201,6 +201,11 @@ const (
 	RBLNMetricExporterName = "metrics-exporter"
 )
 
+// Partition manager constants
+const (
+	RBLNPartitionManagerName = "partition-manager"
+)
+
 // NPU feature discovery constants
 const (
 	RBLNFeatureDiscoveryName = "npu-feature-discovery"

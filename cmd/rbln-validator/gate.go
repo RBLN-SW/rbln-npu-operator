@@ -24,15 +24,18 @@ import (
 // container-mode component waits for toolkit-ready; components that advertise NPU devices
 // must additionally wait for partition-ready on partitioned nodes, so they
 // never expose a full PF that is about to be carved into VFs. partition-ready
-// is written by the partition-manager once VF partitioning is applied; until
-// then, blocking device advertisement on partitioned nodes is the intended
-// fail-closed behavior. DRA on vm-passthrough nodes instead waits for VFIO
-// binding, because neither toolkit nor partition-manager runs there.
+// is written by the partition-manager once VF partitioning is applied, so the
+// partition-manager itself must never wait for it — it would deadlock on the
+// marker it owns. Until the manager runs, blocking device advertisement on
+// partitioned nodes is the intended fail-closed behavior. DRA on vm-passthrough
+// nodes instead waits for VFIO binding, because neither toolkit nor
+// partition-manager runs there.
 var componentWaitsForPartition = map[string]bool{
 	consts.RBLNDevicePluginName:     true,
 	consts.RBLNDRAKubeletPluginName: true,
 	consts.RBLNMetricExporterName:   false,
 	consts.RBLNFeatureDiscoveryName: false,
+	consts.RBLNPartitionManagerName: false,
 }
 
 type gateRuntime struct {
@@ -105,13 +108,15 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 			continue
 		}
 
-		if cfg.component == consts.RBLNDRAKubeletPluginName && labels[consts.RBLNWorkloadConfigLabelKey] == consts.RBLNWorkloadConfigVMPassthrough {
+		if cfg.component == consts.RBLNDRAKubeletPluginName &&
+			labels[consts.RBLNWorkloadConfigLabelKey] == consts.RBLNWorkloadConfigVMPassthrough {
 			result, err := rt.validateVFIO(vfiovalidator.Config{
 				OutputDir:            cfg.outputDir,
 				SleepIntervalSeconds: cfg.sleepIntervalSeconds,
 			})
 			if err == nil {
-				slog.Info("gate passed", "component", cfg.component, "workload", consts.RBLNWorkloadConfigVMPassthrough, "boundDevices", result.BoundDevices)
+				slog.Info("gate passed", "component", cfg.component,
+					"workload", consts.RBLNWorkloadConfigVMPassthrough, "boundDevices", result.BoundDevices)
 				return nil
 			}
 			slog.Info("waiting for VFIO binding", "node", cfg.nodeName, "err", err)
