@@ -32,6 +32,16 @@ const (
 	RBLNDeployDriverPreInstalled = "pre-installed"
 )
 
+// NPU partitioning labels (admin contract) and partition mode tokens
+const (
+	RBLNPartitionLabelKey         = "rebellions.ai/npu.partition"
+	RBLNPartitionIndexLabelPrefix = "rebellions.ai/npu.partition."
+
+	RBLNPartitionModeVF1  = "vf1"
+	RBLNPartitionModeVF4  = "vf4"
+	RBLNPartitionModeNone = "none"
+)
+
 // Container runtimes
 const (
 	Containerd = "containerd"
@@ -150,3 +160,7 @@ const (
 	ValidationsVolumeName = "run-rbln-validations"
 	ValidationsMountPath  = "/run/rbln/validations"
 )
+
+// PartitionReadyFileName is written by the partition-manager once VF
+// partitioning is applied on the node; operand gates wait for it.
+const PartitionReadyFileName = "partition-ready"
