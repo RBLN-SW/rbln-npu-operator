@@ -60,10 +60,8 @@ func TestDevicePluginPatch(t *testing.T) {
 		t.Fatalf("NODE_NAME FieldRef = %+v, want {APIVersion: v1, FieldPath: spec.nodeName}", fr)
 	}
 
-	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(ds.Spec.Template.Spec.InitContainers))
-	}
-	assertContainerImage(t, ds.Spec.Template.Spec.InitContainers[0], "rebellions/rbln-validator", "v1.0")
+	assertGateInitContainer(t, ds, consts.RBLNDevicePluginName)
+	assertNodeViewerRBAC(t, c, name, owner.Name)
 }
 
 func TestDevicePluginPatch_Disabled(t *testing.T) {
@@ -113,6 +111,7 @@ func TestDevicePluginCleanUp(t *testing.T) {
 
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &appsv1.DaemonSet{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
+	assertNoNodeViewerRBAC(t, c, name)
 }
 
 func TestDevicePluginPatch_UseGenericResourceName(t *testing.T) {

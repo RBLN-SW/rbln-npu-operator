@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	vfiovalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/vfiopci"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
@@ -140,7 +141,7 @@ func TestRunGate(t *testing.T) {
 				}},
 			},
 			args: args{
-				component:     consts.RBLNDaemonName,
+				component:     consts.RBLNFeatureDiscoveryName,
 				nodeName:      "node-1",
 				existingFiles: []string{toolkitReadyFile},
 			},
@@ -245,7 +246,6 @@ func TestComponentGateTableCoversAllGatedOperands(t *testing.T) {
 		consts.RBLNDRAKubeletPluginName,
 		consts.RBLNMetricExporterName,
 		consts.RBLNFeatureDiscoveryName,
-		consts.RBLNDaemonName,
 	}
 	if len(componentWaitsForPartition) != len(wantComponents) {
 		t.Fatalf("gate table has %d entries, want %d", len(componentWaitsForPartition), len(wantComponents))
@@ -254,5 +254,68 @@ func TestComponentGateTableCoversAllGatedOperands(t *testing.T) {
 		if _, ok := componentWaitsForPartition[c]; !ok {
 			t.Fatalf("gate table is missing component %q", c)
 		}
+	}
+}
+
+// DRA serves both workload types. Partition gates must not strand VM nodes
+// waiting for toolkit-ready, or let container nodes advertise unpartitioned PFs.
+func TestRunGateDRAWorkloads(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		workload      string
+		toolkitReady  bool
+		wantVFIOCalls int
+	}{
+		{name: "ContainerWaitsForPartition", workload: consts.RBLNWorkloadConfigContainer, toolkitReady: true},
+		{name: "VMWaitsForVFIOWithoutToolkit", workload: consts.RBLNWorkloadConfigVMPassthrough, wantVFIOCalls: 2},
+		{name: "VMDoesNotTrustStaleToolkitMarker", workload: consts.RBLNWorkloadConfigVMPassthrough, toolkitReady: true, wantVFIOCalls: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			outputDir := t.TempDir()
+			writeMarker := func(name string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(outputDir, name), nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.toolkitReady {
+				writeMarker(toolkitReadyFile)
+			}
+			sleeps, vfioCalls := 0, 0
+			rt := gateRuntime{
+				getNodeLabels: func(context.Context, string) (map[string]string, error) {
+					return map[string]string{
+						consts.RBLNWorkloadConfigLabelKey: tc.workload,
+						consts.RBLNPartitionLabelKey:      consts.RBLNPartitionModeVF4,
+					}, nil
+				},
+				validateVFIO: func(vfiovalidator.Config) (vfiovalidator.Result, error) {
+					vfioCalls++
+					if tc.workload != consts.RBLNWorkloadConfigVMPassthrough {
+						t.Fatal("container DRA must wait for partition-ready without probing VFIO")
+					}
+					if sleeps == 0 {
+						return vfiovalidator.Result{}, errors.New("VFIO binding not ready")
+					}
+					return vfiovalidator.Result{BoundDevices: []string{"0000:01:00.0"}}, nil
+				},
+				sleep: func(time.Duration) {
+					sleeps++
+					if sleeps > 1 {
+						t.Fatal("DRA gate did not pass once its workload prerequisites were ready")
+					}
+					if tc.workload == consts.RBLNWorkloadConfigContainer {
+						writeMarker(consts.PartitionReadyFileName)
+					}
+				},
+			}
+			cfg := &gateConfig{outputDir: outputDir, sleepIntervalSeconds: 1, component: consts.RBLNDRAKubeletPluginName, nodeName: "node-1"}
+			if err := runGate(context.Background(), cfg, rt); err != nil {
+				t.Fatal(err)
+			}
+			if sleeps != 1 || vfioCalls != tc.wantVFIOCalls {
+				t.Fatalf("sleeps=%d vfioCalls=%d, want sleeps=1 vfioCalls=%d", sleeps, vfioCalls, tc.wantVFIOCalls)
+			}
+		})
 	}
 }

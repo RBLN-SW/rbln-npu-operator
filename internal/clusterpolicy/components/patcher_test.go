@@ -2,6 +2,7 @@ package components
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -161,6 +162,61 @@ func envFieldRef(envs []corev1.EnvVar, name string) *corev1.ObjectFieldSelector 
 		}
 	}
 	return nil
+}
+
+func assertGateInitContainer(t *testing.T, ds *appsv1.DaemonSet, componentName string) {
+	t.Helper()
+	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
+		t.Fatalf("DaemonSet %s: expected 1 init container, got %d", ds.Name, len(ds.Spec.Template.Spec.InitContainers))
+	}
+	ic := ds.Spec.Template.Spec.InitContainers[0]
+	if ic.Name != "component-gate" {
+		t.Fatalf("init container name = %q, want component-gate", ic.Name)
+	}
+	assertContainerImage(t, ic, "rebellions/rbln-validator", "v1.0")
+	if len(ic.Command) != 1 || ic.Command[0] != "rbln-validator" {
+		t.Fatalf("init container command = %v, want [rbln-validator]", ic.Command)
+	}
+	wantArgs := []string{"gate", "--component", componentName}
+	if !slices.Equal(ic.Args, wantArgs) {
+		t.Fatalf("init container args = %v, want %v", ic.Args, wantArgs)
+	}
+	nodeNameRef := envFieldRef(ic.Env, "NODE_NAME")
+	if nodeNameRef == nil || nodeNameRef.FieldPath != "spec.nodeName" {
+		t.Fatalf("component-gate NODE_NAME fieldRef = %+v, want spec.nodeName", nodeNameRef)
+	}
+	if nodeNameRef.APIVersion != "v1" {
+		t.Fatalf("component-gate NODE_NAME fieldRef APIVersion = %q, want v1 (avoids reconcile thrash)", nodeNameRef.APIVersion)
+	}
+	assertContainerHasVolumeMount(t, ic, consts.ValidationsVolumeName)
+}
+
+// assertNodeViewerRBAC verifies the ClusterRole/Binding that lets the
+// component's gate read its own Node object.
+func assertNodeViewerRBAC(t *testing.T, c client.Client, componentName, ownerName string) {
+	t.Helper()
+	name := componentName + nodeViewerSuffix
+
+	cr := &rbacv1.ClusterRole{}
+	assertObjectExists(t, c, types.NamespacedName{Name: name}, cr)
+	assertHasOwnerRef(t, cr, ownerName)
+	assertClusterRoleHasRule(t, cr, "", "nodes")
+
+	crb := &rbacv1.ClusterRoleBinding{}
+	assertObjectExists(t, c, types.NamespacedName{Name: name}, crb)
+	if crb.RoleRef.Name != name {
+		t.Fatalf("node-viewer ClusterRoleBinding RoleRef.Name = %q, want %q", crb.RoleRef.Name, name)
+	}
+	if len(crb.Subjects) == 0 || crb.Subjects[0].Name != componentName || crb.Subjects[0].Namespace != testNamespace {
+		t.Fatalf("node-viewer ClusterRoleBinding subjects = %+v, want SA %s/%s", crb.Subjects, testNamespace, componentName)
+	}
+}
+
+func assertNoNodeViewerRBAC(t *testing.T, c client.Client, componentName string) {
+	t.Helper()
+	name := componentName + nodeViewerSuffix
+	assertObjectNotExists(t, c, types.NamespacedName{Name: name}, &rbacv1.ClusterRoleBinding{})
+	assertObjectNotExists(t, c, types.NamespacedName{Name: name}, &rbacv1.ClusterRole{})
 }
 
 func assertContainerHasVolumeMount(t *testing.T, c corev1.Container, volumeName string) {

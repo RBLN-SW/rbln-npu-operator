@@ -77,6 +77,9 @@ func (h *draKubeletPluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.
 	if err := h.handleClusterRoleBinding(ctx, owner); err != nil {
 		return err
 	}
+	if err := h.reconcileNodeViewerClusterRBAC(ctx, owner); err != nil {
+		return err
+	}
 	if err := h.handleDRAClass(ctx, owner); err != nil {
 		return err
 	}
@@ -99,6 +102,9 @@ func (h *draKubeletPluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta
 	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: h.clusterRoleName()},
 	}); err != nil {
+		return err
+	}
+	if err := h.deleteNodeViewerClusterRBAC(ctx); err != nil {
 		return err
 	}
 	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
@@ -307,11 +313,8 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 		Build()
 }
 
-// buildPodSpec gates the plugin behind the dra-ready init container instead of
-// the toolkit-validation one the other container components use: this
-// DaemonSet serves both container and vm-passthrough nodes, and toolkit-ready
-// never appears on the latter. See buildDRAReadyInitContainer for the two
-// conditions the gate accepts.
+// buildPodSpec gates the plugin on partition-aware container readiness or
+// VFIO binding for vm-passthrough nodes.
 func (h *draKubeletPluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
 	initContainer := buildDRAReadyInitContainer(owner.Spec.Validator)
 	draContainer := h.buildDRAContainer()
@@ -342,7 +345,7 @@ func (h *draKubeletPluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 			hostPathVolume("host-run-rbln", draHostRunRBLNPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume("host-usr-bin", draHostUsrBinPath, corev1.HostPathDirectory),
 			hostPathVolume("kubevirt-dra-metadata", draKubeVirtMetadataPath, corev1.HostPathDirectoryOrCreate),
-			// Mounted by the dra-ready init container only; the plugin container
+			// Mounted by the component-gate init container only; the plugin container
 			// relies on the runtime-provided sysfs (see buildDRAContainer).
 			hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
 		}).
