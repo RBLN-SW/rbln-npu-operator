@@ -47,12 +47,18 @@ func (h *npuFeatureDiscoveryPatcher) Patch(ctx context.Context, owner *rblnv1bet
 	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
 		return err
 	}
+	if err := h.reconcileNodeViewerClusterRBAC(ctx, owner); err != nil {
+		return err
+	}
 	return h.handleDaemonSet(ctx, owner)
 }
 
 func (h *npuFeatureDiscoveryPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "NPU Feature Discovery")
 	if err := h.deleteDaemonSet(ctx); err != nil {
+		return err
+	}
+	if err := h.deleteNodeViewerClusterRBAC(ctx); err != nil {
 		return err
 	}
 	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
@@ -62,7 +68,7 @@ func (h *npuFeatureDiscoveryPatcher) CleanUp(ctx context.Context, owner *rblnv1b
 }
 
 func (h *npuFeatureDiscoveryPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
-	initContainer := buildToolkitValidationInitContainer(owner.Spec.Validator)
+	initContainer := buildGateInitContainer(consts.RBLNFeatureDiscoveryName, owner.Spec.Validator)
 
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).

@@ -40,9 +40,8 @@ func TestRBLNDaemonPatch(t *testing.T) {
 	ds := assertDaemonSetBasics(t, c, name, owner.Name)
 	assertNodeSelector(t, ds, "rebellions.ai/npu.deploy.rbln-daemon")
 
-	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(ds.Spec.Template.Spec.InitContainers))
-	}
+	assertGateInitContainer(t, ds, consts.RBLNDaemonName)
+	assertNodeViewerRBAC(t, c, name, owner.Name)
 
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
 	assertContainerImage(t, mainContainer, "rebellions/rbln-daemon", "latest")
@@ -121,4 +120,5 @@ func TestRBLNDaemonCleanUp(t *testing.T) {
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &appsv1.DaemonSet{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.Service{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
+	assertNoNodeViewerRBAC(t, c, name)
 }

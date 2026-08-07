@@ -66,6 +66,9 @@ func (h *rblnDaemonPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNCl
 	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
 		return err
 	}
+	if err := h.reconcileNodeViewerClusterRBAC(ctx, owner); err != nil {
+		return err
+	}
 	if err := h.handleDaemonSet(ctx, owner); err != nil {
 		return err
 	}
@@ -80,6 +83,9 @@ func (h *rblnDaemonPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLN
 		return err
 	}
 	if err := h.deleteDaemonSet(ctx); err != nil {
+		return err
+	}
+	if err := h.deleteNodeViewerClusterRBAC(ctx); err != nil {
 		return err
 	}
 	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
@@ -110,7 +116,7 @@ func (h *rblnDaemonPatcher) handleService(ctx context.Context, owner *rblnv1beta
 }
 
 func (h *rblnDaemonPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
-	initContainer := buildToolkitValidationInitContainer(owner.Spec.Validator)
+	initContainer := buildGateInitContainer(consts.RBLNDaemonName, owner.Spec.Validator)
 
 	daemonContainer := k8sutil.NewContainerBuilder().
 		WithName(h.name).

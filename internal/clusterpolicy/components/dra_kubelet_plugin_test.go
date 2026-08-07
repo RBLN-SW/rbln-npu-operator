@@ -47,6 +47,8 @@ func TestDRAKubeletPluginPatch(t *testing.T) {
 	// DaemonSet
 	ds := assertDaemonSetBasics(t, c, name, owner.Name)
 	assertNodeSelector(t, ds, "rebellions.ai/npu.deploy.dra-kubelet-plugin")
+	assertGateInitContainer(t, ds, consts.RBLNDRAKubeletPluginName)
+	assertNodeViewerRBAC(t, c, name, owner.Name)
 
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
 	assertContainerImage(t, mainContainer, "rebellions/k8s-dra-driver-npu", "latest")
@@ -144,4 +146,5 @@ func TestDRAKubeletPluginCleanUp(t *testing.T) {
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name + draClusterBindSuffix}, &rbacv1.ClusterRoleBinding{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: "npu.rebellions.ai"}, &resourcev1.DeviceClass{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
+	assertNoNodeViewerRBAC(t, c, name)
 }

@@ -57,12 +57,18 @@ func (h *devicePluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLN
 	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
 		return err
 	}
+	if err := h.reconcileNodeViewerClusterRBAC(ctx, owner); err != nil {
+		return err
+	}
 	return h.handleDaemonSet(ctx, owner)
 }
 
 func (h *devicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "Device Plugin")
 	if err := h.deleteDaemonSet(ctx); err != nil {
+		return err
+	}
+	if err := h.deleteNodeViewerClusterRBAC(ctx); err != nil {
 		return err
 	}
 	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
@@ -72,7 +78,7 @@ func (h *devicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RB
 }
 
 func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
-	initContainer := buildToolkitValidationInitContainer(owner.Spec.Validator)
+	initContainer := buildGateInitContainer(consts.RBLNDevicePluginName, owner.Spec.Validator)
 
 	envs := []corev1.EnvVar{
 		{Name: "USE_GENERIC_RESOURCE_NAME", Value: strconv.FormatBool(h.desiredSpec.UseGenericResourceName)},

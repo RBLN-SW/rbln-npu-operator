@@ -44,14 +44,8 @@ func TestNPUFeatureDiscoveryPatch(t *testing.T) {
 	assertContainerImage(t, mainContainer, "rebellions/npu-feature-discovery", "latest")
 	assertPrivileged(t, mainContainer)
 
-	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(ds.Spec.Template.Spec.InitContainers))
-	}
-	initContainer := ds.Spec.Template.Spec.InitContainers[0]
-	if initContainer.Name != "toolkit-validation" {
-		t.Fatalf("init container name = %q, want toolkit-validation", initContainer.Name)
-	}
-	assertContainerImage(t, initContainer, "rebellions/rbln-validator", "v1.0")
+	assertGateInitContainer(t, ds, consts.RBLNFeatureDiscoveryName)
+	assertNodeViewerRBAC(t, c, name, owner.Name)
 }
 
 func TestNPUFeatureDiscoveryCleanUp(t *testing.T) {
@@ -80,4 +74,5 @@ func TestNPUFeatureDiscoveryCleanUp(t *testing.T) {
 
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &appsv1.DaemonSet{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
+	assertNoNodeViewerRBAC(t, c, name)
 }
