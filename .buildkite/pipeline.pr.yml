@@ -38,16 +38,35 @@ env:
   # ---- Driver + rbln-daemon images (dev) -------------------------------------
   # External dependency images (not operands), pinned to the dev images exactly
   # like the nightly pipeline.
+  #
+  # Family separation: registry/repository stay family-AGNOSTIC — the operator
+  # splices the family segment into the pull path per node pool
+  # (rebellions-dev/<family>/rbln-driver:<ver>-<kernel>-<os>), so the dev
+  # registry must publish the family-scoped paths for every version below.
   SENTINEL_DRIVER_IMAGE_REGISTRY: harbor.ssw.rbln.in
   SENTINEL_DRIVER_IMAGE_REPOSITORY: rebellions-dev/rbln-driver
-  SENTINEL_DRIVER_IMAGE_TAG: "${SENTINEL_DRIVER_IMAGE_TAG:-3.2.0-rc3}"
+  # Per-family driver versions (migrated from the retired global
+  # SENTINEL_DRIVER_IMAGE_TAG). Sentinel renders one RBLNDriver CR per family
+  # (driver.instances.<family>) when these differ. Per-build overridable.
+  SENTINEL_ATOM_DRIVER_VERSION: "${SENTINEL_ATOM_DRIVER_VERSION:-3.2.2}"
+  SENTINEL_REBEL100_DRIVER_VERSION: "${SENTINEL_REBEL100_DRIVER_VERSION:-3.3.0-rc3}"
+  # NPU family set. Pinned rather than auto-detected (npu.family labels ->
+  # NodeFeature PCI fallback) so a node that is temporarily unlabeled cannot
+  # silently shrink the set and change which RBLNDriver CRs get rendered.
+  SENTINEL_NPU_FAMILIES: "${SENTINEL_NPU_FAMILIES:-atom,rebel100}"
+  # Matches sentinel's own default; kept explicit because it is the knob to
+  # raise when a driver install (firmware update + module build + insmod, 6+
+  # minutes on the rebel100 node) outgrows it.
+  SENTINEL_WAIT_TIMEOUT: "${SENTINEL_WAIT_TIMEOUT:-900}"
   SENTINEL_RBLN_DAEMON_IMAGE_REGISTRY: harbor.ssw.rbln.in
   SENTINEL_RBLN_DAEMON_IMAGE_REPOSITORY: rebellions-dev/rbln-daemon
-  SENTINEL_RBLN_DAEMON_IMAGE_TAG: "${SENTINEL_RBLN_DAEMON_IMAGE_TAG:-3.2.0}"
-  # Compiler paired with the installed driver above (docs.rbln.ai version
-  # matrix) — used by the model-zoo inference runs (container/dra/vm).
-  SENTINEL_COMPILER_VERSION: "${SENTINEL_COMPILER_VERSION:-rebel-compiler==0.10.4.post1}"
-  SENTINEL_COMPILER_UPGRADE_VERSION: "${SENTINEL_COMPILER_UPGRADE_VERSION:-rebel-compiler==0.11.1}"
+  SENTINEL_RBLN_DAEMON_IMAGE_TAG: "${SENTINEL_RBLN_DAEMON_IMAGE_TAG:-3.2.2}"
+  # Compilers paired per family with the drivers above (docs.rbln.ai version
+  # matrix) — used by the model-zoo inference runs (container/dra/vm);
+  # sentinel resolves the compiler per node from its npu.family label.
+  # Migrated from the retired global SENTINEL_COMPILER_VERSION.
+  SENTINEL_ATOM_COMPILER_VERSION: "${SENTINEL_ATOM_COMPILER_VERSION:-rebel-compiler==0.10.4.post1}"
+  SENTINEL_REBEL100_COMPILER_VERSION: "${SENTINEL_REBEL100_COMPILER_VERSION:-rebel-compiler==0.11.1.post1}"
 
   # ---- Operand image override (global; operands only) ------------------------
   # Retarget every controller-deployed operand (device-plugin, dra-kubelet-plugin,
@@ -115,9 +134,8 @@ _scenario_command: &scenario_command |
     helm list -n "${TEST_NAMESPACE}" -q | xargs -r -n1 helm uninstall -n "${TEST_NAMESPACE}" || true
     kubectl delete rblnclusterpolicies --all --ignore-not-found || true
     kubectl delete rblndrivers --all --ignore-not-found || true
-    # KubeVirt test VM (vm track) lives in `default`; no-op on the container
-    # cluster (|| true).
-    kubectl delete virtualmachine sentinel-npu-test-vm -n default --ignore-not-found || true
+    # KubeVirt test VMs are sentinel-owned: sentinel deletes them itself on
+    # scenario teardown (success or failure), so nuke doesn't touch them.
     kubectl delete namespace "${TEST_NAMESPACE}" --ignore-not-found || true
   }
   nuke

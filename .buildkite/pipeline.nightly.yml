@@ -31,25 +31,43 @@ env:
   # ---- Driver + rbln-daemon image override (TEMPORARY) -----------------------
   # Points sentinel at dev-built driver + rbln-daemon images instead of the
   # default production registry/repo. Consumed by sentinel via
-  # src/sentinel/config.py (driver_image_* / rbln_daemon_image_*) and injected
-  # into helm install in helpers/helm_values.py, so all scenarios that install
-  # the operator chart pick this up. harbor.ssw.rbln.in needs no pull secret, so
-  # the drivercred secret (harbor.k8s) is irrelevant for these. Remove these
-  # lines once the images land in the normal release flow.
+  # src/sentinel/config.py and injected into helm install in
+  # helpers/helm_values.py, so all scenarios that install the operator chart
+  # pick this up. harbor.ssw.rbln.in needs no pull secret, so the drivercred
+  # secret (harbor.k8s) is irrelevant for these. Remove these lines once the
+  # images land in the normal release flow.
+  #
+  # Family separation: registry/repository stay family-AGNOSTIC — the operator
+  # splices the family segment into the pull path per node pool
+  # (rebellions-dev/<family>/rbln-driver:<ver>-<kernel>-<os>), so the dev
+  # registry must publish the family-scoped paths for every version below.
   SENTINEL_DRIVER_IMAGE_REGISTRY: harbor.ssw.rbln.in
   SENTINEL_DRIVER_IMAGE_REPOSITORY: rebellions-dev/rbln-driver
-  # Per-build overridable: reads SENTINEL_DRIVER_IMAGE_TAG from the build env
-  # (trigger pipeline `env:` / New Build / API), else falls back to this default.
-  SENTINEL_DRIVER_IMAGE_TAG: "${SENTINEL_DRIVER_IMAGE_TAG:-3.2.0-rc3}"
+  # Per-family driver versions (migrated from the retired global
+  # SENTINEL_DRIVER_IMAGE_TAG). Sentinel renders one RBLNDriver CR per family
+  # (driver.instances.<family>) when these differ. Per-build overridable:
+  # reads the var from the build env (trigger pipeline `env:` / New Build /
+  # API), else falls back to this default.
+  SENTINEL_ATOM_DRIVER_VERSION: "${SENTINEL_ATOM_DRIVER_VERSION:-3.2.2}"
+  SENTINEL_REBEL100_DRIVER_VERSION: "${SENTINEL_REBEL100_DRIVER_VERSION:-3.3.0-rc3}"
+  # NPU family set. Pinned rather than auto-detected (npu.family labels ->
+  # NodeFeature PCI fallback) so a node that is temporarily unlabeled cannot
+  # silently shrink the set and change which RBLNDriver CRs get rendered.
+  SENTINEL_NPU_FAMILIES: "${SENTINEL_NPU_FAMILIES:-atom,rebel100}"
+  # Matches sentinel's own default; kept explicit because it is the knob to
+  # raise when a driver install (firmware update + module build + insmod, 6+
+  # minutes on the rebel100 node) outgrows it.
+  SENTINEL_WAIT_TIMEOUT: "${SENTINEL_WAIT_TIMEOUT:-900}"
   SENTINEL_RBLN_DAEMON_IMAGE_REGISTRY: harbor.ssw.rbln.in
   SENTINEL_RBLN_DAEMON_IMAGE_REPOSITORY: rebellions-dev/rbln-daemon
-  # Per-build overridable, same mechanism as SENTINEL_DRIVER_IMAGE_TAG.
-  SENTINEL_RBLN_DAEMON_IMAGE_TAG: "${SENTINEL_RBLN_DAEMON_IMAGE_TAG:-3.2.0}"
-  # Compiler paired with the installed driver above (docs.rbln.ai version
-  # matrix) — used by the model-zoo inference runs. Per-build overridable,
-  # same mechanism as SENTINEL_DRIVER_IMAGE_TAG.
-  SENTINEL_COMPILER_VERSION: "${SENTINEL_COMPILER_VERSION:-rebel-compiler==0.10.4.post1}"
-  SENTINEL_COMPILER_UPGRADE_VERSION: "${SENTINEL_COMPILER_UPGRADE_VERSION:-rebel-compiler==0.11.1}"
+  # Per-build overridable, same mechanism. (rbln-daemon is not family-split.)
+  SENTINEL_RBLN_DAEMON_IMAGE_TAG: "${SENTINEL_RBLN_DAEMON_IMAGE_TAG:-3.2.2}"
+  # Compilers paired per family with the drivers above (docs.rbln.ai version
+  # matrix) — used by the model-zoo inference runs; sentinel resolves the
+  # compiler per node from its npu.family label. Migrated from the retired
+  # global SENTINEL_COMPILER_VERSION / SENTINEL_COMPILER_UPGRADE_VERSION.
+  SENTINEL_ATOM_COMPILER_VERSION: "${SENTINEL_ATOM_COMPILER_VERSION:-rebel-compiler==0.10.4.post1}"
+  SENTINEL_REBEL100_COMPILER_VERSION: "${SENTINEL_REBEL100_COMPILER_VERSION:-rebel-compiler==0.11.1.post1}"
 
   # ---- Operand image override (global; operands only) ------------------------
   # Sentinel's global image override (npu-operator-sentinel #18) retargets only
@@ -345,8 +363,21 @@ steps:
     depends_on: s05
     env:
       SCENARIO_FAMILY: driver_upgrade
-      # Per-build overridable (upgrade target), same mechanism as SENTINEL_DRIVER_IMAGE_TAG.
-      SENTINEL_DRIVER_UPGRADE_VERSION: "${SENTINEL_DRIVER_UPGRADE_VERSION:-3.2.0}"
+      # Per-family upgrade targets (migrated from the retired global
+      # SENTINEL_DRIVER_UPGRADE_VERSION, which applied to *every* family).
+      # Sentinel plans the upgrade per owning RBLNDriver CR and excludes any CR
+      # whose target is empty or equal to the version already installed, so a
+      # family with no second published image simply sits the flow out.
+      #
+      # atom: upgrades 3.2.2 -> 3.2.3-rc1 by default (both published for the CI
+      # node's kernel on the family path). Set the target equal to
+      # SENTINEL_ATOM_DRIVER_VERSION to sit atom out of the upgrade flow.
+      SENTINEL_ATOM_DRIVER_UPGRADE_VERSION: "${SENTINEL_ATOM_DRIVER_UPGRADE_VERSION:-3.2.3-rc1}"
+      SENTINEL_REBEL100_DRIVER_UPGRADE_VERSION: "${SENTINEL_REBEL100_DRIVER_UPGRADE_VERSION:-3.3.0}"
+      # Compilers paired with each family's upgrade driver for the post-upgrade
+      # inference, which runs only on the nodes that were actually upgraded.
+      SENTINEL_ATOM_COMPILER_UPGRADE_VERSION: "${SENTINEL_ATOM_COMPILER_UPGRADE_VERSION:-rebel-compiler==0.10.4.post1}"
+      SENTINEL_REBEL100_COMPILER_UPGRADE_VERSION: "${SENTINEL_REBEL100_COMPILER_UPGRADE_VERSION:-rebel-compiler==0.11.1.post1}"
     # Driver reboot test can take longer than the other scenarios.
     command: *scenario_command
     <<: *scenario_defaults
@@ -406,7 +437,7 @@ steps:
     timeout_in_minutes: 10
     image: harbor.k8s.rebellions.in/dockerhub-proxy/node:20
     env:
-      # Per-build overridable, same mechanism as SENTINEL_DRIVER_IMAGE_TAG:
+      # Per-build overridable, same mechanism as SENTINEL_ATOM_DRIVER_VERSION:
       # reads SENTINEL_SLACK_CHANNEL_ID from the build env (trigger pipeline
       # `env:` / New Build / API), else falls back to this default.
       SLACK_CHANNEL_ID: "${SENTINEL_SLACK_CHANNEL_ID:-C09NQQGNVTJ}"
@@ -489,7 +520,8 @@ steps:
   # debugging until the build ends. Only s00 uses the sandbox cluster; the other
   # deps are purely for end-of-build ordering.
   # s00's release self-uninstalls on graceful teardown; an agent preempt/OOM can
-  # leak the release, RBLN CRs, and the KubeVirt VM test_zz creates in `default`.
+  # leak the release and RBLN CRs. KubeVirt test VMs are sentinel-owned:
+  # sentinel deletes them itself on scenario teardown (success or failure).
   - label: ":broom: sandbox cleanup"
     key: sandbox-cleanup
     depends_on: [s00, s01, s02, s03, s04, s05, s06, s07, s08]
@@ -509,6 +541,5 @@ steps:
       helm list -n rbln-system --filter 'rbln' -q | xargs -r -n1 helm uninstall -n rbln-system || true
       kubectl delete rblnclusterpolicies --all --ignore-not-found || true
       kubectl delete rblndrivers --all --ignore-not-found || true
-      kubectl delete virtualmachine sentinel-npu-test-vm -n default --ignore-not-found || true
       kubectl delete namespace rbln-system --ignore-not-found || true
       exit 0
