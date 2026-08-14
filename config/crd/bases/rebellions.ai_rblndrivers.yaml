@@ -472,7 +472,9 @@ spec:
                       format: int32
                       type: integer
                     name:
-                      description: Name is the pool identifier (typically "<osID><osVersion>-<sanitizedKernel>").
+                      description: |-
+                        Name is the pool's DaemonSet name, "<RBLNDriver name>-<pool>", where pool
+                        is "<family>-<osID><osVersion>-<sanitizedKernel>".
                       type: string
                     ready:
                       description: Ready is the DaemonSet's spec.NumberReady.

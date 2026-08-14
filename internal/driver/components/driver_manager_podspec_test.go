@@ -2,6 +2,7 @@ package components
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -26,7 +27,6 @@ func newTestPatcher(t *testing.T, openshiftVersion string) *driverManagerPatcher
 			instanceName:     testInstanceName,
 			namespace:        testNamespace,
 			openshiftVersion: openshiftVersion,
-			enabled:          true,
 		},
 		desiredSpec: &rebellionsaiv1alpha1.RBLNDriverSpec{
 			Version:  "3.0.0",
@@ -116,10 +116,7 @@ func TestSubscriptionOS(t *testing.T) {
 func TestBuildSubscriptionMountsAndVolumes(t *testing.T) {
 	t.Run("no subscription for ubuntu", func(t *testing.T) {
 		h := newTestPatcher(t, "")
-		mounts, vols, err := h.buildSubscriptionMountsAndVolumes(nodePool{osRelease: "ubuntu"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		mounts, vols := h.buildSubscriptionMountsAndVolumes(nodePool{osRelease: "ubuntu"})
 		if len(mounts) != 0 || len(vols) != 0 {
 			t.Fatalf("expected empty mounts/vols for ubuntu, got %d/%d", len(mounts), len(vols))
 		}
@@ -127,10 +124,7 @@ func TestBuildSubscriptionMountsAndVolumes(t *testing.T) {
 
 	t.Run("RHEL subscription mounts", func(t *testing.T) {
 		h := newTestPatcher(t, "")
-		mounts, vols, err := h.buildSubscriptionMountsAndVolumes(nodePool{osRelease: "rhel"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		mounts, vols := h.buildSubscriptionMountsAndVolumes(nodePool{osRelease: "rhel"})
 		if len(mounts) != 3 {
 			t.Fatalf("expected 3 mounts for RHEL, got %d", len(mounts))
 		}
@@ -141,10 +135,7 @@ func TestBuildSubscriptionMountsAndVolumes(t *testing.T) {
 
 	t.Run("OpenShift subscription mounts", func(t *testing.T) {
 		h := newTestPatcher(t, "v4.14.0")
-		mounts, vols, err := h.buildSubscriptionMountsAndVolumes(nodePool{osRelease: "rhcos"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		mounts, vols := h.buildSubscriptionMountsAndVolumes(nodePool{osRelease: "rhcos"})
 		if len(mounts) != 3 {
 			t.Fatalf("expected 3 mounts for RHCOS, got %d", len(mounts))
 		}
@@ -197,12 +188,9 @@ func TestBuildDriverManagerInitContainer(t *testing.T) {
 		}
 	}
 
-	// Regression guard: k8s-driver-manager's unmountRootfs() looks up the
-	// driver staging tree via os.Stat(driverRoot) where driverRoot equals
-	// hostDriverPath. Without a Bidirectional mount at that exact path the
-	// init container can never observe — let alone unmount — the host's
-	// /run/rbln/driver, which leaves stale bind mounts across reinstalls
-	// (the symptom users hit when downgrading driver versions).
+	// Without a Bidirectional mount at exactly hostDriverPath the init
+	// container cannot observe, let alone unmount, the host's staging tree,
+	// which leaves stale bind mounts across reinstalls.
 	var hostDriverMount *corev1.VolumeMount
 	for i := range c.VolumeMounts {
 		if c.VolumeMounts[i].Name == hostDriverVolumeName {
@@ -270,7 +258,7 @@ func TestHandleConfigMap(t *testing.T) {
 	}
 
 	// Verify script references the validations path.
-	if !contains(script, consts.ValidationsMountPath) {
+	if !strings.Contains(script, consts.ValidationsMountPath) {
 		t.Fatalf("script should reference %s", consts.ValidationsMountPath)
 	}
 
@@ -285,7 +273,7 @@ func TestHandleConfigMap(t *testing.T) {
 		"DRIVER_READY_MARKER",
 		"publish_component_ready",
 	} {
-		if !contains(script, needle) {
+		if !strings.Contains(script, needle) {
 			t.Fatalf("script should reference %q", needle)
 		}
 	}
@@ -294,7 +282,7 @@ func TestHandleConfigMap(t *testing.T) {
 	// marker contract is mandatory; legacy images that relied on rbln-smi
 	// alone are intentionally unsupported.
 	for _, forbidden := range []string{"rbln-smi"} {
-		if contains(script, forbidden) {
+		if strings.Contains(script, forbidden) {
 			t.Fatalf("script must not reference %q (legacy heuristic removed)", forbidden)
 		}
 	}
@@ -306,17 +294,13 @@ func TestHandleConfigMap(t *testing.T) {
 
 func TestBuildDriverContainer(t *testing.T) {
 	h := newTestPatcher(t, "")
-	pool := nodePool{
-		osRelease: "ubuntu",
-		osVersion: "22.04",
-		kernel:    "5.15.0-100-generic",
-	}
+	const imagePath = "repo.rebellions.ai/rebellions/atom/rbln-driver:3.0.0-5.15.0-100-generic-ubuntu22.04"
 
-	container, err := h.buildDriverContainer(pool, nil)
-	if err != nil {
-		t.Fatalf("buildDriverContainer() error: %v", err)
-	}
+	container := h.buildDriverContainer(nil, imagePath)
 
+	if container.Image != imagePath {
+		t.Fatalf("container image = %q, want %q", container.Image, imagePath)
+	}
 	if container.Name != driverManagerContainer {
 		t.Fatalf("container name = %q, want %q", container.Name, driverManagerContainer)
 	}
@@ -364,12 +348,10 @@ func TestBuildDriverPodSpec_HasDriverStateVolume(t *testing.T) {
 		osRelease: "ubuntu",
 		osVersion: "22.04",
 		kernel:    "5.15.0-100-generic",
+		family:    "atom",
 	}
 
-	spec, err := h.buildDriverPodSpec(pool)
-	if err != nil {
-		t.Fatalf("buildDriverPodSpec() error: %v", err)
-	}
+	spec := h.buildDriverPodSpec(pool, "repo.rebellions.ai/rebellions/atom/rbln-driver:3.0.0-5.15.0-100-generic-ubuntu22.04")
 
 	for _, v := range spec.Volumes {
 		if v.Name == driverReadyVolumeName {
@@ -407,39 +389,6 @@ func TestDriverContainerEnvs_OperatorOverridesUser(t *testing.T) {
 		t.Fatalf("operator did not override %s: got %q",
 			driverReadyFileEnvName, envByName[driverReadyFileEnvName])
 	}
-}
-
-func TestBuildDriverContainer_LatestVersion(t *testing.T) {
-	h := newTestPatcher(t, "")
-	h.desiredSpec.Version = "latest"
-
-	pool := nodePool{
-		osRelease: "ubuntu",
-		osVersion: "22.04",
-		kernel:    "5.15.0-100-generic",
-	}
-
-	container, err := h.buildDriverContainer(pool, nil)
-	if err != nil {
-		t.Fatalf("buildDriverContainer() error: %v", err)
-	}
-
-	if container.ImagePullPolicy != corev1.PullAlways {
-		t.Fatalf("pull policy = %q, want %q for latest version", container.ImagePullPolicy, corev1.PullAlways)
-	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstr(s, substr))
-}
-
-func containsSubstr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 // Verify that the init container uses the correct configMap name format

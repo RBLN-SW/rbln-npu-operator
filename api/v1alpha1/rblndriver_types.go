@@ -117,7 +117,8 @@ type RBLNDriverSpec struct {
 
 // RBLNDriverPoolStatus reports the per-pool DaemonSet readiness.
 type RBLNDriverPoolStatus struct {
-	// Name is the pool identifier (typically "<osID><osVersion>-<sanitizedKernel>").
+	// Name is the pool's DaemonSet name, "<RBLNDriver name>-<pool>", where pool
+	// is "<family>-<osID><osVersion>-<sanitizedKernel>".
 	Name string `json:"name"`
 	// Desired is the DaemonSet's spec.DesiredNumberScheduled.
 	Desired int32 `json:"desired"`
@@ -215,13 +216,23 @@ func init() {
 	SchemeBuilder.Register(&RBLNDriver{}, &RBLNDriverList{})
 }
 
-func (d *RBLNDriverSpec) GetPrecompiledImagePath(osVersion string, kernelVersion string) (string, error) {
+// GetPrecompiledImagePath composes the pull path for a node's precompiled
+// driver image. Images are published per NPU family with no family-agnostic
+// path, so family is required and is spliced in before the image's final
+// component: "rebellions/rbln-driver" -> "rebellions/atom/rbln-driver".
+func (d *RBLNDriverSpec) GetPrecompiledImagePath(osVersion, kernelVersion, family string) (string, error) {
 	if osVersion == "" || kernelVersion == "" {
 		return "", fmt.Errorf("osVersion and kernelVersion are required")
 	}
+	if family == "" {
+		return "", fmt.Errorf("NPU family is required to compose the driver image path")
+	}
 
 	registry := strings.TrimSuffix(strings.TrimSpace(d.Registry), "/")
-	image := strings.TrimPrefix(strings.TrimSpace(d.Image), "/")
+	image := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(d.Image), "/"), "/")
+	if image == "" {
+		return "", fmt.Errorf("driver image is required")
+	}
 	version := strings.TrimSpace(d.Version)
 	if version == "" {
 		return "", fmt.Errorf("driver version is required")
@@ -231,15 +242,11 @@ func (d *RBLNDriverSpec) GetPrecompiledImagePath(osVersion string, kernelVersion
 		return "", fmt.Errorf("specifying image digest is not supported when precompiled is enabled")
 	}
 
+	segments := strings.Split(image, "/")
+	leaf := segments[len(segments)-1]
+	segments[len(segments)-1] = family
+	image = strings.Join(append(segments, leaf), "/")
+
 	imagePath := fmt.Sprintf("%s/%s:%s-%s-%s", registry, image, version, kernelVersion, osVersion)
 	return imagePath, nil
-}
-
-func (d *RBLNDriver) GetNodeSelector() map[string]string {
-	if d == nil || len(d.Spec.NodeSelector) == 0 {
-		return map[string]string{
-			"rebellions.ai/npu.deploy.driver": "true",
-		}
-	}
-	return d.Spec.NodeSelector
 }

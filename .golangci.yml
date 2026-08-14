@@ -14,6 +14,7 @@ formatters:
 
 linters:
   enable:
+    - depguard
     - dupl
     - errcheck
     - copyloopvar
@@ -43,10 +44,14 @@ linters:
         - name: comment-spacings
     depguard:
       rules:
-        main:
+        # api/ carries CRD types only: no operator internals, no third-party
+        # SDKs. $gostd is allowed because the types need fmt/strings for their
+        # own validation helpers.
+        api-types-only:
           files:
             - "api/*"
           allow:
+            - "$gostd"
             - "k8s.io/*"
             - "sigs.k8s.io/*"
   exclusions:

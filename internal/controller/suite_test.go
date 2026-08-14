@@ -17,13 +17,17 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,6 +47,7 @@ var (
 	cfg       *rest.Config
 	k8sClient client.Client
 	testEnv   *envtest.Environment
+	gcCancel  context.CancelFunc
 )
 
 func TestControllers(t *testing.T) {
@@ -56,7 +61,10 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "config", "crd", "bases"),
+			filepath.Join("testdata", "crds"),
+		},
 		ErrorIfCRDPathMissing: true,
 
 		// The BinaryAssetsDirectory is only required if you want to run the tests directly
@@ -85,10 +93,53 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	// envtest runs kube-apiserver only, so nothing processes
+	// foregroundDeletion and a reaped DaemonSet would stay Terminating
+	// forever. Emulate the GC controller for dependent-free objects.
+	var gcCtx context.Context
+	gcCtx, gcCancel = context.WithCancel(context.Background())
+	go emulateForegroundGC(gcCtx)
 })
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
+	gcCancel()
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
 })
+
+func emulateForegroundGC(ctx context.Context) {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		dsList := &appsv1.DaemonSetList{}
+		if err := k8sClient.List(ctx, dsList); err != nil {
+			continue
+		}
+		for i := range dsList.Items {
+			ds := &dsList.Items[i]
+			if ds.DeletionTimestamp.IsZero() {
+				continue
+			}
+			kept := make([]string, 0, len(ds.Finalizers))
+			for _, f := range ds.Finalizers {
+				if f != metav1.FinalizerDeleteDependents {
+					kept = append(kept, f)
+				}
+			}
+			if len(kept) == len(ds.Finalizers) {
+				continue
+			}
+			ds.Finalizers = kept
+			// A conflict means someone else updated first; the next tick
+			// retries against the fresh object.
+			_ = k8sClient.Update(ctx, ds)
+		}
+	}
+}

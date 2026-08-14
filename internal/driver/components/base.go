@@ -13,27 +13,52 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/registry"
 )
 
 // DriverPatcher implementations that do not manage DaemonSets return
 // (nil, nil) from PoolStatuses so the service can iterate uniformly.
 type DriverPatcher interface {
-	IsEnabled() bool
 	Patch(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error
-	CleanUp(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error
-	IsReady(ctx context.Context) error
 	PoolStatuses(ctx context.Context) ([]rebellionsaiv1alpha1.RBLNDriverPoolStatus, error)
 	ComponentName() string
 	ComponentNamespace() string
+	// Diagnostics reports pool failures from the last Patch call that
+	// produced no DaemonSet.
+	Diagnostics() PoolDiagnostics
+}
+
+// ImageChecker reports whether a composed driver image exists in its
+// registry. Implemented by internal/registry.Checker; faked in tests.
+// The error return is diagnostic detail for the verdict, not a failure.
+type ImageChecker interface {
+	Check(ctx context.Context, imageRef string, pullSecrets []corev1.Secret) (registry.Verdict, error)
+}
+
+// MissingImagePool identifies a pool whose composed driver image is absent
+// from its registry (authoritative 404).
+type MissingImagePool struct {
+	Pool  string
+	Image string
+}
+
+// PoolDiagnostics carries reconcile-time pool failures that produce no
+// DaemonSet and would otherwise be invisible to PoolStatuses.
+type PoolDiagnostics struct {
+	NodesWithoutFamily []string
+	MissingImagePools  []MissingImagePool
+	// UnreadablePullSecrets lists configured spec.imagePullSecrets the operator
+	// could not read, each with its API reason. The image check then ran
+	// anonymously, which is the one way a NotFound verdict can be wrong, so a
+	// MissingImagePools report alongside this list must not claim the image is
+	// definitely absent.
+	UnreadablePullSecrets []string
 }
 
 // basePatcher holds the dependencies and identity shared by every driver
-// component patcher.  Concrete patchers embed this struct and inherit its
-// interface implementations.
-//
-// Shared resources (ServiceAccount, Role, RoleBinding) carry non-controller
-// ownerReferences to each RBLNDriver instance via controllerutil.SetOwnerReference.
-// Kubernetes GC only deletes them once all owners are gone.
+// component patcher. The shared resources it reconciles (ServiceAccount,
+// Role, RoleBinding) carry a non-controller ownerReference per RBLNDriver
+// instance, so GC deletes them only once every owner is gone.
 type basePatcher struct {
 	client client.Client
 	// apiReader bypasses the informer cache for status reads issued in the
@@ -46,14 +71,12 @@ type basePatcher struct {
 	instanceName     string // RBLNDriver instance name
 	namespace        string
 	openshiftVersion string
-	enabled          bool
 }
 
 // ---------------------------------------------------------------------------
 // DriverPatcher interface – generic implementations
 // ---------------------------------------------------------------------------
 
-func (b *basePatcher) IsEnabled() bool            { return b.enabled }
 func (b *basePatcher) ComponentName() string      { return b.instanceName }
 func (b *basePatcher) ComponentNamespace() string { return b.namespace }
 
@@ -144,27 +167,4 @@ func (b *basePatcher) deleteIfExists(ctx context.Context, obj client.Object) err
 		return err
 	}
 	return nil
-}
-
-// deleteOpenShiftRBAC removes the namespaced Role and RoleBinding.
-// It is a no-op on non-OpenShift clusters.
-func (b *basePatcher) deleteOpenShiftRBAC(ctx context.Context) error {
-	if b.openshiftVersion == "" {
-		return nil
-	}
-	if err := b.deleteIfExists(ctx, &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: b.name, Namespace: b.namespace},
-	}); err != nil {
-		return err
-	}
-	return b.deleteIfExists(ctx, &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{Name: b.name, Namespace: b.namespace},
-	})
-}
-
-// deleteServiceAccount removes the ServiceAccount.
-func (b *basePatcher) deleteServiceAccount(ctx context.Context) error {
-	return b.deleteIfExists(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{Name: b.name, Namespace: b.namespace},
-	})
 }

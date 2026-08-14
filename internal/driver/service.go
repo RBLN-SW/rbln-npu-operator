@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -15,18 +16,18 @@ import (
 )
 
 type DriverService struct {
-	client client.Client
-
-	ctx              context.Context
-	log              logr.Logger
-	scheme           *runtime.Scheme
 	singleton        *rebellionsaiv1alpha1.RBLNDriver
 	namespace        string
 	openshiftVersion string
 
-	patcher []components.DriverPatcher
+	driverManager components.DriverPatcher
 }
 
+// NewDriverService builds the per-reconcile component set for one RBLNDriver.
+// ownedNodes is the owner resolver's node snapshot for this instance from the
+// same reconcile pass; the driver-manager patcher partitions its pools from
+// it instead of re-listing nodes, so the pool view cannot lag the resolver's
+// owner-label writes.
 func NewDriverService(
 	ctx context.Context,
 	client client.Client,
@@ -35,13 +36,11 @@ func NewDriverService(
 	scheme *runtime.Scheme,
 	driver *rebellionsaiv1alpha1.RBLNDriver,
 	clusterPolicy *rblnv1beta1.RBLNClusterPolicy,
+	checker components.ImageChecker,
 	openshiftVersion string,
+	ownedNodes []corev1.Node,
 ) (*DriverService, error) {
 	s := &DriverService{
-		client:           client,
-		ctx:              ctx,
-		log:              log,
-		scheme:           scheme,
 		singleton:        driver,
 		openshiftVersion: openshiftVersion,
 	}
@@ -55,11 +54,12 @@ func NewDriverService(
 	}
 	s.namespace = namespace
 
-	dmp, err := components.NewDriverManagerPatcher(client, apiReader, log, s.namespace, driver, scheme, s.openshiftVersion)
+	dmp, err := components.NewDriverManagerPatcher(client, apiReader, log, s.namespace, driver, scheme, checker, s.openshiftVersion,
+		ownedNodes)
 	if err != nil {
 		return nil, err
 	}
-	s.patcher = append(s.patcher, dmp)
+	s.driverManager = dmp
 
 	return s, nil
 }
@@ -67,23 +67,14 @@ func NewDriverService(
 // Namespace returns the namespace the service deploys operands into.
 func (s *DriverService) Namespace() string { return s.namespace }
 
-// IsReady returns nil when every enabled component reports ready, or the
-// first non-ready error it encounters.
-func (s *DriverService) IsReady(ctx context.Context) error {
-	for _, p := range s.patcher {
-		if !p.IsEnabled() {
-			continue
-		}
-		if err := p.IsReady(ctx); err != nil {
-			return err
-		}
-	}
-	return nil
+// PoolDiagnostics returns the driver-manager patcher's pool failures from its
+// last Patch call.
+func (s *DriverService) PoolDiagnostics() components.PoolDiagnostics {
+	return s.driverManager.Diagnostics()
 }
 
 // AssembleStatus returns per-pool DaemonSet readiness and the aggregate
-// desired/ready node counts across all enabled patchers. Status writing is
-// the caller's responsibility.
+// desired/ready node counts. Status writing is the caller's responsibility.
 func (s *DriverService) AssembleStatus(ctx context.Context) ([]rebellionsaiv1alpha1.RBLNDriverPoolStatus, int32, int32, error) {
 	// Start with an empty, non-nil slice so a "no pools" outcome propagates
 	// as []{} rather than nil. applyDriverSummary uses nil as the sentinel
@@ -91,36 +82,22 @@ func (s *DriverService) AssembleStatus(ctx context.Context) ([]rebellionsaiv1alp
 	// silently keep stale node-pool data after cleanup.
 	pools := make([]rebellionsaiv1alpha1.RBLNDriverPoolStatus, 0)
 	var totalDesired, totalReady int32
-	for _, p := range s.patcher {
-		if !p.IsEnabled() {
-			continue
-		}
-		entries, err := p.PoolStatuses(ctx)
-		if err != nil {
-			return nil, 0, 0, err
-		}
-		for _, e := range entries {
-			totalDesired += e.Desired
-			totalReady += e.Ready
-		}
-		pools = append(pools, entries...)
+	entries, err := s.driverManager.PoolStatuses(ctx)
+	if err != nil {
+		return nil, 0, 0, err
 	}
+	for _, e := range entries {
+		totalDesired += e.Desired
+		totalReady += e.Ready
+	}
+	pools = append(pools, entries...)
 	return pools, totalDesired, totalReady, nil
 }
 
-// PatchComponents applies or removes each managed component according to
-// whether it is enabled.
+// PatchComponents applies the managed components for this RBLNDriver.
 func (s *DriverService) PatchComponents(ctx context.Context) error {
-	for _, p := range s.patcher {
-		if p.IsEnabled() {
-			if err := p.Patch(ctx, s.singleton); err != nil {
-				return fmt.Errorf("patch %s: %w", p.ComponentName(), err)
-			}
-			continue
-		}
-		if err := p.CleanUp(ctx, s.singleton); err != nil {
-			return fmt.Errorf("cleanup %s: %w", p.ComponentName(), err)
-		}
+	if err := s.driverManager.Patch(ctx, s.singleton); err != nil {
+		return fmt.Errorf("patch %s: %w", s.driverManager.ComponentName(), err)
 	}
 	return nil
 }

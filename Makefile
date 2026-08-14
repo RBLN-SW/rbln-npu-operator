@@ -57,7 +57,8 @@ RBAC_SYNC_MAP := \
 	config/rbac/role.yaml:deployments/rbln-npu-operator/templates/rbac/clusterrole-controller.yaml \
 	config/rbac/leader_election_role.yaml:deployments/rbln-npu-operator/templates/rbac/role-controller.yaml \
 	config/rbac/metrics_auth_role.yaml:deployments/rbln-npu-operator/templates/rbac/clusterrole-metrics.yaml \
-	config/rbac/metrics_reader_role.yaml:deployments/rbln-npu-operator/templates/rbac/clusterrole-metrics-reader.yaml
+	config/rbac/metrics_reader_role.yaml:deployments/rbln-npu-operator/templates/rbac/clusterrole-metrics-reader.yaml \
+	config/rbac/secret_reader_role.yaml:deployments/rbln-npu-operator/templates/rbac/role-secret-reader.yaml
 
 .PHONY: sync-rbac
 sync-rbac: ## Regenerate Helm chart RBAC rules from config/rbac (single source of truth).
@@ -96,7 +97,7 @@ unit-tests: envtest
 	@KUBEBUILDER_ASSETS_PATH="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)"; \
 	echo "KUBEBUILDER_ASSETS: $$KUBEBUILDER_ASSETS_PATH"; \
 	echo "Running Go tests..."; \
-	KUBEBUILDER_ASSETS="$$KUBEBUILDER_ASSETS_PATH" go test -v $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$$KUBEBUILDER_ASSETS_PATH" go test -v -race -shuffle=on $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 	@echo "Tests completed."
 
 .PHONY: test-e2e

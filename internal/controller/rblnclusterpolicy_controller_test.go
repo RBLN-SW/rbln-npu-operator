@@ -28,6 +28,8 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -115,6 +117,26 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			expectReadyCondition(ctx, nn, consts.RBLNConditionReasonWorkloadProgressing)
 		})
 
+		It("creates the NPU family NodeFeatureRule owned by the policy", func() {
+			rule := &unstructured.Unstructured{}
+			rule.SetGroupVersionKind(schema.GroupVersionKind{
+				Group: "nfd.k8s-sigs.io", Version: "v1alpha1", Kind: "NodeFeatureRule",
+			})
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "rbln-npu-family"}, rule)).To(Succeed())
+
+				refs := rule.GetOwnerReferences()
+				g.Expect(refs).To(HaveLen(1))
+				g.Expect(refs[0].Kind).To(Equal("RBLNClusterPolicy"))
+				g.Expect(refs[0].Name).To(Equal(nn.Name))
+
+				rules, found, err := unstructured.NestedSlice(rule.Object, "spec", "rules")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+				g.Expect(rules).To(HaveLen(len(consts.NPUFamilies)))
+			}, 5*time.Second).Should(Succeed())
+		})
+
 		It("Should clean up DevicePlugin artifacts when the component is disabled", func() {
 			// first reconcile leaves the device-plugin resources in place
 			expectResource(ctx, &corev1.ServiceAccount{}, "rbln-device-plugin", containerNS, 5*time.Second)
@@ -196,7 +218,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-device-plugin", skipNS, 5*time.Second)
 
 			By("keeping the node marked present")
-			expectNodeLabel(ctx, nodeName, consts.RBLNPresentLabelKey, "true", 5*time.Second)
+			expectNodeLabel(ctx, nodeName, consts.RBLNPresentLabelKey, "true")
 
 			By("removing deploy labels from the skipped node")
 			expectNodeHasNoLabel(ctx, nodeName, "rebellions.ai/npu.deploy.device-plugin")
@@ -568,12 +590,12 @@ func expectReadyCondition(
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "expected Ready condition status=%s reason=%s", metav1.ConditionFalse, reason)
 }
 
-func expectNodeLabel(ctx context.Context, nodeName, key, want string, timeout time.Duration) {
+func expectNodeLabel(ctx context.Context, nodeName, key, want string) {
 	Eventually(func() string {
 		var node corev1.Node
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
 		return node.Labels[key]
-	}, timeout, 250*time.Millisecond).Should(Equal(want), "expected node %s label %s=%s", nodeName, key, want)
+	}, 5*time.Second, 250*time.Millisecond).Should(Equal(want), "expected node %s label %s=%s", nodeName, key, want)
 }
 
 func expectNodeHasNoLabel(ctx context.Context, nodeName, key string) {

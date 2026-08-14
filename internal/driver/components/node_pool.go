@@ -1,16 +1,15 @@
 package components
 
 import (
-	"context"
 	"fmt"
 	"maps"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
@@ -20,26 +19,30 @@ type nodePool struct {
 	osRelease    string
 	osVersion    string
 	kernel       string
+	family       string
 	nodeSelector map[string]string
 }
 
-// getNodePools partitions nodes per osVersion-kernelVersion for precompiled drivers.
-func getNodePools(ctx context.Context, k8sClient client.Client, selector map[string]string) ([]nodePool, error) {
+// buildNodePools partitions nodes per family-os-kernel for precompiled
+// drivers. The nodes come from the caller (the owner resolver's snapshot for
+// one RBLNDriver), never from a fresh List here, so the pool view and the
+// owner assignment share one snapshot by construction. A node missing the
+// family label produces no pool, so it is reported in nodesWithoutFamily
+// instead of staying silently uncovered.
+func buildNodePools(
+	nodes []corev1.Node, selector map[string]string, logger logr.Logger,
+) (pools []nodePool, nodesWithoutFamily []string) {
 	nodePoolMap := make(map[string]nodePool)
-
-	logger := log.FromContext(ctx)
 
 	nodeSelector := buildNodeSelector(selector)
 
-	nodeList := &corev1.NodeList{}
-	if err := k8sClient.List(ctx, nodeList, client.MatchingLabels(nodeSelector)); err != nil {
-		logger.Error(err, "failed to list nodes")
-		return nil, err
-	}
-
-	for _, node := range nodeList.Items {
+	for _, node := range nodes {
 		pool, ok := buildNodePool(node, nodeSelector, logger)
 		if !ok {
+			continue
+		}
+		if pool.family == "" {
+			nodesWithoutFamily = append(nodesWithoutFamily, node.Name)
 			continue
 		}
 		if _, exists := nodePoolMap[pool.name]; !exists {
@@ -47,13 +50,14 @@ func getNodePools(ctx context.Context, k8sClient client.Client, selector map[str
 			nodePoolMap[pool.name] = pool
 		}
 	}
+	sort.Strings(nodesWithoutFamily)
 
-	nodePools := make([]nodePool, 0, len(nodePoolMap))
+	pools = make([]nodePool, 0, len(nodePoolMap))
 	for _, pool := range nodePoolMap {
-		nodePools = append(nodePools, pool)
+		pools = append(pools, pool)
 	}
 
-	return nodePools, nil
+	return pools, nodesWithoutFamily
 }
 
 func buildNodeSelector(selector map[string]string) map[string]string {
@@ -64,6 +68,9 @@ func buildNodeSelector(selector map[string]string) map[string]string {
 	return nodeSelector
 }
 
+// buildNodePool reads a node's NFD and npu.family labels into a nodePool.
+// The bool return covers the os/kernel labels only; family validity is a
+// separate axis, signaled by an empty pool.family for the caller to classify.
 func buildNodePool(node corev1.Node, baseSelector map[string]string, logger logr.Logger) (nodePool, bool) {
 	nodeLabels := node.GetLabels()
 	nodePool := nodePool{
@@ -93,6 +100,33 @@ func buildNodePool(node corev1.Node, baseSelector map[string]string, logger logr
 	nodePool.nodeSelector[consts.NFDKernelLabelKey] = kernelVersion
 	nodePool.kernel = kernelVersion
 	nodePool.name = fmt.Sprintf("%s-%s", nodePool.name, getSanitizedKernelVersion(kernelVersion))
+
+	// This label comes from the operator's own NodeFeatureRule, not
+	// third-party NFD, so getNodeLabel's "Is NFD installed?" hint would
+	// misattribute a miss. The value is spliced verbatim into DaemonSet
+	// names and image paths, so it is validated and never sanitized:
+	// silently lowercasing a misconfigured label would mask a real mistake.
+	family, ok := nodeLabels[consts.RBLNNPUFamilyLabelKey]
+	if ok {
+		family = strings.TrimSpace(family)
+		composedName := family + "-" + nodePool.name
+		switch {
+		case len(validation.IsDNS1123Label(family)) != 0:
+			logger.V(consts.LogLevelDebug).Info("npu.family label value is not a valid DNS-1123 label; treating node as unlabeled",
+				"Node", node.Name, "value", family)
+		case len(composedName) > validation.LabelValueMaxLength:
+			// pool.name becomes a DaemonSet label value, so a family that is
+			// valid on its own can still push the composed name past the
+			// 63-char cap. Letting it through would hard-fail the DaemonSet
+			// create with an API validation error instead of failing here.
+			logger.V(consts.LogLevelDebug).Info("npu.family label value composes a node-pool name over the 63-character label-value limit; treating node as unlabeled",
+				"Node", node.Name, "value", family, "composedName", composedName)
+		default:
+			nodePool.family = family
+			nodePool.nodeSelector[consts.RBLNNPUFamilyLabelKey] = family
+			nodePool.name = composedName
+		}
+	}
 
 	return nodePool, true
 }

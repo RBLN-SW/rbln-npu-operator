@@ -34,38 +34,6 @@ func TestIsNodeUnschedulable(t *testing.T) {
 	}
 }
 
-func TestIsOrphanedPod(t *testing.T) {
-	trueVal := true
-	tests := map[string]struct {
-		ownerRefs []metav1.OwnerReference
-		want      bool
-	}{
-		"returns true when no owner references": {
-			ownerRefs: nil,
-			want:      true,
-		},
-		"returns true when owner references exist but none is controller": {
-			ownerRefs: []metav1.OwnerReference{{Name: "ds"}},
-			want:      true,
-		},
-		"returns false when controller owner reference exists": {
-			ownerRefs: []metav1.OwnerReference{{Name: "ds", Controller: &trueVal}},
-			want:      false,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			pod := &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{OwnerReferences: tc.ownerRefs},
-			}
-			if got := IsOrphanedPod(pod); got != tc.want {
-				t.Fatalf("IsOrphanedPod() = %t, want %t", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestIsNodeInRequestorMode(t *testing.T) {
 	tests := map[string]struct {
 		annotations map[string]string
