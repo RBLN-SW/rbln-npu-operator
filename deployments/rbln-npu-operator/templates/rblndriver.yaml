@@ -1,53 +1,60 @@
+{{- if and (not .Values.driver.enabled) .Values.driver.instances }}
+{{- fail "driver.instances requires driver.enabled=true (instances would be silently ignored otherwise)" }}
+{{- end }}
 {{- if .Values.driver.enabled }}
+{{- if and (not .Values.driver.deployDefault) (not .Values.driver.instances) }}
+{{- fail "driver.deployDefault=false requires at least one entry in driver.instances" }}
+{{- end }}
+{{- /* keep in sync with reservedSelectorKeys in internal/driver/owner_resolver.go (internal/consts values) */}}
+{{- $reserved := list "rebellions.ai/npu.driver.owner" "rebellions.ai/npu.deploy.driver" }}
+{{- range $k := $reserved }}
+{{- if hasKey ($.Values.driver.nodeSelector | default dict) $k }}
+{{- fail (printf "driver.nodeSelector must not set reserved label key %q" $k) }}
+{{- end }}
+{{- end }}
+{{- if .Values.driver.deployDefault }}
 apiVersion: rebellions.ai/v1alpha1
 kind: RBLNDriver
 metadata:
   labels:
-    {{- include "rbln-npu-operator.labels" . | nindent 4 }}
+    {{- include "rbln-npu-operator.labels" $ | nindent 4 }}
   name: rbln-driver
 spec:
-  registry: {{ .Values.driver.image.registry | quote }}
-  image: {{ .Values.driver.image.repository | quote }}
-  version: {{ .Values.driver.image.tag | quote }}
-  imagePullPolicy: {{ .Values.driver.image.pullPolicy | quote }}
-  {{- with .Values.driver.imagePullSecrets }}
-  imagePullSecrets:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- with .Values.driver.nodeSelector }}
-  nodeSelector:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- with .Values.driver.tolerations }}
-  tolerations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- with .Values.driver.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- if .Values.driver.priorityClassName }}
-  priorityClassName: {{ .Values.driver.priorityClassName | quote }}
-  {{- end }}
-  {{- with .Values.driver.resources }}
-  resources:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- with .Values.driver.env }}
-  env:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- with .Values.driver.manager }}
-  manager:
-    {{- if .image }}
-    registry: {{ .image.registry | quote }}
-    image: {{ .image.repository | quote }}
-    version: {{ .image.tag | quote }}
-    imagePullPolicy: {{ .image.pullPolicy | quote }}
-    {{- end }}
-    {{- with .imagePullSecrets }}
-    imagePullSecrets:
-      {{- toYaml . | nindent 6 }}
-    {{- end }}
-  {{- end }}
+  {{- include "rbln-npu-operator.driverSpec" .Values.driver | nindent 2 }}
+{{- end }}
+{{- /* nodeSelector MUST stay omitted: instances never inherit the base
+     selector — a deep-merged selector would silently corrupt targeting.
+     The other omit keys are defensive; driverSpec doesn't render them. */}}
+{{- $base := omit (deepCopy .Values.driver) "instances" "upgradePolicy" "enabled" "deployDefault" "nodeSelector" }}
+{{- range $key, $inst := .Values.driver.instances }}
+{{- /* 63 (label value cap for the CR name) - len("rbln-driver-") = 51 max; 40 keeps headroom for derived names. */}}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$" $key) }}
+{{- fail (printf "driver.instances key %q must be a lowercase DNS-1123 label of at most 40 chars" $key) }}
+{{- end }}
+{{- $inst = $inst | default dict }}
+{{- if not $inst.nodeSelector }}
+{{- fail (printf "driver.instances.%s.nodeSelector is required and must be non-empty (only the default instance is a fallback)" $key) }}
+{{- end }}
+{{- range $k := $reserved }}
+{{- if hasKey $inst.nodeSelector $k }}
+{{- fail (printf "driver.instances.%s.nodeSelector must not set reserved label key %q" $key $k) }}
+{{- end }}
+{{- end }}
+{{- $allowed := list "image" "imagePullSecrets" "nodeSelector" "tolerations" "annotations" "priorityClassName" "resources" "env" "manager" }}
+{{- range $field, $_ := $inst }}
+{{- if not (has $field $allowed) }}
+{{- fail (printf "driver.instances.%s.%s is not a supported instance field (upgradePolicy is cluster-wide; enabled/deployDefault apply only to the driver block). Supported: %s" $key $field (join ", " $allowed)) }}
+{{- end }}
+{{- end }}
+{{- $spec := mergeOverwrite (deepCopy $base) (deepCopy $inst) }}
+---
+apiVersion: rebellions.ai/v1alpha1
+kind: RBLNDriver
+metadata:
+  labels:
+    {{- include "rbln-npu-operator.labels" $ | nindent 4 }}
+  name: rbln-driver-{{ $key }}
+spec:
+  {{- include "rbln-npu-operator.driverSpec" $spec | nindent 2 }}
+{{- end }}
 {{- end }}

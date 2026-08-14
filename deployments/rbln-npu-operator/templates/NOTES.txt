@@ -17,3 +17,13 @@ pre-upgrade hook Job (disable with crds.upgrade.enabled=false).
 {{- end }}
 
 For more information, visit: https://github.com/rebellions-sw/rbln-npu-operator
+{{- if .Values.driver.enabled }}
+
+Driver instances:
+{{- if .Values.driver.deployDefault }}
+  - rbln-driver (default{{- if not .Values.driver.nodeSelector }}, fallback for all NPU nodes{{- end }})
+{{- end }}
+{{- range $key, $_ := .Values.driver.instances }}
+  - rbln-driver-{{ $key }}
+{{- end }}
+{{- end }}

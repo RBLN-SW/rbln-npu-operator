@@ -1,0 +1,32 @@
+# Multi-driver example: per-family versions plus a canary group.
+# Apply with: helm install rbln-npu-operator . -f sample-values-MultiDriver.yaml
+# Values omitted here inherit from values.yaml.
+# rebellions.ai/npu.family labels are applied automatically by the
+# operator-managed NodeFeatureRule; env is any user-applied label.
+# The effective pull path for each instance is family-scoped
+# (.../atom/rbln-driver, .../rebel100/rbln-driver), derived automatically
+# from the node's family label -- not the flat repository path above.
+driver:
+  enabled: true
+  deployDefault: false        # every NPU node is explicitly grouped below
+  image:
+    registry: repo.rebellions.ai
+    repository: rebellions/rbln-driver
+    tag: "3.2.2"              # inherited default for instances
+  imagePullSecrets:
+  - drivercred
+  instances:
+    atom:
+      nodeSelector:
+        rebellions.ai/npu.family: atom
+    atom-canary:
+      image:
+        tag: "3.3.0-rc1"
+      nodeSelector:
+        rebellions.ai/npu.family: atom
+        env: canary
+    rebel100:
+      image:
+        tag: "3.5.0"
+      nodeSelector:
+        rebellions.ai/npu.family: rebel100
