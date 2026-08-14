@@ -15,3 +15,29 @@ jobs:
         name: Setup Helm
       - name: Run helm lint
         run: helm lint deployments/rbln-npu-operator
+      - name: Template chart with sample values
+        run: |
+          helm repo add nfd https://kubernetes-sigs.github.io/node-feature-discovery/charts --force-update
+          helm dependency build deployments/rbln-npu-operator
+          for f in deployments/rbln-npu-operator/sample-values-*.yaml; do
+            helm template ci deployments/rbln-npu-operator -f "$f" > /dev/null
+          done
+          helm template ci deployments/rbln-npu-operator --set operator.driverImageCheck=false > /dev/null
+          # driver.instances guardrails: every combination below is a
+          # violation and must fail to render. A plain `! helm template ...`
+          # cannot gate this: bash errexit exempts !-inverted commands, so a
+          # removed guardrail would render fine and the step would still pass.
+          must_fail() {
+            if helm template ci deployments/rbln-npu-operator "$@" > /dev/null 2>&1; then
+              echo "guardrail missing: helm template unexpectedly succeeded with: $*" >&2
+              exit 1
+            fi
+          }
+          must_fail --set driver.enabled=true --set driver.instances.a.image.tag=x
+          must_fail --set driver.enabled=false --set driver.instances.a.nodeSelector.family=atom
+          must_fail --set driver.enabled=true --set driver.deployDefault=false
+          must_fail --set driver.enabled=true --set 'driver.instances.a.nodeSelector.rebellions\.ai/npu\.driver\.owner=x'
+          must_fail --set driver.enabled=true --set 'driver.nodeSelector.rebellions\.ai/npu\.deploy\.driver=true'
+          must_fail --set driver.enabled=true --set driver.instances.a.nodeSelector.family=atom --set driver.instances.a.bogus=x
+          must_fail --set driver.enabled=true --set driver.instances.Bad.nodeSelector.family=atom
+          must_fail --set driver.enabled=true --set driver.instances.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nodeSelector.family=atom
