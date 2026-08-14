@@ -17,6 +17,8 @@ The RBLN NPU Operator is designed to:
 - Helm 3.0+
 - Node Feature Discovery (NFD) - can be installed via this chart
 - Rebellions NPU hardware (RBLN-CA12, RBLN-CA22, RBLN-CA25)
+- Driver images published under family-scoped registry paths (BREAKING since
+  this version): `{registry}/{org}/{family}/{name}:{version}-{kernel}-{os}`
 - For VM passthrough workloads: KubeVirt 0.50+ installed and configured
 
 ## Installation
@@ -36,7 +38,7 @@ The RBLN NPU Operator is designed to:
 
 ### Using Sample Configurations
 
-This chart provides two pre-configured sample values files for different workload types:
+This chart provides three pre-configured sample values files for different workload types:
 
 #### Container Workloads
 For traditional containerized AI workloads:
@@ -55,6 +57,22 @@ helm install rbln-npu-operator ./rbln-npu-operator \
   --create-namespace \
   --namespace rbln-system
 ```
+
+#### Multi-Driver Deployments
+For clusters with multiple NPU families or versions, running per-node-group driver versions:
+```bash
+helm install rbln-npu-operator ./rbln-npu-operator \
+  -f ./rbln-npu-operator/sample-values-MultiDriver.yaml \
+  --create-namespace \
+  --namespace rbln-system
+```
+The `rebellions.ai/npu.family` labels used by the instance selectors are
+applied automatically by the operator's `NodeFeatureRule` (requires NFD).
+Each instance's image is pulled from that same family-scoped registry path
+(BREAKING; see [Driver image layout](../../README.md#driver-image-layout-breaking)).
+See the root README's [Multiple driver versions](../../README.md#multiple-driver-versions)
+section for the `driver.instances` inheritance rules, routing/tie behavior, and
+migration notes.
 
 ### Custom Installation
 

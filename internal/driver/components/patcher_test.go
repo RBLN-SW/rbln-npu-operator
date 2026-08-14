@@ -60,6 +60,7 @@ func newTestOwner() *rebellionsaiv1alpha1.RBLNDriver {
 		},
 		Spec: rebellionsaiv1alpha1.RBLNDriverSpec{
 			Version: "3.0.0",
+			Image:   "rebellions/rbln-driver",
 		},
 	}
 }

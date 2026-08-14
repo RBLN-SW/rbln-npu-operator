@@ -29,6 +29,17 @@ const (
 	RBLNDeployRBLNDaemonLabelKey    = "rebellions.ai/npu.deploy.rbln-daemon"
 	NFDLabelPrefix                  = "feature.node.kubernetes.io/"
 
+	// RBLNDriverOwnerLabelKey names the single RBLNDriver that owns a node's
+	// driver DaemonSet; DaemonSets select on it instead of user selectors.
+	// Only npu.deploy.driver=true nodes are in scope, and the label is absent
+	// while no driver claims the node. User selectors must not set it.
+	RBLNDriverOwnerLabelKey = "rebellions.ai/npu.driver.owner"
+
+	// RBLNNPUFamilyLabelKey carries the node's NPU product family (values in
+	// NPUFamilies), applied by the operator-managed NodeFeatureRule for use
+	// in RBLNDriver nodeSelectors.
+	RBLNNPUFamilyLabelKey = "rebellions.ai/npu.family"
+
 	RBLNDeployDriverPreInstalled = "pre-installed"
 )
 
@@ -71,6 +82,8 @@ const (
 	RBLNConditionReasonInvalidSpec             = "InvalidSpec"
 	RBLNConditionReasonDriverPoolNotReady      = "DriverPoolNotReady"
 	RBLNConditionReasonConflictingSelector     = "ConflictingNodeSelector"
+	RBLNConditionReasonFamilyLabelMissing      = "DriverFamilyLabelMissing"
+	RBLNConditionReasonImageNotFound           = "DriverImageNotFound"
 )
 
 // Event reasons — observability contract, keep stable. A reason string means
@@ -84,6 +97,8 @@ const (
 	RBLNEventReasonComponentApplyFailed   = "ComponentApplyFailed"
 	RBLNEventReasonDriverInstallFailed    = "DriverInstallFailed"
 	RBLNEventReasonDriverReady            = "DriverReady"
+	RBLNEventReasonDriverNodeUncovered    = "DriverNodeUncovered"
+	RBLNEventReasonDriverOwnerChanged     = "DriverOwnerChanged"
 )
 
 // Base name prefix for all RBLN components
@@ -122,6 +137,28 @@ const (
 const (
 	RBLNFeatureDiscoveryName = "npu-feature-discovery"
 )
+
+// NPU family NodeFeatureRule constants
+const (
+	RBLNNPUFamilyRuleName = "npu-family"
+)
+
+// NPUFamily ties one NPU product family (an RBLNNPUFamilyLabelKey value) to
+// its PCI device IDs under vendor RBLNVendorCode.
+type NPUFamily struct {
+	Name      string
+	DeviceIDs []string
+}
+
+// NPUFamilies is the only device-ID → family mapping in the operator; extend
+// it when new device IDs ship. Slice order is the NodeFeatureRule rule order
+// and must stay deterministic so reconciles are no-ops. All rules share one
+// label key, so a (hardware-premise-impossible) node carrying devices from
+// two families would silently get the last matching family in this order.
+var NPUFamilies = []NPUFamily{
+	{Name: "atom", DeviceIDs: []string{"1220", "1221", "1250", "1251"}},
+	{Name: "rebel100", DeviceIDs: []string{"2030", "2031", "2130", "2131"}},
+}
 
 // Container toolkit constants
 const (

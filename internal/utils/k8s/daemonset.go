@@ -58,14 +58,6 @@ func (b *DaemonSetBuilder) WithAnnotations(annotations map[string]string) *Daemo
 	return b
 }
 
-func (b *DaemonSetBuilder) WithPodAnnotations(annotations map[string]string) *DaemonSetBuilder {
-	if len(annotations) == 0 {
-		return b
-	}
-	b.obj.Spec.Template.Annotations = MergeMaps(b.obj.Spec.Template.Annotations, annotations)
-	return b
-}
-
 // WithPodSpec merges the desired PodSpec fields into the existing spec.
 // Only operator-managed fields are overwritten; API-server-defaulted fields
 // (restartPolicy, dnsPolicy, schedulerName, etc.) are preserved to avoid

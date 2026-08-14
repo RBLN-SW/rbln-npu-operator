@@ -353,7 +353,12 @@ jobs:
             | sed -E "s|\(#([0-9]+)\)|([#\1](https://github.com/${REPO}/pull/\1))|g" \
             > commits.txt
 
-          get_commits() { grep -E "^$1(\(.*\))?:" commits.txt || true; }
+          # !-marked commits (feat!:, feat(scope)!:) are breaking per Conventional
+          # Commits: surface them in a dedicated section AND under their own type.
+          # Without the !? the type patterns silently drop breaking commits.
+          get_commits() { grep -E "^$1(\(.*\))?!?:" commits.txt || true; }
+
+          BREAKING=$(grep -E "^[a-z]+(\(.*\))?!:" commits.txt || true)
 
           FEATS=$(get_commits "feat")
           FIXES=$(get_commits "fix")
@@ -368,6 +373,15 @@ jobs:
           {
             echo "# Release Notes"
             echo
+
+            if [ -n "$BREAKING" ]; then
+              echo "## ⚠ Breaking Changes"
+              echo "$BREAKING" | sed 's/^/- /'
+              echo
+              echo "> Review this version's migration notes under [docs/](https://github.com/${REPO}/tree/${CURRENT_TAG}/docs) before upgrading."
+              echo
+            fi
+
             echo "## New Features"
             if [ -n "$FEATS" ]; then
               echo "$FEATS" | sed 's/^/- /'

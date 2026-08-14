@@ -63,6 +63,17 @@ operator:
       scrapeTimeout: 10s
       additionalLabels: {}
       relabelings: []
+  # Verify each composed driver image exists in its registry (manifest HEAD,
+  # authenticated with the driver CR's imagePullSecrets) before rendering the
+  # pool DaemonSet. Only a 404 fails the pool, with a DriverImageNotFound
+  # condition naming the exact missing image instead of a silent
+  # ImagePullBackOff; every other outcome (401/403, timeout, TLS or DNS
+  # failure) only logs a warning and proceeds, leaving kubelet the final
+  # arbiter. Set false to skip the check entirely -- a mirror-only or
+  # disconnected cluster, or one where node-level credentials the operator
+  # cannot see (ServiceAccount pull secret, kubelet config.json, ECR/GCR
+  # instance identity) authenticate the pull.
+  driverImageCheck: true
   # Pod security context
   securityContext:
     runAsNonRoot: true
@@ -99,6 +110,10 @@ operator:
 # Driver configuration
 driver:
   enabled: false
+  # Deploy the default RBLNDriver CR (rbln-driver): the fallback for every NPU
+  # node not claimed by an entry in driver.instances. Set false to run only
+  # explicitly targeted instances (requires at least one instance).
+  deployDefault: true
   # Driver upgrade policy rendered under spec.driver.upgradePolicy.
   # If autoUpgrade is false, the remaining options are ignored.
   upgradePolicy:
@@ -171,6 +186,22 @@ driver:
       pullPolicy: IfNotPresent
   #  imagePullSecrets:
   #  - my-registry-secret
+  # Additional RBLNDriver instances for per-node-group driver versions.
+  # Each key becomes a CR named rbln-driver-<key>. Fields not set on an
+  # instance inherit from the driver block above (maps deep-merge; LISTS such
+  # as tolerations/env/imagePullSecrets REPLACE the inherited value).
+  # nodeSelector is never inherited and is required per instance; overlap is
+  # resolved by specificity (a selector that is a strict superset wins), and
+  # incomparable ties are reported on the CR as ConflictingNodeSelector.
+  # Example:
+  # instances:
+  #   atom-canary:
+  #     image:
+  #       tag: "3.3.0-rc1"
+  #     nodeSelector:
+  #       rebellions.ai/npu.family: atom
+  #       env: canary
+  instances: {}
 
 
 # NPU Device Plugin configuration

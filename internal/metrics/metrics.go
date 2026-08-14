@@ -70,12 +70,43 @@ var (
 		Help:      "Per-pool ratio of ready pods to desired pods for the driver-manager DaemonSet.",
 	}, []string{"driver", "pool"})
 
+	// Owner-routing gauges are recomputed and Reset() on every resolve pass.
+	// DriverOwnedNodes carries a 0 series for every routable RBLNDriver so a
+	// selector that matches nothing stays visible; conflict series exist only
+	// while a tie persists, so alert rules must not rely on absent().
+	DriverOwnedNodes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "driver_owned_nodes",
+		Help:      "Number of nodes owned by each RBLNDriver instance.",
+	}, []string{"driver"})
+
+	DriverUncoveredNodes = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "driver_uncovered_nodes",
+		Help:      "Number of driver-deploy NPU nodes with no owning RBLNDriver (no selector matches, or an unresolved selector tie).",
+	})
+
+	DriverSelectorConflicts = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "driver_selector_conflict_nodes",
+		Help:      "Number of nodes where this RBLNDriver's nodeSelector ties with another RBLNDriver.",
+	}, []string{"driver"})
+
 	DriverUpgradeNodes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Name:      "driver_upgrade_nodes",
 		Help:      "Number of nodes per driver upgrade state.",
 	}, []string{"state"})
 )
+
+// CleanupDriverSeries drops per-driver series for a deleted RBLNDriver so
+// stale label values do not linger until the next operator restart.
+func CleanupDriverSeries(driverName string) {
+	DriverPoolReady.DeletePartialMatch(prometheus.Labels{"driver": driverName})
+	DriverReconcileStatus.DeleteLabelValues(driverName)
+	DriverOwnedNodes.DeleteLabelValues(driverName)
+	DriverSelectorConflicts.DeleteLabelValues(driverName)
+}
 
 func init() {
 	metrics.Registry.MustRegister(
@@ -86,6 +117,9 @@ func init() {
 		NPUNodes,
 		WorkloadCoverage,
 		DriverPoolReady,
+		DriverOwnedNodes,
+		DriverUncoveredNodes,
+		DriverSelectorConflicts,
 		DriverUpgradeNodes,
 	)
 }

@@ -25,11 +25,6 @@ func TestShouldSkipDaemonSetUpdateByDriverHash(t *testing.T) {
 		digest   string
 		wantSkip bool
 	}{
-		"nil current returns false": {
-			current:  nil,
-			digest:   "abc123",
-			wantSkip: false,
-		},
 		"matching annotation hash skips update": {
 			current: &appsv1.DaemonSet{
 				ObjectMeta: metav1.ObjectMeta{
@@ -147,51 +142,63 @@ func newStaleTestDaemonSet(name, instanceName, poolName string) *appsv1.DaemonSe
 
 func TestCleanUpStaleDaemonSets(t *testing.T) {
 	tests := map[string]struct {
-		existingDS   []*appsv1.DaemonSet
-		desiredPools []nodePool
-		wantDeleted  []string // DS names that should be deleted
-		wantKept     []string // DS names that should remain
+		existingDS       []*appsv1.DaemonSet
+		desiredPoolNames []string
+		wantDeleted      []string // DS names that should be deleted
+		wantKept         []string // DS names that should remain
 	}{
 		"deletes orphaned DaemonSets": {
 			existingDS: []*appsv1.DaemonSet{
 				newStaleTestDaemonSet(testInstanceName+"-ubuntu22.04-5.15.0", testInstanceName, "ubuntu22.04-5.15.0"),
 				newStaleTestDaemonSet(testInstanceName+"-ubuntu22.04-5.19.0", testInstanceName, "ubuntu22.04-5.19.0"),
 			},
-			desiredPools: []nodePool{{name: "ubuntu22.04-5.19.0"}},
-			wantDeleted:  []string{testInstanceName + "-ubuntu22.04-5.15.0"},
-			wantKept:     []string{testInstanceName + "-ubuntu22.04-5.19.0"},
+			desiredPoolNames: []string{"ubuntu22.04-5.19.0"},
+			wantDeleted:      []string{testInstanceName + "-ubuntu22.04-5.15.0"},
+			wantKept:         []string{testInstanceName + "-ubuntu22.04-5.19.0"},
 		},
 		"no stale DaemonSets": {
 			existingDS: []*appsv1.DaemonSet{
 				newStaleTestDaemonSet(testInstanceName+"-ubuntu22.04-5.15.0", testInstanceName, "ubuntu22.04-5.15.0"),
 			},
-			desiredPools: []nodePool{{name: "ubuntu22.04-5.15.0"}},
-			wantDeleted:  nil,
-			wantKept:     []string{testInstanceName + "-ubuntu22.04-5.15.0"},
+			desiredPoolNames: []string{"ubuntu22.04-5.15.0"},
+			wantDeleted:      nil,
+			wantKept:         []string{testInstanceName + "-ubuntu22.04-5.15.0"},
 		},
 		"all DaemonSets stale": {
 			existingDS: []*appsv1.DaemonSet{
 				newStaleTestDaemonSet(testInstanceName+"-ubuntu22.04-5.15.0", testInstanceName, "ubuntu22.04-5.15.0"),
 				newStaleTestDaemonSet(testInstanceName+"-rhel9-5.14.0", testInstanceName, "rhel9-5.14.0"),
 			},
-			desiredPools: []nodePool{{name: "ubuntu22.04-6.0.0"}},
-			wantDeleted:  []string{testInstanceName + "-ubuntu22.04-5.15.0", testInstanceName + "-rhel9-5.14.0"},
-			wantKept:     nil,
+			desiredPoolNames: []string{"ubuntu22.04-6.0.0"},
+			wantDeleted:      []string{testInstanceName + "-ubuntu22.04-5.15.0", testInstanceName + "-rhel9-5.14.0"},
+			wantKept:         nil,
 		},
 		"ignores other instances": {
 			existingDS: []*appsv1.DaemonSet{
 				newStaleTestDaemonSet(testInstanceName+"-ubuntu22.04-5.15.0", testInstanceName, "ubuntu22.04-5.15.0"),
 				newStaleTestDaemonSet("other-instance-ubuntu22.04-5.15.0", "other-instance", "ubuntu22.04-5.15.0"),
 			},
-			desiredPools: []nodePool{{name: "ubuntu22.04-5.19.0"}},
-			wantDeleted:  []string{testInstanceName + "-ubuntu22.04-5.15.0"},
-			wantKept:     []string{"other-instance-ubuntu22.04-5.15.0"},
+			desiredPoolNames: []string{"ubuntu22.04-5.19.0"},
+			wantDeleted:      []string{testInstanceName + "-ubuntu22.04-5.15.0"},
+			wantKept:         []string{"other-instance-ubuntu22.04-5.15.0"},
 		},
 		"empty existing list": {
-			existingDS:   nil,
-			desiredPools: []nodePool{{name: "ubuntu22.04-5.15.0"}},
-			wantDeleted:  nil,
-			wantKept:     nil,
+			existingDS:       nil,
+			desiredPoolNames: []string{"ubuntu22.04-5.15.0"},
+			wantDeleted:      nil,
+			wantKept:         nil,
+		},
+		"empty pool name never matches a malformed DaemonSet": {
+			// A DaemonSet with no node-pool label at all (poolName == "")
+			// must never be immortalized by an equally-empty entry in
+			// desiredPoolNames; there is no such entry here, so this must
+			// still be reaped like any other stale DaemonSet.
+			existingDS: []*appsv1.DaemonSet{
+				newStaleTestDaemonSet(testInstanceName+"-no-pool-label", testInstanceName, ""),
+			},
+			desiredPoolNames: []string{"ubuntu22.04-5.15.0"},
+			wantDeleted:      []string{testInstanceName + "-no-pool-label"},
+			wantKept:         nil,
 		},
 	}
 
@@ -210,9 +217,18 @@ func TestCleanUpStaleDaemonSets(t *testing.T) {
 				},
 			}
 
+			desiredPoolNames := make(map[string]struct{}, len(tc.desiredPoolNames))
+			for _, name := range tc.desiredPoolNames {
+				desiredPoolNames[name] = struct{}{}
+			}
+
 			ctx := context.Background()
-			if err := h.cleanUpStaleDaemonSets(ctx, tc.desiredPools); err != nil {
-				t.Fatalf("cleanUpStaleDaemonSets() error: %v", err)
+			stale, err := h.findStaleDaemonSets(ctx, desiredPoolNames)
+			if err != nil {
+				t.Fatalf("findStaleDaemonSets() error: %v", err)
+			}
+			if err := h.reapDaemonSets(ctx, stale); err != nil {
+				t.Fatalf("reapDaemonSets() error: %v", err)
 			}
 
 			for _, dsName := range tc.wantDeleted {

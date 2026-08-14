@@ -41,13 +41,6 @@ var subscriptionPathMap = map[string]mountPathToVolumeSource{
 	},
 }
 
-func getSubscriptionPathsToVolumeSources(os string) (mountPathToVolumeSource, error) {
-	if m, ok := subscriptionPathMap[os]; ok {
-		return m, nil
-	}
-	return nil, fmt.Errorf("distribution %s not supported", os)
-}
-
 // ─── ConfigMap ──────────────────────────────────────────────────────────────
 
 func (h *driverManagerPatcher) handleConfigMap(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {
@@ -115,18 +108,11 @@ publish_component_ready
 
 // ─── Pod spec builders ──────────────────────────────────────────────────────
 
-func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool) (*corev1.PodSpec, error) {
-	additionalVolumeMounts, additionalVolumes, err := h.buildSubscriptionMountsAndVolumes(pool)
-	if err != nil {
-		return nil, err
-	}
+func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath string) *corev1.PodSpec {
+	additionalVolumeMounts, additionalVolumes := h.buildSubscriptionMountsAndVolumes(pool)
 
 	initContainer := h.buildDriverManagerInitContainer()
-
-	driverContainer, err := h.buildDriverContainer(pool, additionalVolumeMounts)
-	if err != nil {
-		return nil, err
-	}
+	driverContainer := h.buildDriverContainer(additionalVolumeMounts, imagePath)
 
 	volumes := []corev1.Volume{
 		{
@@ -186,7 +172,7 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool) (*corev1.PodSpe
 		WithVolumes(volumes).
 		WithInitContainers([]*corev1.Container{initContainer}).
 		WithContainers([]*corev1.Container{driverContainer}).
-		Build(), nil
+		Build()
 }
 
 func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Container {
@@ -250,15 +236,15 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 		Build()
 }
 
+// buildDriverContainer takes imagePath as a parameter rather than deriving
+// it via GetPrecompiledImagePath itself: Patch already computed this exact
+// string to check against the registry, and the checked ref and the
+// deployed ref must be the same string by construction, not by two call
+// sites happening to agree.
 func (h *driverManagerPatcher) buildDriverContainer(
-	pool nodePool,
 	additionalVolumeMounts []corev1.VolumeMount,
-) (*corev1.Container, error) {
-	imagePath, err := h.desiredSpec.GetPrecompiledImagePath(pool.getOS(), pool.kernel)
-	if err != nil {
-		return nil, err
-	}
-
+	imagePath string,
+) *corev1.Container {
 	pullPolicy := h.resolveImagePullPolicy()
 
 	volumeMounts := []corev1.VolumeMount{
@@ -313,7 +299,7 @@ func (h *driverManagerPatcher) buildDriverContainer(
 		FailureThreshold: driverManagerStartupProbeFailureThreshold,
 	}
 
-	return container, nil
+	return container
 }
 
 // driverContainerEnvs merges user-supplied env vars with operator-managed
@@ -350,17 +336,15 @@ func (h *driverManagerPatcher) subscriptionOS(pool nodePool) string {
 
 func (h *driverManagerPatcher) buildSubscriptionMountsAndVolumes(
 	pool nodePool,
-) ([]corev1.VolumeMount, []corev1.Volume, error) {
+) ([]corev1.VolumeMount, []corev1.Volume) {
 	osType := h.subscriptionOS(pool)
 	if osType == "" {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	h.log.Info("Mounting subscription entitlements into driver container", "os", osType, "nodePool", pool.name)
-	pathToVolumeSource, err := getSubscriptionPathsToVolumeSources(osType)
-	if err != nil {
-		return nil, nil, err
-	}
+	// subscriptionOS only ever yields a key of subscriptionPathMap.
+	pathToVolumeSource := subscriptionPathMap[osType]
 
 	mountPaths := make([]string, 0, len(pathToVolumeSource))
 	for mountPath := range pathToVolumeSource {
@@ -380,5 +364,5 @@ func (h *driverManagerPatcher) buildSubscriptionMountsAndVolumes(
 		})
 	}
 
-	return additionalVolumeMounts, additionalVolumes, nil
+	return additionalVolumeMounts, additionalVolumes
 }

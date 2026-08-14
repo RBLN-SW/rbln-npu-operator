@@ -6,6 +6,9 @@ metadata:
   name: rbln-driver
 spec:
   registry: repo.rebellions.ai
+  # Effective pull path: {registry}/{org}/<family>/rbln-driver:{version}-<kernel>-<os>
+  # -- the family segment is injected automatically from each node's
+  # rebellions.ai/npu.family label; never write it into `image` here.
   image: rebellions/rbln-driver
   version: "3.2.2"
   imagePullPolicy: IfNotPresent

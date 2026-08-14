@@ -1,0 +1,39 @@
+# Two RBLNDriver instances routed by node labels. The operator stamps
+# rebellions.ai/npu.driver.owner on each NPU node; a more specific selector
+# (strict superset) wins that node, and the empty-selector CR (if any) is the
+# fallback for unmatched nodes. The rebellions.ai/npu.family labels are
+# applied automatically by the operator-managed NodeFeatureRule; env is any
+# user-applied label.
+#
+# Effective pull path for `image: rebellions/rbln-driver` below:
+# {registry}/{org}/<family>/rbln-driver:{version}-<kernel>-<os> -- the family
+# segment is injected automatically from each node's npu.family label, never
+# written into `image` here.
+apiVersion: rebellions.ai/v1alpha1
+kind: RBLNDriver
+metadata:
+  name: rbln-driver-atom
+spec:
+  registry: repo.rebellions.ai
+  image: rebellions/rbln-driver
+  version: "3.2.2"
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets:
+  - drivercred
+  nodeSelector:
+    rebellions.ai/npu.family: atom
+---
+apiVersion: rebellions.ai/v1alpha1
+kind: RBLNDriver
+metadata:
+  name: rbln-driver-atom-canary
+spec:
+  registry: repo.rebellions.ai
+  image: rebellions/rbln-driver
+  version: "3.3.0-rc1"
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets:
+  - drivercred
+  nodeSelector:
+    rebellions.ai/npu.family: atom
+    env: canary

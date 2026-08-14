@@ -8,29 +8,39 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/metrics"
 )
 
-// crSpyRecorder captures involvedObject, which FakeRecorder cannot.
+// crSpyRecorder captures involvedObject, which FakeRecorder cannot, plus the
+// type/reason/message of every event in emission order.
 type crSpyRecorder struct {
-	mu      sync.Mutex
-	objects []runtime.Object
-	reasons []string
+	mu       sync.Mutex
+	objects  []runtime.Object
+	types    []string
+	reasons  []string
+	messages []string
 }
 
-func (s *crSpyRecorder) Event(object runtime.Object, _, reason, _ string) {
+func (s *crSpyRecorder) Event(object runtime.Object, eventType, reason, message string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.objects = append(s.objects, object)
+	s.types = append(s.types, eventType)
 	s.reasons = append(s.reasons, reason)
+	s.messages = append(s.messages, message)
 }
 
 func (s *crSpyRecorder) Eventf(object runtime.Object, eventType, reason, messageFmt string, args ...interface{}) {
@@ -94,38 +104,38 @@ var _ = Describe("CR event contract", Ordered, func() {
 			expectNoPolicyEvent(recorder)
 		})
 
-		It("emits ConflictingNodeSelector once when another driver claims the same nodes", func() {
-			// The validator short-circuits when the selector matches no node.
-			selector := map[string]string{"rebellions.ai/conflict-event-pool": "true"}
-			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
-				Name:   "conflict-event-worker",
-				Labels: selector,
-			}}
-			Expect(k8sClient.Create(ctx, node)).To(Succeed())
-			DeferCleanup(func() { _ = k8sClient.Delete(ctx, node) })
+		// Node-scoped owner-transition events are covered by the "Node
+		// transition events" context in rblndriver_controller_test.go.
 
-			By("reconciling the first driver so it owns the selector")
-			driverA := newDriverFixture("conflict-driver-a")
-			driverA.Spec.NodeSelector = selector
-			nn1 := createDriverFixture(ctx, driverA)
-			reconcileDriver(ctx, reconciler, nn1)
-
+		It("emits InvalidSpec once when nodeSelector uses a reserved key", func() {
 			spy := &crSpyRecorder{}
 			reconciler.Recorder = spy
-			driverB := newDriverFixture("conflict-driver-b")
-			driverB.Spec.NodeSelector = selector
-			nn2 := createDriverFixture(ctx, driverB)
+			fixture := newDriverFixture("invalid-event-driver")
+			fixture.Spec.NodeSelector = map[string]string{consts.RBLNDriverOwnerLabelKey: "x"}
+			nn := createDriverFixture(ctx, fixture)
+			failedBefore := testutil.ToFloat64(metrics.ReconcileFailed.WithLabelValues("driver"))
 
-			By("the conflicting driver gets one Warning plus a matching condition")
-			reconcileDriverWithResult(ctx, reconciler, nn2)
-			Expect(spy.reasons).To(Equal([]string{consts.RBLNConditionReasonConflictingSelector}))
-			conflicting, ok := spy.objects[0].(*rebellionsaiv1alpha1.RBLNDriver)
+			By("the invalid driver gets one Warning plus a matching condition")
+			Expect(reconcileDriverWithResult(ctx, reconciler, nn)).To(Equal(ctrl.Result{}))
+			Expect(spy.reasons).To(Equal([]string{consts.RBLNConditionReasonInvalidSpec}))
+
+			By("metrics report the CR as not ready instead of a stale success")
+			Expect(testutil.ToFloat64(metrics.DriverReconcileStatus.WithLabelValues("invalid-event-driver"))).
+				To(Equal(metrics.ReconcileStatusNotReady))
+			Expect(testutil.ToFloat64(metrics.ReconcileFailed.WithLabelValues("driver"))).
+				To(Equal(failedBefore + 1))
+			invalid, ok := spy.objects[0].(*rebellionsaiv1alpha1.RBLNDriver)
 			Expect(ok).To(BeTrue(), "involvedObject must be the RBLNDriver")
-			Expect(conflicting.Name).To(Equal("conflict-driver-b"))
-			expectDriverNotReadyCondition(ctx, nn2, consts.RBLNConditionReasonConflictingSelector)
+			Expect(invalid.Name).To(Equal("invalid-event-driver"))
+			expectDriverNotReadyCondition(ctx, nn, consts.RBLNConditionReasonInvalidSpec)
+
+			By("rejecting the spec before any DaemonSet is created")
+			dsList := &appsv1.DaemonSetList{}
+			Expect(k8sClient.List(ctx, dsList, client.InNamespace(driverNS))).To(Succeed())
+			Expect(dsList.Items).To(BeEmpty())
 
 			By("re-reconciling the unchanged spec stays silent")
-			reconcileDriverWithResult(ctx, reconciler, nn2)
+			reconcileDriverWithResult(ctx, reconciler, nn)
 			Expect(spy.reasons).To(HaveLen(1))
 		})
 	})
@@ -138,10 +148,17 @@ var _ = Describe("CR event contract", Ordered, func() {
 			reconciler.Recorder = recorder
 
 			nn := createDriverFixture(ctx, newDriverFixture("orphan-driver"))
-			reconcileDriverWithResult(ctx, reconciler, nn)
+			failedBefore := testutil.ToFloat64(metrics.ReconcileFailed.WithLabelValues("driver"))
+			Expect(reconcileDriverWithResult(ctx, reconciler, nn)).To(Equal(ctrl.Result{}))
 
 			expectDriverNotReadyCondition(ctx, nn, consts.RBLNConditionReasonMissingClusterPolicy)
 			expectNoPolicyEvent(recorder)
+
+			By("metrics report the CR as not ready instead of a stale success")
+			Expect(testutil.ToFloat64(metrics.DriverReconcileStatus.WithLabelValues("orphan-driver"))).
+				To(Equal(metrics.ReconcileStatusNotReady))
+			Expect(testutil.ToFloat64(metrics.ReconcileFailed.WithLabelValues("driver"))).
+				To(Equal(failedBefore + 1))
 		})
 	})
 

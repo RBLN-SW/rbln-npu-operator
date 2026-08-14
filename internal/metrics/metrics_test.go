@@ -23,19 +23,32 @@ func TestDriverUpgradeNodesRegistered(t *testing.T) {
 	t.Fatal("rbln_operator_driver_upgrade_nodes not found in controller-runtime registry")
 }
 
-func TestDriverUpgradeNodesSetAndReset(t *testing.T) {
-	DriverUpgradeNodes.WithLabelValues("upgrade-done").Set(3)
-	DriverUpgradeNodes.WithLabelValues("drain-required").Set(1)
+func TestCleanupDriverSeries(t *testing.T) {
+	defer func() {
+		DriverPoolReady.Reset()
+		DriverReconcileStatus.Reset()
+		DriverOwnedNodes.Reset()
+		DriverSelectorConflicts.Reset()
+	}()
+	DriverPoolReady.WithLabelValues("gone", "ubuntu22.04-5.15").Set(1)
+	DriverPoolReady.WithLabelValues("gone", "ubuntu24.04-6.8").Set(1)
+	DriverPoolReady.WithLabelValues("kept", "ubuntu22.04-5.15").Set(1)
+	DriverReconcileStatus.WithLabelValues("gone").Set(ReconcileStatusSuccess)
+	DriverOwnedNodes.WithLabelValues("gone").Set(2)
+	DriverSelectorConflicts.WithLabelValues("gone").Set(1)
 
-	if got := testutil.ToFloat64(DriverUpgradeNodes.WithLabelValues("upgrade-done")); got != 3 {
-		t.Errorf("upgrade-done = %v, want 3", got)
-	}
-	if got := testutil.ToFloat64(DriverUpgradeNodes.WithLabelValues("drain-required")); got != 1 {
-		t.Errorf("drain-required = %v, want 1", got)
-	}
+	CleanupDriverSeries("gone")
 
-	DriverUpgradeNodes.Reset()
-	if got := testutil.CollectAndCount(DriverUpgradeNodes); got != 0 {
-		t.Errorf("expected no series after reset, got %d", got)
+	if got := testutil.CollectAndCount(DriverPoolReady); got != 1 {
+		t.Errorf("DriverPoolReady series = %d, want 1 (only the surviving driver)", got)
+	}
+	if got := testutil.CollectAndCount(DriverReconcileStatus); got != 0 {
+		t.Errorf("DriverReconcileStatus series = %d, want 0", got)
+	}
+	if got := testutil.CollectAndCount(DriverOwnedNodes); got != 0 {
+		t.Errorf("DriverOwnedNodes series = %d, want 0", got)
+	}
+	if got := testutil.CollectAndCount(DriverSelectorConflicts); got != 0 {
+		t.Errorf("DriverSelectorConflicts series = %d, want 0", got)
 	}
 }

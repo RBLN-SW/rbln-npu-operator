@@ -96,6 +96,7 @@ func (r *RBLNClusterPolicyReconciler) clearSingletonIf(name string) bool {
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=deviceclasses;resourceclasses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims,verbs=get
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceslices,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=nfd.k8s-sigs.io;nfd.openshift.io,resources=nodefeaturerules,verbs=get;list;watch;create;update;patch;delete
 
 func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.Log.Info("Reconciling RBLNClusterPolicy", "name", req.Name)
@@ -352,7 +353,10 @@ func (r *RBLNClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&corev1.Node{},
 			handler.EnqueueRequestsFromMapFunc(r.singletonRequest),
 			builder.WithPredicates(predicate.Or(
-				k8sutil.NodeLabelPrefixChangedPredicate("rebellions.ai/"),
+				// The driver controller's owner resolver stamps this label on
+				// every reconcile; without the exclusion, each resolver patch
+				// would wake this controller right back up for no reason.
+				k8sutil.NodeLabelPrefixChangedPredicate("rebellions.ai/", consts.RBLNDriverOwnerLabelKey),
 				k8sutil.NodeLabelKeyPredicate(
 					consts.NFDDevicePCILabelKey,
 					consts.NFDDevicePCIAltLabelKey,

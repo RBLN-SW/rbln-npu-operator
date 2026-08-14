@@ -52,3 +52,60 @@ Operator image reference (shared by the controller Deployment and the CRD hook).
 {{- define "rbln-npu-operator.operatorImage" -}}
 {{- printf "%s/%s:%s" (default "docker.io" .Values.operator.image.registry) .Values.operator.image.repository (.Values.operator.image.tag | default .Chart.AppVersion) -}}
 {{- end }}
+
+{{/*
+RBLNDriver spec body from a driver-values dict (the driver block or a merged
+instance). nodeSelector is intentionally rendered from the dict as-is: base
+uses driver.nodeSelector, instances always carry their own.
+Keep the field list in sync with RBLNDriverSpec (api/v1alpha1) and the driver
+block in values.yaml — a field missing here is silently dropped from every
+rendered CR. Also keep it in sync with the $allowed list in rblndriver.yaml's
+instances guard (that one fails loudly on drift, so this comment is the only
+place that needs remembering).
+*/}}
+{{- define "rbln-npu-operator.driverSpec" -}}
+registry: {{ .image.registry | quote }}
+image: {{ .image.repository | quote }}
+version: {{ .image.tag | quote }}
+imagePullPolicy: {{ .image.pullPolicy | quote }}
+{{- with .imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with .nodeSelector }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with .tolerations }}
+tolerations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with .annotations }}
+annotations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- if .priorityClassName }}
+priorityClassName: {{ .priorityClassName | quote }}
+{{- end }}
+{{- with .resources }}
+resources:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with .env }}
+env:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with .manager }}
+manager:
+  {{- if .image }}
+  registry: {{ .image.registry | quote }}
+  image: {{ .image.repository | quote }}
+  version: {{ .image.tag | quote }}
+  imagePullPolicy: {{ .image.pullPolicy | quote }}
+  {{- end }}
+  {{- with .imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end -}}

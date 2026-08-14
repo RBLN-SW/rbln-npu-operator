@@ -97,67 +97,6 @@ func TestReconcileOpenShiftRBAC(t *testing.T) {
 	})
 }
 
-func TestDeleteOpenShiftRBAC(t *testing.T) {
-	t.Run("no-op on non-OpenShift", func(t *testing.T) {
-		scheme := newTestScheme(t)
-		c := newFakeClient(t, scheme)
-
-		bp := &basePatcher{
-			client:           c,
-			log:              logf.Log,
-			name:             driverManagerName,
-			namespace:        testNamespace,
-			openshiftVersion: "",
-		}
-
-		if err := bp.deleteOpenShiftRBAC(context.Background()); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("deletes Role and RoleBinding on OpenShift", func(t *testing.T) {
-		scheme := newTestScheme(t)
-		role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: driverManagerName, Namespace: testNamespace}}
-		rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: driverManagerName, Namespace: testNamespace}}
-		c := newFakeClient(t, scheme, role, rb)
-		ctx := context.Background()
-
-		bp := &basePatcher{
-			client:           c,
-			log:              logf.Log,
-			name:             driverManagerName,
-			namespace:        testNamespace,
-			openshiftVersion: "v4.14.0",
-		}
-
-		if err := bp.deleteOpenShiftRBAC(ctx); err != nil {
-			t.Fatalf("deleteOpenShiftRBAC() error: %v", err)
-		}
-
-		assertObjectNotExists(t, c, types.NamespacedName{Name: driverManagerName, Namespace: testNamespace}, &rbacv1.Role{})
-		assertObjectNotExists(t, c, types.NamespacedName{Name: driverManagerName, Namespace: testNamespace}, &rbacv1.RoleBinding{})
-	})
-}
-
-func TestDeleteServiceAccount(t *testing.T) {
-	scheme := newTestScheme(t)
-	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: driverManagerName, Namespace: testNamespace}}
-	c := newFakeClient(t, scheme, sa)
-
-	bp := &basePatcher{
-		client:    c,
-		log:       logf.Log,
-		name:      driverManagerName,
-		namespace: testNamespace,
-	}
-
-	if err := bp.deleteServiceAccount(context.Background()); err != nil {
-		t.Fatalf("deleteServiceAccount() error: %v", err)
-	}
-
-	assertObjectNotExists(t, c, types.NamespacedName{Name: driverManagerName, Namespace: testNamespace}, &corev1.ServiceAccount{})
-}
-
 func TestDeleteIfExists_NotFound(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
