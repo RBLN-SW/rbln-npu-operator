@@ -66,6 +66,7 @@ func newComponents(
 		components.NewRBLNDaemonPatcher(client, log, namespace, spec, scheme, openShiftVersion),
 		components.NewDevicePluginPatcher(client, log, namespace, spec, scheme, openShiftVersion),
 		components.NewDRAKubeletPluginPatcher(client, log, namespace, spec, scheme, openShiftVersion),
+		components.NewPartitionManagerPatcher(client, log, namespace, spec, scheme, openShiftVersion),
 		components.NewSandboxDevicePluginPatcher(client, log, namespace, spec, scheme, openShiftVersion),
 		components.NewContainerToolkitPatcher(client, log, namespace, spec, scheme, openShiftVersion, containerRuntime),
 		components.NewValidatorPatcher(client, log, namespace, spec, scheme, openShiftVersion),

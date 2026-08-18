@@ -56,6 +56,52 @@ RBLNClusterPolicy (Cluster-scoped CR)
    - Populate `permittedHostDevices` with vendor selector `1eff:XXXX`
    - Reference `rebellions.ai/ATOM_CA25_PT` inside `VirtualMachine.spec.template.spec.domain.devices.hostDevices`
 
+## Node Startup Sequence & NPU Partitioning Labels
+
+Admin label contract (values are lowercase; `vf2` is not supported):
+
+| Label | Values | Meaning |
+|---|---|---|
+| `rebellions.ai/npu.partition` | `vf1` \| `vf4` \| `none` | Node-wide default partition mode |
+| `rebellions.ai/npu.partition.<idx>` | `vf1` \| `vf4` \| `none` | Per-NPU override (e.g. `...partition.6: vf1` applies to rbln6 only) |
+
+No partition labels means the node is not partitioned.
+
+Every gated operand (device-plugin, dra-kubelet-plugin, partition-manager, metrics-exporter,
+npu-feature-discovery, rbln-daemon) starts with a single `component-gate` init container
+running `rbln-validator gate --component <name>`. On every poll the gate re-reads the node's
+partition labels from the Kubernetes API (each component's ServiceAccount carries a
+`<name>-node-viewer` ClusterRole with `nodes get`; the partition-manager's own ClusterRole
+already grants it) and waits for the component's readiness
+files — so one DaemonSet per component serves both partitioned and non-partitioned nodes,
+and a label change is honored at the next pod (re)start without any intermediate state:
+
+| Component | Non-partitioned node | Partitioned node (any `vf1`/`vf4`) |
+|---|---|---|
+| device-plugin, dra-kubelet-plugin | `toolkit-ready` | `toolkit-ready` + `partition-ready` |
+| partition-manager, metrics-exporter, npu-feature-discovery, rbln-daemon | `toolkit-ready` | `toolkit-ready` |
+
+`partition-ready` is written by the partition-manager operand (`partitionManager` in the
+policy spec, disabled by default): a per-node agent that converges every Rebellions PF to
+its labeled VF count — cordon, drain NPU pods, switch VFs through rbln-smd, rewrite the
+marker, uncordon — and reports the result on the node's `NPUPartitionReady` condition.
+The manager owns `partition-ready`, so its own gate never waits for it. It dials rbln-smd
+node-locally at `127.0.0.1:50051`; enable it together with `rblnDaemon` (or a host-installed
+rbln-smd). With `partitionManager` disabled, device-plugin and dra-kubelet-plugin
+intentionally stay blocked on partitioned nodes (fail-closed).
+
+The gate is **fail-closed**: on API errors or invalid label values it retries forever instead
+of assuming an unpartitioned node — misreading a `vf4` node would let components advertise
+full PFs that are about to be carved into VFs. Fix the label to unblock the node.
+
+Current limitations:
+
+- The gate only runs at pod start. Already-running pods do not react to label changes;
+  restarting the affected operand pods after a partition transition is the
+  partition-manager's responsibility.
+- `vm-passthrough` nodes are out of scope; the sandbox-device-plugin keeps its
+  `vfio-pci-validation` init container.
+
 ## Quick Start
 
 The RBLN NPU Operator Helm chart automatically discovers RBLN NPUs in your cluster, deploys the required device plugins, and monitors the health of each operand. Follow these steps to get up and running quickly.

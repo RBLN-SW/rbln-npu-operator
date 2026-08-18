@@ -87,7 +87,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			GinkgoT().Setenv("OPERATOR_NAMESPACE", containerNS)
 			reconciler = newTestClusterPolicyReconciler("")
 			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("container-policy"))
-			DeferCleanup(func() { cleanupValidatorClusterRBAC(ctx) })
+			DeferCleanup(func() { cleanupClusterScopedRBAC(ctx) })
 		})
 
 		JustBeforeEach(func() {
@@ -162,7 +162,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			GinkgoT().Setenv("OPERATOR_NAMESPACE", vmNS)
 			reconciler = newTestClusterPolicyReconciler("")
 			nn = createClusterPolicyFixture(ctx, newVMPassthroughClusterPolicyFixture("container-policy"))
-			DeferCleanup(func() { cleanupValidatorClusterRBAC(ctx) })
+			DeferCleanup(func() { cleanupClusterScopedRBAC(ctx) })
 		})
 
 		JustBeforeEach(func() {
@@ -310,7 +310,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			reconciler = newTestClusterPolicyReconciler("")
 			activeNN = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("active-policy"))
 			ignoredNN = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("ignored-policy"))
-			DeferCleanup(func() { cleanupValidatorClusterRBAC(ctx) })
+			DeferCleanup(func() { cleanupClusterScopedRBAC(ctx) })
 		})
 
 		It("marks the second policy ignored and keeps resources scoped to the first policy", func() {
@@ -356,6 +356,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			GinkgoT().Setenv("OPERATOR_NAMESPACE", ownerRefNS)
 			reconciler = newTestClusterPolicyReconciler("")
 			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("ownerref-policy"))
+			DeferCleanup(func() { cleanupClusterScopedRBAC(ctx) })
 		})
 
 		It("should set ownerReferences on cluster-scoped resources for GC", func() {
@@ -390,7 +391,7 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			GinkgoT().Setenv("OPERATOR_NAMESPACE", openShiftNS)
 			reconciler = newTestClusterPolicyReconciler("v4.14.0")
 			nn = createClusterPolicyFixture(ctx, newContainerClusterPolicyFixture("container-policy"))
-			DeferCleanup(func() { cleanupValidatorClusterRBAC(ctx) })
+			DeferCleanup(func() { cleanupClusterScopedRBAC(ctx) })
 		})
 
 		JustBeforeEach(func() {
@@ -653,9 +654,22 @@ func patchDevicePluginEnabled(ctx context.Context, nn types.NamespacedName, enab
 // Utilities
 // ---------------------------------------------------------------------------
 
-func cleanupValidatorClusterRBAC(ctx context.Context) {
-	_ = k8sClient.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: "rbln-operator-validator"}})
-	_ = k8sClient.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "rbln-operator-validator"}})
+// cleanupClusterScopedRBAC removes cluster-scoped RBAC left behind by a
+// reconcile: envtest has no garbage collector, so ownerRef-based GC never
+// runs and stale objects would fail SetControllerReference in later specs.
+func cleanupClusterScopedRBAC(ctx context.Context) {
+	names := []string{
+		"rbln-operator-validator",
+		"rbln-device-plugin-node-viewer",
+		"rbln-dra-kubelet-plugin-node-viewer",
+		"rbln-metrics-exporter-node-viewer",
+		"rbln-npu-feature-discovery-node-viewer",
+		"rbln-daemon-node-viewer",
+	}
+	for _, name := range names {
+		_ = k8sClient.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: name}})
+		_ = k8sClient.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: name}})
+	}
 }
 
 func cloneLabels(in map[string]string) map[string]string {

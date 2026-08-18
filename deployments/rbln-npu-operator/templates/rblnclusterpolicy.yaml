@@ -79,6 +79,17 @@ spec:
     kubeletPluginsDirectoryPath: {{ .Values.draKubeletPlugin.kubeletPluginsDirectoryPath | quote }}
     healthcheckPort: {{ .Values.draKubeletPlugin.healthcheckPort }}
 
+  partitionManager:
+    enabled: {{ .Values.partitionManager.enabled }}
+    registry: {{ .Values.partitionManager.image.registry | quote }}
+    image: {{ .Values.partitionManager.image.repository | quote }}
+    imagePullPolicy: {{ .Values.partitionManager.image.pullPolicy | quote }}
+    version: {{ .Values.partitionManager.image.tag | quote }}
+    {{- if .Values.partitionManager.env }}
+    env:
+      {{- toYaml .Values.partitionManager.env | nindent 6 }}
+    {{- end }}
+
   metricsExporter:
     enabled: {{ .Values.metricsExporter.enabled }}
     registry: {{ .Values.metricsExporter.image.registry | quote }}

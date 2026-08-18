@@ -66,6 +66,9 @@ func (h *rblnDaemonPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNCl
 	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
 		return err
 	}
+	if err := h.reconcileNodeViewerClusterRBAC(ctx, owner); err != nil {
+		return err
+	}
 	if err := h.handleDaemonSet(ctx, owner); err != nil {
 		return err
 	}
@@ -80,6 +83,9 @@ func (h *rblnDaemonPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLN
 		return err
 	}
 	if err := h.deleteDaemonSet(ctx); err != nil {
+		return err
+	}
+	if err := h.deleteNodeViewerClusterRBAC(ctx); err != nil {
 		return err
 	}
 	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
@@ -110,7 +116,7 @@ func (h *rblnDaemonPatcher) handleService(ctx context.Context, owner *rblnv1beta
 }
 
 func (h *rblnDaemonPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
-	initContainer := buildToolkitValidationInitContainer(owner.Spec.Validator)
+	initContainer := buildGateInitContainer(consts.RBLNDaemonName, owner.Spec.Validator)
 
 	daemonContainer := k8sutil.NewContainerBuilder().
 		WithName(h.name).
@@ -131,7 +137,12 @@ func (h *rblnDaemonPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *
 		}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{Name: rblnDaemonVarRunVolumeName, MountPath: rblnDaemonVarRunPath},
-			{Name: rblnDaemonSysVolumeName, MountPath: rblnDaemonSysPath, ReadOnly: true},
+			// /sys must be read-write: smd's EnableVfs writes
+			// /sys/bus/pci/devices/<bdf>/sriov_numvfs to partition PFs into
+			// VFs, and a ReadOnly hostPath mount fails that with EROFS even
+			// in a privileged container. Scoping rw to /sys/bus/pci does not
+			// work either — its entries are symlinks back into /sys/devices.
+			{Name: rblnDaemonSysVolumeName, MountPath: rblnDaemonSysPath},
 			{Name: rblnDaemonDebugVolumeName, MountPath: rblnDaemonDebugPath},
 			{Name: rblnDaemonLogVolumeName, MountPath: rblnDaemonLogPath},
 		}).

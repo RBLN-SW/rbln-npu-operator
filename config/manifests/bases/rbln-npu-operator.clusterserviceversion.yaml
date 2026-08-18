@@ -411,6 +411,76 @@ spec:
         path: npuFeatureDiscovery.version
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
+      - description: PartitionManager component spec
+        displayName: Partition Manager
+        path: partitionManager
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced
+      - description: Affinity specifies the affinity for the DaemonSet pods
+        displayName: Affinity
+        path: partitionManager.affinity
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Affinity
+      - description: Annotations specifies the annotations for the DaemonSet pods
+        displayName: Annotations
+        path: partitionManager.annotations
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Enabled indicates if deployment of RBLN partition manager is
+          enabled
+        displayName: Enable RBLN Partition Manager deployment
+        path: partitionManager.enabled
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: Env specifies additional environment variables for the partition
+          manager container
+        displayName: Environment Variables
+        path: partitionManager.env
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced
+      - description: RBLN Partition Manager image name
+        displayName: Image
+        path: partitionManager.image
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: ImagePullPolicy specifies the image pull policy for the DaemonSet
+          pods
+        displayName: Image Pull Policy
+        path: partitionManager.imagePullPolicy
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:imagePullPolicy
+      - description: ImagePullSecrets specifies the image pull secrets for the DaemonSet
+          pods
+        displayName: Image pull secrets
+        path: partitionManager.imagePullSecrets
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Labels specifies the labels for the DaemonSet pods
+        displayName: Labels
+        path: partitionManager.labels
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Registry override for the RBLN Partition Manager image
+        displayName: Registry
+        path: partitionManager.registry
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Resources specifies the resource requirements for the DaemonSet
+          pods
+        displayName: Resource Requirements
+        path: partitionManager.resources
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:resourceRequirements
+      - description: Tolerations specifies the tolerations for the DaemonSet pods
+        displayName: Tolerations
+        path: partitionManager.tolerations
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
+      - description: RBLN Partition Manager image tag
+        displayName: Version
+        path: partitionManager.version
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
       - description: PodDefaults defines common configuration applied to all DaemonSet
           pods managed by this policy.
         displayName: Pod Defaults

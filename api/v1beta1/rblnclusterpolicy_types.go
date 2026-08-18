@@ -53,6 +53,11 @@ type RBLNClusterPolicySpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="DRA Kubelet Plugin",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	DRAKubeletPlugin RBLNDRAKubeletPluginSpec `json:"draKubeletPlugin,omitempty"`
 
+	// PartitionManager component spec
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Partition Manager",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
+	PartitionManager RBLNPartitionManagerSpec `json:"partitionManager,omitempty"`
+
 	// MetricsExporter component spec
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Metrics Exporter",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	MetricsExporter RBLNMetricsExporterSpec `json:"metricsExporter"`

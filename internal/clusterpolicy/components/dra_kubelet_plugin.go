@@ -75,6 +75,9 @@ func (h *draKubeletPluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.
 	if err := h.handleClusterRoleBinding(ctx, owner); err != nil {
 		return err
 	}
+	if err := h.reconcileNodeViewerClusterRBAC(ctx, owner); err != nil {
+		return err
+	}
 	if err := h.handleDRAClass(ctx, owner); err != nil {
 		return err
 	}
@@ -97,6 +100,9 @@ func (h *draKubeletPluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta
 	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: h.clusterRoleName()},
 	}); err != nil {
+		return err
+	}
+	if err := h.deleteNodeViewerClusterRBAC(ctx); err != nil {
 		return err
 	}
 	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
@@ -286,7 +292,7 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 }
 
 func (h *draKubeletPluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
-	initContainer := buildToolkitValidationInitContainer(owner.Spec.Validator)
+	initContainer := buildGateInitContainer(consts.RBLNDRAKubeletPluginName, owner.Spec.Validator)
 	draContainer := h.buildDRAContainer()
 
 	return k8sutil.NewPodSpecBuilder().
