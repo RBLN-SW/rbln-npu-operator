@@ -23,7 +23,8 @@ import (
 // RBLNClusterPolicySpec defines the desired state of RBLNClusterPolicy
 // +kubebuilder:object:generate=true
 // +kubebuilder:validation:XValidation:rule="self.workloadType != 'vm-passthrough' || self.vfioManager.enabled",message="vfioManager.enabled must be true when workloadType is vm-passthrough"
-// +kubebuilder:validation:XValidation:rule="self.workloadType != 'vm-passthrough' || self.sandboxDevicePlugin.enabled",message="sandboxDevicePlugin.enabled must be true when workloadType is vm-passthrough"
+// +kubebuilder:validation:XValidation:rule="self.workloadType != 'vm-passthrough' || self.sandboxDevicePlugin.enabled || (has(self.draKubeletPlugin) && self.draKubeletPlugin.enabled)",message="either sandboxDevicePlugin.enabled or draKubeletPlugin.enabled must be true when workloadType is vm-passthrough"
+// +kubebuilder:validation:XValidation:rule="!(has(self.draKubeletPlugin) && self.draKubeletPlugin.enabled && self.sandboxDevicePlugin.enabled)",message="sandboxDevicePlugin.enabled and draKubeletPlugin.enabled are mutually exclusive: both advertise the same vfio-pci NPUs on vm-passthrough nodes"
 type RBLNClusterPolicySpec struct {
 	// WorkloadType specifies the type of default workload.
 	// +kubebuilder:validation:Enum=container;vm-passthrough

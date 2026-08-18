@@ -23,6 +23,9 @@ const (
 	RBLNWorkloadConfigContainer     = "container"
 	RBLNWorkloadConfigVMPassthrough = "vm-passthrough"
 	RBLNWorkloadConfigUnknown       = "unknown"
+	// RBLNWorkloadConfigAll marks components that serve every workload type
+	// (readiness accounting only — never used as a node label value).
+	RBLNWorkloadConfigAll = "all"
 	RBLNPresentLabelKey             = "rebellions.ai/npu.present"
 	RBLNDeploySkipLabelKey          = "rebellions.ai/npu.deploy.skip"
 	RBLNDeployDriverLabelKey        = "rebellions.ai/npu.deploy.driver"

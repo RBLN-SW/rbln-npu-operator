@@ -8690,9 +8690,15 @@ spec:
             x-kubernetes-validations:
             - message: vfioManager.enabled must be true when workloadType is vm-passthrough
               rule: self.workloadType != 'vm-passthrough' || self.vfioManager.enabled
-            - message: sandboxDevicePlugin.enabled must be true when workloadType
-                is vm-passthrough
+            - message: either sandboxDevicePlugin.enabled or draKubeletPlugin.enabled
+                must be true when workloadType is vm-passthrough
               rule: self.workloadType != 'vm-passthrough' || self.sandboxDevicePlugin.enabled
+                || (has(self.draKubeletPlugin) && self.draKubeletPlugin.enabled)
+            - message: 'sandboxDevicePlugin.enabled and draKubeletPlugin.enabled are
+                mutually exclusive: both advertise the same vfio-pci NPUs on vm-passthrough
+                nodes'
+              rule: '!(has(self.draKubeletPlugin) && self.draKubeletPlugin.enabled
+                && self.sandboxDevicePlugin.enabled)'
           status:
             description: RBLNClusterPolicyStatus defines the observed state of RBLNClusterPolicy
             properties:

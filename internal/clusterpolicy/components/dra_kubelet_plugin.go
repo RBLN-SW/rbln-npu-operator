@@ -30,6 +30,8 @@ const (
 	draClusterRoleSuffix = "-role"
 	draClusterBindSuffix = "-rolebinding"
 	draExtendedResource  = "rebellions.ai/npu"
+	// KEP-5304 metadata directory consumed by KubeVirt's virt-launcher.
+	draKubeVirtMetadataPath = "/var/run/kubernetes.io/dra-device-attributes"
 )
 
 type draKubeletPluginPatcher struct {
@@ -49,7 +51,7 @@ func NewDRAKubeletPluginPatcher(client client.Client, log logr.Logger, namespace
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),
-			workloadType:     consts.RBLNWorkloadConfigContainer,
+			workloadType:     consts.RBLNWorkloadConfigAll,
 		},
 		desiredSpec: &synced,
 		podDefaults: cpSpec.PodDefaults,
@@ -59,9 +61,6 @@ func NewDRAKubeletPluginPatcher(client client.Client, log logr.Logger, namespace
 func (h *draKubeletPluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	if !h.IsEnabled() {
 		return nil
-	}
-	if !owner.Spec.ContainerToolkit.IsEnabled() {
-		return fmt.Errorf("DRA kubelet plugin requires containerToolkit to be enabled")
 	}
 	if err := h.reconcileServiceAccount(ctx, owner); err != nil {
 		return err
@@ -121,12 +120,25 @@ func (h *draKubeletPluginPatcher) className() string {
 }
 
 func (h *draKubeletPluginPatcher) handleDRAClass(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	return h.handleDeviceClass(ctx, owner)
+	npuCEL := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q",
+		h.className(), h.className(), "npu")
+	if err := h.handleDeviceClass(ctx, owner, h.className(), npuCEL, ptr(draExtendedResource)); err != nil {
+		return err
+	}
+	// No extended-resource bridge on purpose — passthrough devices must be
+	// requested explicitly through a ResourceClaim.
+	vfioCEL := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q",
+		h.className(), h.className(), "vfio")
+	return h.handleDeviceClass(ctx, owner, h.vfioClassName(), vfioCEL, nil)
 }
 
-func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+func (h *draKubeletPluginPatcher) vfioClassName() string {
+	return "vfio-" + h.className()
+}
+
+func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy, name, celExpression string, extendedResourceName *string) error {
 	deviceClass := &resourcev1.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{Name: h.className()},
+		ObjectMeta: metav1.ObjectMeta{Name: name},
 	}
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, deviceClass, func() error {
@@ -134,11 +146,11 @@ func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *
 			Selectors: []resourcev1.DeviceSelector{
 				{
 					CEL: &resourcev1.CELDeviceSelector{
-						Expression: fmt.Sprintf("device.driver == %q", h.className()),
+						Expression: celExpression,
 					},
 				},
 			},
-			ExtendedResourceName: ptr(draExtendedResource),
+			ExtendedResourceName: extendedResourceName,
 		}
 		return ctrl.SetControllerReference(owner, deviceClass, h.scheme)
 	})
@@ -150,10 +162,12 @@ func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *
 }
 
 func (h *draKubeletPluginPatcher) deleteDeviceClass(ctx context.Context) error {
-	if err := h.client.Delete(ctx, &resourcev1.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{Name: h.className()},
-	}); err != nil && !kapierrors.IsNotFound(err) && !isNoMatchError(err) {
-		return err
+	for _, name := range []string{h.className(), h.vfioClassName()} {
+		if err := h.client.Delete(ctx, &resourcev1.DeviceClass{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+		}); err != nil && !kapierrors.IsNotFound(err) && !isNoMatchError(err) {
+			return err
+		}
 	}
 	return nil
 }
@@ -281,12 +295,18 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 			{Name: "host-dev", MountPath: "/dev"},
 			{Name: "host-run-rbln", MountPath: draHostRunRBLNPath},
 			{Name: "host-usr-bin", MountPath: draHostUsrBinMount, ReadOnly: true},
+			// No /sys hostPath mount: the container is privileged, so the
+			// runtime-provided sysfs already exposes the host PCI tree the
+			// vfio device scan reads.
+			{Name: "kubevirt-dra-metadata", MountPath: draKubeVirtMetadataPath},
 		}).
 		Build()
 }
 
-func (h *draKubeletPluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
-	initContainer := buildToolkitValidationInitContainer(owner.Spec.Validator)
+// buildPodSpec intentionally has no toolkit-validation init container: this
+// DaemonSet serves both container and vm-passthrough nodes, and toolkit-ready
+// never appears on the latter.
+func (h *draKubeletPluginPatcher) buildPodSpec() *corev1.PodSpec {
 	draContainer := h.buildDRAContainer()
 
 	return k8sutil.NewPodSpecBuilder().
@@ -314,14 +334,14 @@ func (h *draKubeletPluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 			hostPathVolume("host-dev", "/dev", corev1.HostPathDirectory),
 			hostPathVolume("host-run-rbln", draHostRunRBLNPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume("host-usr-bin", draHostUsrBinPath, corev1.HostPathDirectory),
+			hostPathVolume("kubevirt-dra-metadata", draKubeVirtMetadataPath, corev1.HostPathDirectoryOrCreate),
 		}).
-		WithInitContainers([]*corev1.Container{initContainer}).
 		WithContainers([]*corev1.Container{draContainer}).
 		Build()
 }
 
 func (h *draKubeletPluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	podSpec := h.buildPodSpec(owner)
+	podSpec := h.buildPodSpec()
 
 	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
 	ds := builder.Build()

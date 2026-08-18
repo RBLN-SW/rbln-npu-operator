@@ -3,7 +3,6 @@ package components
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -74,15 +73,48 @@ func TestDRAKubeletPluginPatch(t *testing.T) {
 		t.Fatal("ClusterRoleBinding subject should reference the component ServiceAccount")
 	}
 
-	// DeviceClass
+	// No toolkit-validation init container: the DaemonSet serves both
+	// container and vm-passthrough nodes; toolkit-ready never appears on
+	// the latter, so gating on it would deadlock passthrough nodes.
+	if len(ds.Spec.Template.Spec.InitContainers) != 0 {
+		t.Fatalf("expected no init containers, got %d", len(ds.Spec.Template.Spec.InitContainers))
+	}
+
+	// No /sys hostPath mount: the privileged container reads the host PCI
+	// tree through the runtime-provided sysfs, and an explicit read-only
+	// mount would shadow the rw sysfs rbln-smi may rely on.
+	for _, m := range mainContainer.VolumeMounts {
+		if m.MountPath == "/sys" {
+			t.Fatal("the DRA plugin must not mount /sys; the runtime-provided sysfs suffices")
+		}
+	}
+
+	// DeviceClass: npu (containers, extended-resource bridge)
 	dc := &resourcev1.DeviceClass{}
 	assertObjectExists(t, c, types.NamespacedName{Name: "npu.rebellions.ai"}, dc)
 	if len(dc.Spec.Selectors) == 0 || dc.Spec.Selectors[0].CEL == nil {
 		t.Fatal("DeviceClass should have CEL selector")
 	}
-	wantExpr := fmt.Sprintf("device.driver == %q", "npu.rebellions.ai")
+	wantExpr := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q",
+		"npu.rebellions.ai", "npu.rebellions.ai", "npu")
 	if dc.Spec.Selectors[0].CEL.Expression != wantExpr {
 		t.Fatalf("DeviceClass CEL expression = %q, want %q", dc.Spec.Selectors[0].CEL.Expression, wantExpr)
+	}
+	if dc.Spec.ExtendedResourceName == nil || *dc.Spec.ExtendedResourceName != draExtendedResource {
+		t.Fatal("npu DeviceClass should keep the extended-resource bridge")
+	}
+
+	// DeviceClass: vfio (VM passthrough, no extended-resource bridge)
+	vdc := &resourcev1.DeviceClass{}
+	assertObjectExists(t, c, types.NamespacedName{Name: "vfio-npu.rebellions.ai"}, vdc)
+	wantVfioExpr := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q",
+		"npu.rebellions.ai", "npu.rebellions.ai", "vfio")
+	if len(vdc.Spec.Selectors) == 0 || vdc.Spec.Selectors[0].CEL == nil ||
+		vdc.Spec.Selectors[0].CEL.Expression != wantVfioExpr {
+		t.Fatalf("vfio DeviceClass CEL expression mismatch: %+v", vdc.Spec.Selectors)
+	}
+	if vdc.Spec.ExtendedResourceName != nil {
+		t.Fatal("vfio DeviceClass must not expose an extended resource name")
 	}
 }
 
@@ -102,13 +134,12 @@ func TestDRAKubeletPluginPatch_ContainerToolkitDisabled(t *testing.T) {
 	}
 
 	p := NewDRAKubeletPluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
-	err := p.Patch(ctx, owner)
-	if err == nil {
-		t.Fatal("expected error when containerToolkit is disabled, got nil")
+	if err := p.Patch(ctx, owner); err != nil {
+		t.Fatalf("Patch() should succeed without containerToolkit, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "containerToolkit") {
-		t.Fatalf("error should mention containerToolkit: %v", err)
-	}
+
+	name := consts.RBLNBaseName + "-" + consts.RBLNDRAKubeletPluginName
+	assertDaemonSetBasics(t, c, name, owner.Name)
 }
 
 func TestDRAKubeletPluginCleanUp(t *testing.T) {

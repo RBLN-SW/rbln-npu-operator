@@ -156,18 +156,33 @@ func TestRBLNClusterPolicy_CELRejection(t *testing.T) {
 			},
 			errSubstr: "vfioManager.enabled must be true",
 		},
-		"vm-passthrough without sandboxDevicePlugin": {
+		"vm-passthrough without any vfio consumer": {
 			spec: rblnv1beta1.RBLNClusterPolicySpec{
 				WorkloadType:        "vm-passthrough",
 				VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: true},
 				SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
+				DRAKubeletPlugin:    rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: false},
 				DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{},
 				MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{},
 				NPUFeatureDiscovery: rblnv1beta1.RBLNNPUFeatureDiscoverySpec{},
 				ContainerToolkit:    rblnv1beta1.RBLNContainerToolkitSpec{},
 				Driver:              rblnv1beta1.DriverSpec{},
 			},
-			errSubstr: "sandboxDevicePlugin.enabled must be true",
+			errSubstr: "either sandboxDevicePlugin.enabled or draKubeletPlugin.enabled must be true",
+		},
+		"sandboxDevicePlugin and draKubeletPlugin both enabled": {
+			spec: rblnv1beta1.RBLNClusterPolicySpec{
+				WorkloadType:        "vm-passthrough",
+				VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: true},
+				SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: true},
+				DRAKubeletPlugin:    rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: true},
+				DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{},
+				MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{},
+				NPUFeatureDiscovery: rblnv1beta1.RBLNNPUFeatureDiscoverySpec{},
+				ContainerToolkit:    rblnv1beta1.RBLNContainerToolkitSpec{},
+				Driver:              rblnv1beta1.DriverSpec{},
+			},
+			errSubstr: "mutually exclusive",
 		},
 		"invalid pull policy enum": {
 			spec: rblnv1beta1.RBLNClusterPolicySpec{
@@ -202,4 +217,28 @@ func TestRBLNClusterPolicy_CELRejection(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRBLNClusterPolicy_CELAcceptsDRAPassthrough(t *testing.T) {
+	requireEnvtest(t)
+	ctx := context.Background()
+
+	cp := &rblnv1beta1.RBLNClusterPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "cel-dra-passthrough"},
+		Spec: rblnv1beta1.RBLNClusterPolicySpec{
+			WorkloadType:        "vm-passthrough",
+			VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: true},
+			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
+			DRAKubeletPlugin:    rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: true},
+			DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{},
+			MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{},
+			NPUFeatureDiscovery: rblnv1beta1.RBLNNPUFeatureDiscoverySpec{},
+			ContainerToolkit:    rblnv1beta1.RBLNContainerToolkitSpec{},
+			Driver:              rblnv1beta1.DriverSpec{},
+		},
+	}
+	if err := testK8s.Create(ctx, cp); err != nil {
+		t.Fatalf("expected admission to accept sandbox-off + DRA-on vm-passthrough spec: %v", err)
+	}
+	t.Cleanup(func() { _ = testK8s.Delete(ctx, cp) })
 }
