@@ -26,6 +26,7 @@ func TestApplyDriverSummary(t *testing.T) {
 				NodePools: []rblnv1alpha1.RBLNDriverPoolStatus{
 					{Name: "ubuntu22.04-5.15", Desired: 3, Ready: 2, State: rblnv1alpha1.DriverPoolStateProgressing},
 				},
+				Smd: &rblnv1alpha1.RBLNDriverSmdStatus{Desired: 2, Ready: 1, State: rblnv1alpha1.DriverPoolStateProgressing},
 			},
 			summary: DriverSummary{},
 			want: rblnv1alpha1.RBLNDriverStatus{
@@ -35,6 +36,7 @@ func TestApplyDriverSummary(t *testing.T) {
 				NodePools: []rblnv1alpha1.RBLNDriverPoolStatus{
 					{Name: "ubuntu22.04-5.15", Desired: 3, Ready: 2, State: rblnv1alpha1.DriverPoolStateProgressing},
 				},
+				Smd: &rblnv1alpha1.RBLNDriverSmdStatus{Desired: 2, Ready: 1, State: rblnv1alpha1.DriverPoolStateProgressing},
 			},
 		},
 		"empty pool slice resets counts (happy-path with no pools yet)": {
@@ -63,6 +65,7 @@ func TestApplyDriverSummary(t *testing.T) {
 				Namespace:    "old-ns",
 				DesiredNodes: 1,
 				ReadyNodes:   0,
+				Smd:          &rblnv1alpha1.RBLNDriverSmdStatus{Desired: 1, Ready: 0, State: rblnv1alpha1.DriverPoolStateProgressing},
 			},
 			summary: DriverSummary{
 				Namespace: "rbln-system",
@@ -71,6 +74,7 @@ func TestApplyDriverSummary(t *testing.T) {
 				},
 				DesiredNodes: 2,
 				ReadyNodes:   2,
+				Smd:          &rblnv1alpha1.RBLNDriverSmdStatus{Desired: 2, Ready: 2, State: rblnv1alpha1.DriverPoolStateReady},
 			},
 			want: rblnv1alpha1.RBLNDriverStatus{
 				Namespace:    "rbln-system",
@@ -79,6 +83,25 @@ func TestApplyDriverSummary(t *testing.T) {
 				NodePools: []rblnv1alpha1.RBLNDriverPoolStatus{
 					{Name: "p1", Desired: 2, Ready: 2, State: rblnv1alpha1.DriverPoolStateReady},
 				},
+				Smd: &rblnv1alpha1.RBLNDriverSmdStatus{Desired: 2, Ready: 2, State: rblnv1alpha1.DriverPoolStateReady},
+			},
+		},
+		"populated pools with nil smd clear prior smd (smd gated off)": {
+			existing: rblnv1alpha1.RBLNDriverStatus{
+				DesiredNodes: 1,
+				ReadyNodes:   1,
+				NodePools: []rblnv1alpha1.RBLNDriverPoolStatus{
+					{Name: "stale", Desired: 1, Ready: 1, State: rblnv1alpha1.DriverPoolStateReady},
+				},
+				Smd: &rblnv1alpha1.RBLNDriverSmdStatus{Desired: 1, Ready: 1, State: rblnv1alpha1.DriverPoolStateReady},
+			},
+			summary: DriverSummary{
+				Namespace: "rbln-system",
+				NodePools: []rblnv1alpha1.RBLNDriverPoolStatus{},
+			},
+			want: rblnv1alpha1.RBLNDriverStatus{
+				Namespace: "rbln-system",
+				NodePools: []rblnv1alpha1.RBLNDriverPoolStatus{},
 			},
 		},
 		"summary with empty namespace preserves prior namespace": {
@@ -118,8 +141,18 @@ func TestApplyDriverSummary(t *testing.T) {
 			if !poolsEqual(got.NodePools, tc.want.NodePools) {
 				t.Errorf("nodePools: got %+v, want %+v", got.NodePools, tc.want.NodePools)
 			}
+			if !smdEqual(got.Smd, tc.want.Smd) {
+				t.Errorf("smd: got %+v, want %+v", got.Smd, tc.want.Smd)
+			}
 		})
 	}
+}
+
+func smdEqual(a, b *rblnv1alpha1.RBLNDriverSmdStatus) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func poolsEqual(a, b []rblnv1alpha1.RBLNDriverPoolStatus) bool {

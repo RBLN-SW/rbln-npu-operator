@@ -35,6 +35,32 @@ func smdDaemonSetKey() types.NamespacedName {
 	return types.NamespacedName{Name: testInstanceName + "-" + smdDaemonSetSuffix, Namespace: testNamespace}
 }
 
+// assertSmdContainerContract pins the port and security settings the host and
+// external consumers depend on.
+func assertSmdContainerContract(t *testing.T, container corev1.Container) {
+	t.Helper()
+	port := container.Ports[0]
+	// 50051 is a cross-repo contract (metrics-exporter and npu-feature-
+	// discovery dial $(NODE_IP):50051), so pin the literal, not the const
+	// the production code itself reads.
+	if port.ContainerPort != 50051 {
+		t.Fatalf("containerPort = %d, want 50051", port.ContainerPort)
+	}
+	if port.HostPort != 0 {
+		t.Fatalf("hostPort = %d, want 0 (hostNetwork exposes the port by itself; an explicit hostPort re-adds portmap DNAT)", port.HostPort)
+	}
+	if port.Protocol != corev1.ProtocolTCP {
+		t.Fatalf("port protocol = %q, want TCP", port.Protocol)
+	}
+	sc := container.SecurityContext
+	if sc == nil || sc.Privileged == nil || !*sc.Privileged {
+		t.Fatal("smd container must run privileged")
+	}
+	if sc.RunAsUser == nil || *sc.RunAsUser != 0 {
+		t.Fatalf("runAsUser = %v, want 0", sc.RunAsUser)
+	}
+}
+
 func TestNewSmdPatcher_NilDriver(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
@@ -109,9 +135,7 @@ func TestSmdPatcher_Patch(t *testing.T) {
 	if container.Command[0] != smdCommand {
 		t.Fatalf("command = %q, want %q", container.Command[0], smdCommand)
 	}
-	if container.Ports[0].ContainerPort != smdPort {
-		t.Fatalf("containerPort = %d, want %d", container.Ports[0].ContainerPort, smdPort)
-	}
+	assertSmdContainerContract(t, container)
 
 	if len(podSpec.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(podSpec.InitContainers))
@@ -135,6 +159,35 @@ func TestSmdPatcher_Patch(t *testing.T) {
 	}
 	if controllerRef == nil || controllerRef.Name != owner.Name {
 		t.Fatalf("DaemonSet must carry a controller ownerReference to %s, got %+v", owner.Name, ds.OwnerReferences)
+	}
+}
+
+// Every other test uses coordinates identical to the CRD defaults (and to the
+// manager spec's registry), so only this test can distinguish "image comes
+// from spec.smd" from a hardcoded default or an accidental manager-spec read.
+func TestSmdPatcher_Patch_CustomImageCoordinates(t *testing.T) {
+	scheme := newTestScheme(t)
+	c := newFakeClient(t, scheme)
+	ctx := context.Background()
+
+	owner := newSmdTestOwner()
+	owner.Spec.Smd = rebellionsaiv1alpha1.SmdSpec{
+		Registry: "registry.example.com",
+		Image:    "myorg/custom-smd",
+	}
+	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "")
+	if err != nil {
+		t.Fatalf("NewSmdPatcher() error: %v", err)
+	}
+	if err := p.Patch(ctx, owner, true); err != nil {
+		t.Fatalf("Patch() error: %v", err)
+	}
+
+	ds := &appsv1.DaemonSet{}
+	assertObjectExists(t, c, smdDaemonSetKey(), ds)
+	got := ds.Spec.Template.Spec.Containers[0].Image
+	if want := "registry.example.com/myorg/custom-smd:" + owner.Spec.Version; got != want {
+		t.Fatalf("smd image = %q, want %q (must come from spec.smd)", got, want)
 	}
 }
 
