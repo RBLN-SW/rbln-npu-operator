@@ -623,6 +623,10 @@ rbln_operator_driver_owned_nodes{driver="release-fallback"} 2
 			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 5 * time.Second}))
 			expectDriverNotReadyCondition(ctx, nn, consts.RBLNConditionReasonSmdNotReady)
 			Expect(countEventReasons(spy, consts.RBLNConditionReasonSmdNotReady)).To(Equal(0))
+			// The smd DS status is still zero-valued here (Desired==0): no
+			// owned node carries the deploy label yet, so the condition must
+			// point at the label instead of "0 of 0 pods are Ready".
+			expectDriverReadyMessageContains(ctx, nn, "no eligible nodes")
 
 			By("smd pods become ready and the CR reports Ready with status.smd populated")
 			markSmdDaemonSetReady(ctx, "smd-driver-smd", driverNS)

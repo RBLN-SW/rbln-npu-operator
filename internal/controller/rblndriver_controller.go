@@ -409,6 +409,13 @@ func (r *RBLNDriverReconciler) reportSmdProgressing(
 	}
 	msg := fmt.Sprintf("rbln-smd DaemonSet is progressing: %d of %d pods are Ready",
 		summary.Smd.Ready, summary.Smd.Desired)
+	if summary.Smd.Desired == 0 {
+		// "0 of 0 pods are Ready" misleads: desired drops to 0 whenever
+		// k8s-driver-manager pauses the deploy label during a driver pod
+		// start, or before any owned node carries it.
+		msg = fmt.Sprintf("rbln-smd DaemonSet is progressing: no eligible nodes (%s=true absent on owned nodes — paused during a driver pod start, or not yet labeled)",
+			consts.RBLNDeployRBLNDaemonLabelKey)
+	}
 	r.Log.Info("driver components not ready", "reason", msg)
 	metrics.DriverReconcileStatus.WithLabelValues(instance.Name).Set(metrics.ReconcileStatusNotReady)
 	metrics.ReconcileFailed.WithLabelValues("driver").Inc()
