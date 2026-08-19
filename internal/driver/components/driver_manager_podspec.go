@@ -52,7 +52,7 @@ set -eu
 # node's driver has finished installing. Path is a fixed contract;
 # consumers stat this exact file.
 VALIDATIONS_DIR="` + consts.ValidationsMountPath + `"
-COMPONENT_READY_FILE="${VALIDATIONS_DIR}/.driver-ctr-ready"
+COMPONENT_READY_FILE="${VALIDATIONS_DIR}/` + driverCtrReadyFile + `"
 
 # Intra-pod "install pipeline complete" signal written by the driver
 # entrypoint after build -> fw update -> module load -> rootfs mount ->

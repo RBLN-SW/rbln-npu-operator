@@ -21,6 +21,7 @@ type DriverService struct {
 	openshiftVersion string
 
 	driverManager components.DriverPatcher
+	smd           *components.SmdPatcher
 }
 
 // NewDriverService builds the per-reconcile component set for one RBLNDriver.
@@ -61,6 +62,12 @@ func NewDriverService(
 	}
 	s.driverManager = dmp
 
+	smd, err := components.NewSmdPatcher(client, apiReader, log, s.namespace, driver, scheme, s.openshiftVersion)
+	if err != nil {
+		return nil, err
+	}
+	s.smd = smd
+
 	return s, nil
 }
 
@@ -94,10 +101,27 @@ func (s *DriverService) AssembleStatus(ctx context.Context) ([]rebellionsaiv1alp
 	return pools, totalDesired, totalReady, nil
 }
 
-// PatchComponents applies the managed components for this RBLNDriver.
+// PatchComponents applies the managed components for this RBLNDriver. The smd
+// patcher runs after the driver manager and is gated on it having rendered at
+// least one driver DaemonSet: smd deploys only where the driver deploys.
+// PoolStatuses reads through apiReader, so DaemonSets created or deleted by
+// this same pass are observed.
 func (s *DriverService) PatchComponents(ctx context.Context) error {
 	if err := s.driverManager.Patch(ctx, s.singleton); err != nil {
-		return fmt.Errorf("patch %s: %w", s.driverManager.ComponentName(), err)
+		return fmt.Errorf("patch rbln-driver: %w", err)
+	}
+	pools, err := s.driverManager.PoolStatuses(ctx)
+	if err != nil {
+		return fmt.Errorf("gate rbln-smd on driver DaemonSets: %w", err)
+	}
+	if err := s.smd.Patch(ctx, s.singleton, len(pools) > 0); err != nil {
+		return fmt.Errorf("patch rbln-smd: %w", err)
 	}
 	return nil
+}
+
+// SmdStatus reports the rbln-smd DaemonSet readiness; nil when it does not
+// exist. Status writing is the caller's responsibility.
+func (s *DriverService) SmdStatus(ctx context.Context) (*rebellionsaiv1alpha1.RBLNDriverSmdStatus, error) {
+	return s.smd.Status(ctx)
 }

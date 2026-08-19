@@ -86,26 +86,6 @@ spec:
     imagePullPolicy: {{ .Values.metricsExporter.image.pullPolicy | quote }}
     version: {{ .Values.metricsExporter.image.tag | quote }}
 
-  rblnDaemon:
-    enabled: {{ .Values.rblnDaemon.enabled }}
-    registry: {{ .Values.rblnDaemon.image.registry | quote }}
-    image: {{ .Values.rblnDaemon.image.repository | quote }}
-    imagePullPolicy: {{ .Values.rblnDaemon.image.pullPolicy | quote }}
-    version: {{ .Values.rblnDaemon.image.tag | quote }}
-    hostPort: {{ .Values.rblnDaemon.hostPort }}
-    {{- if .Values.rblnDaemon.imagePullSecrets }}
-    imagePullSecrets:
-      {{- toYaml .Values.rblnDaemon.imagePullSecrets | nindent 6 }}
-    {{- end }}
-    {{- if .Values.rblnDaemon.resources }}
-    resources:
-      {{- toYaml .Values.rblnDaemon.resources | nindent 6 }}
-    {{- end }}
-    {{- if .Values.rblnDaemon.env }}
-    env:
-      {{- toYaml .Values.rblnDaemon.env | nindent 6 }}
-    {{- end }}
-
   npuFeatureDiscovery:
     enabled: {{ .Values.npuFeatureDiscovery.enabled }}
     registry: {{ .Values.npuFeatureDiscovery.image.registry | quote }}

@@ -57,10 +57,6 @@ type RBLNClusterPolicySpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Metrics Exporter",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	MetricsExporter RBLNMetricsExporterSpec `json:"metricsExporter"`
 
-	// RBLN Daemon component spec
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="RBLN Daemon",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
-	RBLNDaemon RBLNDaemonSpec `json:"rblnDaemon"`
-
 	// NPUFeatureDiscovery component spec
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="NPU Feature Discovery",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	NPUFeatureDiscovery RBLNNPUFeatureDiscoverySpec `json:"npuFeatureDiscovery"`

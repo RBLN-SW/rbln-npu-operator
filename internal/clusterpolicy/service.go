@@ -63,7 +63,7 @@ func newComponents(
 		components.NewVFIOManagerPatcher(client, log, namespace, spec, scheme, openShiftVersion),
 		components.NewNPUFeatureDiscoveryPatcher(client, log, namespace, spec, scheme, openShiftVersion),
 		components.NewMetricsExporterPatcher(client, log, namespace, spec, scheme, openShiftVersion),
-		components.NewRBLNDaemonPatcher(client, log, namespace, spec, scheme, openShiftVersion),
+		components.NewLegacyRBLNDaemonCleanup(client, log, namespace, scheme, openShiftVersion),
 		components.NewDevicePluginPatcher(client, log, namespace, spec, scheme, openShiftVersion),
 		components.NewDRAKubeletPluginPatcher(client, log, namespace, spec, scheme, openShiftVersion),
 		components.NewSandboxDevicePluginPatcher(client, log, namespace, spec, scheme, openShiftVersion),
@@ -113,9 +113,6 @@ func (s *ClusterPolicyService) AssembleStatus(
 
 		wlType := c.WorkloadType()
 		nodeCount := census.CountFor(wlType)
-		if c.ComponentName() == consts.RBLNDaemonName {
-			nodeCount -= census.HostDriverNodes
-		}
 		report := c.IsReady(ctx, nodeCount)
 
 		componentStatuses = append(componentStatuses, rblnv1beta1.RBLNComponentStatus{

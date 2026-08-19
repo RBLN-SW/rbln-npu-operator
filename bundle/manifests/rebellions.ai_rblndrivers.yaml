@@ -345,6 +345,22 @@ spec:
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                     type: object
                 type: object
+              smd:
+                default: {}
+                description: |-
+                  Smd represents configuration for the rbln-smd node daemon deployed
+                  alongside the driver. Its image tag always equals Version.
+                properties:
+                  image:
+                    default: rebellions/rbln-daemon
+                    description: Image represents the rbln-smd image name
+                    pattern: '[a-zA-Z0-9\-]+'
+                    type: string
+                  registry:
+                    default: docker.io
+                    description: Registry represents the rbln-smd image registry path
+                    type: string
+                type: object
               tolerations:
                 description: Tolerations specifies the tolerations for the driver
                   pod
@@ -472,7 +488,9 @@ spec:
                       format: int32
                       type: integer
                     name:
-                      description: Name is the pool identifier (typically "<osID><osVersion>-<sanitizedKernel>").
+                      description: |-
+                        Name is the pool's DaemonSet name, "<RBLNDriver name>-<pool>", where pool
+                        is "<family>-<osID><osVersion>-<sanitizedKernel>".
                       type: string
                     ready:
                       description: Ready is the DaemonSet's spec.NumberReady.
@@ -497,6 +515,32 @@ spec:
                   DaemonSets.
                 format: int32
                 type: integer
+              smd:
+                description: |-
+                  Smd reports the rbln-smd DaemonSet readiness. Deliberately excluded from
+                  DesiredNodes/ReadyNodes, which stay driver-pool sums (external tooling
+                  gates on those).
+                properties:
+                  desired:
+                    description: Desired is the DaemonSet's status.DesiredNumberScheduled.
+                    format: int32
+                    type: integer
+                  ready:
+                    description: Ready is the DaemonSet's status.NumberReady.
+                    format: int32
+                    type: integer
+                  state:
+                    description: DriverPoolState is the per-pool DaemonSet aggregate
+                      state.
+                    enum:
+                    - ready
+                    - progressing
+                    type: string
+                required:
+                - desired
+                - ready
+                - state
+                type: object
               state:
                 description: State indicates status of RBLNDriver instance
                 enum:

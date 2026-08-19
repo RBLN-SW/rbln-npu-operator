@@ -26,8 +26,14 @@ const (
 	RBLNPresentLabelKey             = "rebellions.ai/npu.present"
 	RBLNDeploySkipLabelKey          = "rebellions.ai/npu.deploy.skip"
 	RBLNDeployDriverLabelKey        = "rebellions.ai/npu.deploy.driver"
-	RBLNDeployRBLNDaemonLabelKey    = "rebellions.ai/npu.deploy.rbln-daemon"
-	NFDLabelPrefix                  = "feature.node.kubernetes.io/"
+
+	// RBLNDeployRBLNDaemonLabelKey gates rbln-smd pods, and is the eviction
+	// handle k8s-driver-manager flips to paused-for-driver-upgrade on every
+	// driver pod start to bounce that node's smd pod. The key is hardcoded in
+	// that binary — never rename it without a lockstep driver-manager release.
+	RBLNDeployRBLNDaemonLabelKey = "rebellions.ai/npu.deploy.rbln-daemon"
+
+	NFDLabelPrefix = "feature.node.kubernetes.io/"
 
 	// RBLNDriverOwnerLabelKey names the single RBLNDriver that owns a node's
 	// driver DaemonSet; DaemonSets select on it instead of user selectors.
@@ -81,6 +87,7 @@ const (
 	RBLNConditionReasonMissingClusterPolicy    = "MissingClusterPolicy"
 	RBLNConditionReasonInvalidSpec             = "InvalidSpec"
 	RBLNConditionReasonDriverPoolNotReady      = "DriverPoolNotReady"
+	RBLNConditionReasonSmdNotReady             = "SmdNotReady"
 	RBLNConditionReasonConflictingSelector     = "ConflictingNodeSelector"
 	RBLNConditionReasonFamilyLabelMissing      = "DriverFamilyLabelMissing"
 	RBLNConditionReasonImageNotFound           = "DriverImageNotFound"
@@ -126,11 +133,6 @@ const (
 // Metrics export constants
 const (
 	RBLNMetricExporterName = "metrics-exporter"
-)
-
-// RBLN daemon constants
-const (
-	RBLNDaemonName = "rbln-daemon"
 )
 
 // NPU feature discovery constants

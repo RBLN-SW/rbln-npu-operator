@@ -40,7 +40,7 @@ spec:
 {{- fail (printf "driver.instances.%s.nodeSelector must not set reserved label key %q" $key $k) }}
 {{- end }}
 {{- end }}
-{{- $allowed := list "image" "imagePullSecrets" "nodeSelector" "tolerations" "annotations" "priorityClassName" "resources" "env" "manager" }}
+{{- $allowed := list "image" "imagePullSecrets" "nodeSelector" "tolerations" "annotations" "priorityClassName" "resources" "env" "manager" "smd" }}
 {{- range $field, $_ := $inst }}
 {{- if not (has $field $allowed) }}
 {{- fail (printf "driver.instances.%s.%s is not a supported instance field (upgradePolicy is cluster-wide; enabled/deployDefault apply only to the driver block). Supported: %s" $key $field (join ", " $allowed)) }}

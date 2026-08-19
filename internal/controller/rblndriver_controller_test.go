@@ -569,8 +569,72 @@ rbln_operator_driver_owned_nodes{driver="release-fallback"} 2
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: dsName, Namespace: driverNS}, &ds)).To(Succeed())
 			ds.Status = appsv1.DaemonSetStatus{DesiredNumberScheduled: 1, NumberReady: 1}
 			Expect(k8sClient.Status().Update(ctx, &ds)).To(Succeed())
+			markSmdDaemonSetReady(ctx, "imgmissing-driver-smd", driverNS)
 			reconcileDriver(ctx, reconciler, nn)
 			expectDriverReadyCondition(ctx, nn)
+		})
+	})
+
+	Context("rbln-smd companion DaemonSet", func() {
+		var (
+			driverNS   string
+			reconciler *RBLNDriverReconciler
+			spy        *crSpyRecorder
+			smdNode    string
+			nn         types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			driverNS = createTestNamespace(ctx, "rbln-driver-smd")
+			GinkgoT().Setenv("OPERATOR_NAMESPACE", driverNS)
+			reconciler = newTestDriverReconciler("")
+			spy = &crSpyRecorder{}
+			reconciler.Recorder = spy
+			createClusterPolicyFixture(ctx, newDriverTestClusterPolicy("smd-cp"))
+
+			smdNode = fmt.Sprintf("smd-worker-%d", GinkgoParallelProcess())
+			createDriverPoolNode(ctx, smdNode, map[string]string{"rebellions.ai/test-smd": "true"})
+
+			fixture := newDriverFixture("smd-driver")
+			fixture.Spec.NodeSelector = map[string]string{"rebellions.ai/test-smd": "true"}
+			nn = createDriverFixture(ctx, fixture)
+			DeferCleanup(func() { cleanupDriverClusterRBAC(ctx) })
+		})
+
+		It("deploys smd with the driver, reports SmdNotReady without an event, then Ready", func() {
+			By("one reconcile renders the driver pool and the smd DaemonSet in the same pass")
+			reconcileDriver(ctx, reconciler, nn)
+			driverDSName := "smd-driver-atom-ubuntu22.04-5.15.0-100-generic"
+			var driverDS appsv1.DaemonSet
+			expectResource(ctx, &driverDS, driverDSName, driverNS, 5*time.Second)
+			var smdDS appsv1.DaemonSet
+			expectResource(ctx, &smdDS, "smd-driver-smd", driverNS, 5*time.Second)
+
+			By("the smd DaemonSet must stay invisible to the upgrade controller's component scan")
+			Expect(smdDS.Labels["app.kubernetes.io/component"]).To(Equal("rbln-smd"))
+			Expect(smdDS.Spec.UpdateStrategy.Type).To(Equal(appsv1.OnDeleteDaemonSetStrategyType))
+			Expect(smdDS.Spec.Template.Spec.Containers[0].Image).To(HaveSuffix(":" + newDriverFixture("x").Spec.Version))
+
+			By("driver pool ready but smd catching up reports SmdNotReady with no event")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: driverDSName, Namespace: driverNS}, &driverDS)).To(Succeed())
+			driverDS.Status = appsv1.DaemonSetStatus{DesiredNumberScheduled: 1, NumberReady: 1}
+			Expect(k8sClient.Status().Update(ctx, &driverDS)).To(Succeed())
+			result := reconcileDriverWithResult(ctx, reconciler, nn)
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 5 * time.Second}))
+			expectDriverNotReadyCondition(ctx, nn, consts.RBLNConditionReasonSmdNotReady)
+			Expect(countEventReasons(spy, consts.RBLNConditionReasonSmdNotReady)).To(Equal(0))
+
+			By("smd pods become ready and the CR reports Ready with status.smd populated")
+			markSmdDaemonSetReady(ctx, "smd-driver-smd", driverNS)
+			reconcileDriver(ctx, reconciler, nn)
+			expectDriverReadyCondition(ctx, nn)
+			var driver rebellionsaiv1alpha1.RBLNDriver
+			Expect(k8sClient.Get(ctx, nn, &driver)).To(Succeed())
+			Expect(driver.Status.Smd).NotTo(BeNil())
+			Expect(driver.Status.Smd.State).To(Equal(rebellionsaiv1alpha1.DriverPoolStateReady))
+			// smd counts stay out of the driver-node sums (external contract).
+			Expect(driver.Status.DesiredNodes).To(Equal(int32(1)))
+			Expect(driver.Status.ReadyNodes).To(Equal(int32(1)))
 		})
 	})
 
@@ -849,6 +913,17 @@ func expectDriverReadyMessageContains(ctx context.Context, nn types.NamespacedNa
 
 // countEventReasons filters by reason because reportResolution interleaves
 // node-scoped events with the CR-scoped ones a scenario asserts on.
+// markSmdDaemonSetReady simulates the DaemonSet controller for the rbln-smd
+// DaemonSet, which envtest does not run.
+func markSmdDaemonSetReady(ctx context.Context, name, namespace string) {
+	GinkgoHelper()
+	var ds appsv1.DaemonSet
+	expectResource(ctx, &ds, name, namespace, 5*time.Second)
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &ds)).To(Succeed())
+	ds.Status = appsv1.DaemonSetStatus{DesiredNumberScheduled: 1, NumberReady: 1}
+	Expect(k8sClient.Status().Update(ctx, &ds)).To(Succeed())
+}
+
 func countEventReasons(spy *crSpyRecorder, reason string) int {
 	spy.mu.Lock()
 	defer spy.mu.Unlock()
