@@ -110,6 +110,13 @@ var _ = Describe("e2e-npu-operator-scenario-test", Ordered, Label("container"), 
 					appComponentLabelKey: "rbln-driver",
 				})
 
+				// rbln-smd rides the RBLNDriver CR (tag = driver version) and
+				// its init container waits for the driver-ready marker, so it
+				// must converge right after the driver does.
+				waitForPodsReady(ctx, k8sCoreClient, testNamespace.Name, "rbln-smd", map[string]string{
+					appComponentLabelKey: "rbln-smd",
+				})
+
 				operands := []struct {
 					name      string
 					component string
@@ -469,10 +476,6 @@ func buildOperatorHelmValues(devicePluginEnabled, draKubeletPluginEnabled bool) 
 			"image": map[string]interface{}{
 				"pullPolicy": "Always",
 			},
-		},
-		"rblnDaemon": map[string]interface{}{
-			"enabled":          true,
-			"imagePullSecrets": []string{registrySecretName},
 		},
 		"validator": map[string]interface{}{
 			"image": map[string]interface{}{

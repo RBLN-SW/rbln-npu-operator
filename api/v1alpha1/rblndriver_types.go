@@ -82,6 +82,13 @@ type RBLNDriverSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Driver Manager",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	Manager DriverManagerSpec `json:"manager"`
 
+	// Smd represents configuration for the rbln-smd node daemon deployed
+	// alongside the driver. Its image tag always equals Version.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:={}
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Smd",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
+	Smd SmdSpec `json:"smd"`
+
 	// NodeSelector specifies a selector for installation of the driver
 	// +kubebuilder:validation:Optional
 	// +mapType=atomic
@@ -128,6 +135,16 @@ type RBLNDriverPoolStatus struct {
 	State DriverPoolState `json:"state"`
 }
 
+// RBLNDriverSmdStatus reports the per-CR rbln-smd DaemonSet readiness.
+type RBLNDriverSmdStatus struct {
+	// Desired is the DaemonSet's status.DesiredNumberScheduled.
+	Desired int32 `json:"desired"`
+	// Ready is the DaemonSet's status.NumberReady.
+	Ready int32 `json:"ready"`
+	// +kubebuilder:validation:Enum=ready;progressing
+	State DriverPoolState `json:"state"`
+}
+
 // RBLNDriverStatus defines the observed state of RBLNDriver
 type RBLNDriverStatus struct {
 	// +kubebuilder:validation:Enum=ready;notReady;ignored
@@ -146,6 +163,11 @@ type RBLNDriverStatus struct {
 	// NodePools reports per-pool DaemonSet readiness; one entry per discovered OS/kernel pool.
 	// +optional
 	NodePools []RBLNDriverPoolStatus `json:"nodePools"`
+	// Smd reports the rbln-smd DaemonSet readiness. Deliberately excluded from
+	// DesiredNodes/ReadyNodes, which stay driver-pool sums (external tooling
+	// gates on those).
+	// +optional
+	Smd *RBLNDriverSmdStatus `json:"smd,omitempty"`
 	// Conditions is a list of conditions representing the RBLNDriver's current state
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
@@ -210,6 +232,26 @@ type DriverManagerSpec struct {
 	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.displayName="Image pull secrets"
 	// +operator-sdk:gen-csv:customresourcedefinitions.specDescriptors.x-descriptors="urn:alm:descriptor:io.kubernetes:Secret"
 	ImagePullSecrets []string `json:"imagePullSecrets,omitempty"`
+}
+
+// SmdSpec describes configuration for the rbln-smd node daemon. It carries no
+// version: the smd image tag always equals RBLNDriverSpec.Version so the
+// daemon on a node matches the driver installed there. Pull policy, pull
+// secrets, tolerations, and priority class are inherited from the top-level
+// driver spec.
+type SmdSpec struct {
+	// Registry represents the rbln-smd image registry path
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=docker.io
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Smd Registry",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
+	Registry string `json:"registry,omitempty"`
+
+	// Image represents the rbln-smd image name
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=rebellions/rbln-daemon
+	// +kubebuilder:validation:Pattern=[a-zA-Z0-9\-]+
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Smd Image",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
+	Image string `json:"image,omitempty"`
 }
 
 func init() {

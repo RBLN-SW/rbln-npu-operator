@@ -35,6 +35,28 @@ const (
 	driverReadyFileEnvName                    = "RBLN_DRIVER_READY_FILE"
 	defaultDriverReadyDir                     = "/run/rbln/driver-state"
 	defaultDriverReadyFile                    = "ready"
+	// driverCtrReadyFile is the cross-component "driver container ready" marker
+	// published under consts.ValidationsMountPath by the driver startup probe
+	// and removed by its preStop hook.
+	driverCtrReadyFile = ".driver-ctr-ready"
+
+	smdName              = "rbln-smd"
+	smdDaemonSetSuffix   = "smd"
+	smdCommand           = "/opt/rebellions/bin/rbln_daemon"
+	smdPortName          = "rbln-smd"
+	smdPort              = 50051
+	smdInitContainerName = "driver-validation"
+	smdVarRunVolumeName  = "host-var-run"
+	smdVarRunPath        = "/var/run"
+	smdDebugVolumeName   = "host-debug"
+	smdDebugPath         = "/sys/kernel/debug"
+	smdLogVolumeName     = "host-log-rebellions"
+	smdLogPath           = "/var/log/rebellions"
+	// legacyRBLNDaemonName is the pre-rename DaemonSet the RBLNClusterPolicy
+	// controller used to own; it binds the same host port as rbln-smd.
+	// TODO(remove after two releases): drop together with the clusterpolicy
+	// legacy cleanup once no supported upgrade path ships it.
+	legacyRBLNDaemonName = "rbln-daemon"
 )
 
 func ptr[T any](v T) *T {

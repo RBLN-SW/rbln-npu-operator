@@ -312,13 +312,49 @@ the pull but are invisible to the operator. OLM installs have no Helm values to
 set — add `DRIVER_IMAGE_CHECK=false` to the Subscription's `spec.config.env`
 instead.
 
+### rbln-smd companion DaemonSet
+
+Every RBLNDriver CR deploys one `rbln-smd` DaemonSet (`<CR name>-smd`) — the
+node management daemon (gRPC on host port 50051, container image
+`rebellions/rbln-daemon`) — alongside its driver. There is no enable toggle
+and no version field: the smd image tag **always equals the driver
+`spec.version`**, so two RBLNDriver CRs with different versions run two smd
+DaemonSets, each matching its own driver. Only the image coordinates are
+configurable, via `spec.smd.{registry,image}` (Helm:
+`driver.smd.image.{registry,repository}`, per-instance overridable).
+
+Ordering and updates are tied to the driver lifecycle:
+
+- The DaemonSet is rendered only after the CR has at least one driver
+  DaemonSet, and each smd pod's init container waits for that node's
+  driver-ready marker — smd never starts before the driver is installed.
+- The DaemonSet uses `OnDelete`, so a template change replaces no running
+  pod. Replacement rides the driver: on every driver pod start,
+  k8s-driver-manager evicts the node's components via the
+  `rebellions.ai/npu.deploy.rbln-daemon` label flip and the recreated smd pod
+  picks up the current template. A version bump therefore reaches each node
+  exactly when the upgrade controller replaces that node's driver pod, and an
+  smd-only change (registry/repository) applies on the next driver pod
+  restart (or a manual smd pod delete).
+- The smd image is **not** pre-checked in the registry (unlike driver pool
+  images): a missing tag surfaces as `ImagePullBackOff` on the pods and
+  `Ready=False`/`SmdNotReady` on the CR.
+
+Node selection follows the driver's owner-label routing (plus the
+`npu.deploy.rbln-daemon` gate), so pre-installed-driver nodes — which run
+their own host `rbln-smd` — and vm-passthrough nodes never receive one.
+Readiness is reported in `status.smd` (`desired`/`ready`/`state`) and gates
+the CR's `Ready` condition (`SmdNotReady` while catching up, no event —
+ordinary rollout progress); `status.desiredNodes`/`readyNodes` stay
+driver-pool sums and never include smd.
+
 ### Inheritance
 
 Fields left unset on an instance inherit from the top-level `driver` block:
 
 | Field kind | Example | Merge behavior |
 |---|---|---|
-| Maps | `image`, `resources`, `annotations`, `manager` | Deep-merged per key; `{}` is a no-op. Clearing a *single* inherited key with `null` is **not** supported — it renders a literal `null` the API server rejects at install time. Override the whole map on the instance instead, or set the field itself to `null` to drop it entirely |
+| Maps | `image`, `resources`, `annotations`, `manager`, `smd` | Deep-merged per key; `{}` is a no-op. Clearing a *single* inherited key with `null` is **not** supported — it renders a literal `null` the API server rejects at install time. Override the whole map on the instance instead, or set the field itself to `null` to drop it entirely |
 | Lists | `tolerations`, `env`, `imagePullSecrets` | Replaced wholesale, never merged; `[]` clears the inherited value |
 | Scalars | `priorityClassName` | Overridden; `""` clears the inherited value |
 | `nodeSelector` | — | **Never inherited.** Required and non-empty on every instance — only the default (top-level `driver`) instance may have an empty/absent selector |

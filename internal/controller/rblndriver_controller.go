@@ -185,7 +185,7 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	pools, desired, ready, err := driverService.AssembleStatus(ctx)
+	summary, err := r.assembleDriverSummary(ctx, driverService)
 	if err != nil {
 		r.Log.Error(err, "failed to assemble driver status")
 		if statusErr := r.Conditions.SetDriverError(ctx, instance, err); statusErr != nil {
@@ -194,14 +194,7 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	summary := conditions.DriverSummary{
-		Namespace:    driverService.Namespace(),
-		NodePools:    pools,
-		DesiredNodes: desired,
-		ReadyNodes:   ready,
-	}
-
-	exportDriverPoolMetrics(instance.Name, pools)
+	exportDriverPoolMetrics(instance.Name, summary.NodePools)
 
 	// Diagnostics surface fast-fail states pool status alone cannot: an
 	// unlabeled node produces no pool and a missing image produces no
@@ -237,7 +230,11 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return r.reportNotReadyWithResult(ctx, instance, summary, consts.RBLNConditionReasonImageNotFound, msg, res)
 	}
 
-	if res, ok := r.reportPoolsProgressing(ctx, instance, summary, pools); ok {
+	if res, ok := r.reportPoolsProgressing(ctx, instance, summary); ok {
+		return res, nil
+	}
+
+	if res, ok := r.reportSmdProgressing(ctx, instance, summary); ok {
 		return res, nil
 	}
 
@@ -268,9 +265,32 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	if !wasReady {
 		recordEvent(r.Recorder, instance, corev1.EventTypeNormal, consts.RBLNEventReasonDriverReady,
-			fmt.Sprintf("Driver ready on %d/%d nodes", ready, desired))
+			fmt.Sprintf("Driver ready on %d/%d nodes", summary.ReadyNodes, summary.DesiredNodes))
 	}
 	return ctrl.Result{}, nil
+}
+
+// assembleDriverSummary gathers pool and smd readiness into the status
+// summary; callers read the pool list from summary.NodePools.
+func (r *RBLNDriverReconciler) assembleDriverSummary(
+	ctx context.Context,
+	driverService *driver.DriverService,
+) (conditions.DriverSummary, error) {
+	pools, desired, ready, err := driverService.AssembleStatus(ctx)
+	if err != nil {
+		return conditions.DriverSummary{}, fmt.Errorf("assemble driver pool status: %w", err)
+	}
+	smdStatus, err := driverService.SmdStatus(ctx)
+	if err != nil {
+		return conditions.DriverSummary{}, fmt.Errorf("assemble rbln-smd status: %w", err)
+	}
+	return conditions.DriverSummary{
+		Namespace:    driverService.Namespace(),
+		NodePools:    pools,
+		DesiredNodes: desired,
+		ReadyNodes:   ready,
+		Smd:          smdStatus,
+	}, nil
 }
 
 // exportDriverPoolMetrics reports ratio=0 for desired==0 pools — alerting
@@ -360,9 +380,8 @@ func (r *RBLNDriverReconciler) reportPoolsProgressing(
 	ctx context.Context,
 	instance *rebellionsaiv1alpha1.RBLNDriver,
 	summary conditions.DriverSummary,
-	pools []rebellionsaiv1alpha1.RBLNDriverPoolStatus,
 ) (ctrl.Result, bool) {
-	msg := summarisePoolStates(pools)
+	msg := summarisePoolStates(summary.NodePools)
 	if msg == "" {
 		return ctrl.Result{}, false
 	}
@@ -371,6 +390,37 @@ func (r *RBLNDriverReconciler) reportPoolsProgressing(
 	metrics.ReconcileFailed.WithLabelValues("driver").Inc()
 	if statusErr := r.Conditions.SetDriverNotReady(ctx, instance, summary,
 		consts.RBLNConditionReasonDriverPoolNotReady, msg); statusErr != nil {
+		r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set RBLNDriver status")
+	}
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, true
+}
+
+// reportSmdProgressing mirrors reportPoolsProgressing for the per-CR rbln-smd
+// DaemonSet: catching up is not a failure, so it emits no event. Runs after
+// the pool branch so driver rollout progress always wins the Ready reason.
+// Returns ok=false when smd is absent (gated off) or ready.
+func (r *RBLNDriverReconciler) reportSmdProgressing(
+	ctx context.Context,
+	instance *rebellionsaiv1alpha1.RBLNDriver,
+	summary conditions.DriverSummary,
+) (ctrl.Result, bool) {
+	if summary.Smd == nil || summary.Smd.State == rebellionsaiv1alpha1.DriverPoolStateReady {
+		return ctrl.Result{}, false
+	}
+	msg := fmt.Sprintf("rbln-smd DaemonSet is progressing: %d of %d pods are Ready",
+		summary.Smd.Ready, summary.Smd.Desired)
+	if summary.Smd.Desired == 0 {
+		// "0 of 0 pods are Ready" misleads: desired drops to 0 whenever
+		// k8s-driver-manager pauses the deploy label during a driver pod
+		// start, or before any owned node carries it.
+		msg = fmt.Sprintf("rbln-smd DaemonSet is progressing: no eligible nodes (%s=true absent on owned nodes — paused during a driver pod start, or not yet labeled)",
+			consts.RBLNDeployRBLNDaemonLabelKey)
+	}
+	r.Log.Info("driver components not ready", "reason", msg)
+	metrics.DriverReconcileStatus.WithLabelValues(instance.Name).Set(metrics.ReconcileStatusNotReady)
+	metrics.ReconcileFailed.WithLabelValues("driver").Inc()
+	if statusErr := r.Conditions.SetDriverNotReady(ctx, instance, summary,
+		consts.RBLNConditionReasonSmdNotReady, msg); statusErr != nil {
 		r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set RBLNDriver status")
 	}
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, true

@@ -188,20 +188,6 @@ metricsExporter:
     tag: v0.3.1
     pullPolicy: IfNotPresent
 
-# RBLN Daemon configuration
-rblnDaemon:
-  enabled: false
-  image:
-    registry: repo.rebellions.ai
-    repository: rebellions/rbln-daemon
-    tag: "3.2.2"
-    pullPolicy: IfNotPresent
-  imagePullSecrets:
-  - drivercred
-  hostPort: 50051
-  resources: {}
-  env: []
-
 # NPU Feature Discovery configuration
 npuFeatureDiscovery:
   enabled: true

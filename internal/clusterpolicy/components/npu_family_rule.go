@@ -35,7 +35,7 @@ var nodeFeatureRuleGVKs = []schema.GroupVersionKind{
 // their product family (consts.RBLNNPUFamilyLabelKey). It is always enabled:
 // the family label routes per-family RBLNDriver instances, so it must exist
 // before any driver is installed — which also rules out deriving it from
-// operands that need a running driver (npu-feature-discovery → rbln-daemon).
+// operands that need a running driver (npu-feature-discovery → rbln-smd).
 type npuFamilyRulePatcher struct {
 	basePatcher
 }

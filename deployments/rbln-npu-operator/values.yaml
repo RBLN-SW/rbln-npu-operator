@@ -186,6 +186,12 @@ driver:
       pullPolicy: IfNotPresent
   #  imagePullSecrets:
   #  - my-registry-secret
+  # rbln-smd node daemon deployed per RBLNDriver CR. No tag: the smd image tag
+  # always follows the driver version (driver.image.tag / per-instance tag).
+  smd:
+    image:
+      registry: repo.rebellions.ai
+      repository: rebellions/rbln-daemon
   # Additional RBLNDriver instances for per-node-group driver versions.
   # Each key becomes a CR named rbln-driver-<key>. Fields not set on an
   # instance inherit from the driver block above (maps deep-merge; LISTS such
@@ -237,20 +243,6 @@ metricsExporter:
     repository: rebellions/rbln-metrics-exporter
     tag: v0.3.1
     pullPolicy: IfNotPresent
-
-# RBLN Daemon configuration
-rblnDaemon:
-  enabled: false
-  image:
-    registry: repo.rebellions.ai
-    repository: rebellions/rbln-daemon
-    tag: 3.2.2
-    pullPolicy: IfNotPresent
-  imagePullSecrets:
-  - drivercred
-  hostPort: 50051
-  resources: {}
-  env: []
 
 # NPU Feature Discovery configuration
 npuFeatureDiscovery:

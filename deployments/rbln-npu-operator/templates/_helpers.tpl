@@ -108,4 +108,12 @@ manager:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 {{- end }}
+{{- /* smd carries no tag: its image tag is always the driver version above. */}}
+{{- with .smd }}
+smd:
+  {{- if .image }}
+  registry: {{ .image.registry | quote }}
+  image: {{ .image.repository | quote }}
+  {{- end }}
+{{- end }}
 {{- end -}}

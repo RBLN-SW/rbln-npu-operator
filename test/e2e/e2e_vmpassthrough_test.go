@@ -276,7 +276,6 @@ func buildSandboxOperatorHelmValues() map[string]interface{} {
 		"devicePlugin":        map[string]interface{}{"enabled": false},
 		"draKubeletPlugin":    map[string]interface{}{"enabled": false},
 		"metricsExporter":     map[string]interface{}{"enabled": false},
-		"rblnDaemon":          map[string]interface{}{"enabled": false},
 		"containerToolkit":    map[string]interface{}{"enabled": false},
 		"npuFeatureDiscovery": map[string]interface{}{"enabled": false},
 		// per-model: resourceList is omitted; the binary advertises

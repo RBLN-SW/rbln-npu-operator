@@ -86,7 +86,6 @@ type NodeCensus struct {
 	TotalNPU           int32
 	ContainerNodes     int32
 	VMPassthroughNodes int32
-	HostDriverNodes    int32
 }
 
 // CountFor returns 0 for unknown workload types.
@@ -128,9 +127,6 @@ func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []
 		switch workload {
 		case consts.RBLNWorkloadConfigContainer:
 			census.ContainerNodes++
-			if labels[consts.RBLNDeployDriverLabelKey] == consts.RBLNDeployDriverPreInstalled {
-				census.HostDriverNodes++
-			}
 		case consts.RBLNWorkloadConfigVMPassthrough:
 			census.VMPassthroughNodes++
 		}

@@ -37,6 +37,10 @@ metadata:
                 "memory": "64Mi"
               }
             },
+            "smd": {
+              "image": "rebellions/rbln-daemon",
+              "registry": "repo.rebellions.ai"
+            },
             "version": "3.2.2"
           }
         },
@@ -118,17 +122,6 @@ metadata:
               "registry": "docker.io",
               "version": "v0.2.1"
             },
-            "rblnDaemon": {
-              "enabled": false,
-              "hostPort": 50051,
-              "image": "rebellions/rbln-daemon",
-              "imagePullPolicy": "IfNotPresent",
-              "imagePullSecrets": [
-                "drivercred"
-              ],
-              "registry": "repo.rebellions.ai",
-              "version": "3.2.2"
-            },
             "sandboxDevicePlugin": {
               "enabled": false,
               "image": "rebellions/sandbox-device-plugin",
@@ -161,7 +154,7 @@ metadata:
       ]
     capabilities: Basic Install
     containerImage: docker.io/rebellions/rbln-npu-operator:latest
-    createdAt: "2026-07-30T08:27:48Z"
+    createdAt: "2026-08-19T05:43:14Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -595,80 +588,6 @@ spec:
         path: podDefaults.tolerations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
-      - description: RBLN Daemon component spec
-        displayName: RBLN Daemon
-        path: rblnDaemon
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced
-      - description: Affinity specifies the affinity for the DaemonSet pods
-        displayName: Affinity
-        path: rblnDaemon.affinity
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Affinity
-      - description: Annotations specifies the annotations for the DaemonSet pods
-        displayName: Annotations
-        path: rblnDaemon.annotations
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Enabled indicates if deployment of RBLN daemon is enabled
-        displayName: Enable RBLN Daemon deployment
-        path: rblnDaemon.enabled
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
-      - description: 'Optional: List of environment variables'
-        displayName: Environment Variables
-        path: rblnDaemon.env
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:text
-      - description: 'HostPort represents host port that needs to be bound for rbln-daemon
-          (Default: 50051)'
-        displayName: Host port to bind for rbln-daemon
-        path: rblnDaemon.hostPort
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:number
-      - description: RBLN Daemon image name
-        displayName: Image
-        path: rblnDaemon.image
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: ImagePullPolicy specifies the image pull policy for the DaemonSet
-          pods
-        displayName: Image Pull Policy
-        path: rblnDaemon.imagePullPolicy
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:imagePullPolicy
-      - description: ImagePullSecrets specifies the image pull secrets for the DaemonSet
-          pods
-        displayName: Image pull secrets
-        path: rblnDaemon.imagePullSecrets
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Labels specifies the labels for the DaemonSet pods
-        displayName: Labels
-        path: rblnDaemon.labels
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Registry override for the RBLN Daemon image
-        displayName: Registry
-        path: rblnDaemon.registry
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Resources specifies the resource requirements for the DaemonSet
-          pods
-        displayName: Resource Requirements
-        path: rblnDaemon.resources
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:resourceRequirements
-      - description: Tolerations specifies the tolerations for the DaemonSet pods
-        displayName: Tolerations
-        path: rblnDaemon.tolerations
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
-      - description: RBLN Daemon image tag
-        displayName: Version
-        path: rblnDaemon.version
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: SandboxDevicePlugin component spec
         displayName: Sandbox Device Plugin
         path: sandboxDevicePlugin
@@ -918,6 +837,23 @@ spec:
         path: resources
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:resourceRequirements
+      - description: |-
+          Smd represents configuration for the rbln-smd node daemon deployed
+          alongside the driver. Its image tag always equals Version.
+        displayName: Smd
+        path: smd
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced
+      - description: Image represents the rbln-smd image name
+        displayName: Smd Image
+        path: smd.image
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Registry represents the rbln-smd image registry path
+        displayName: Smd Registry
+        path: smd.registry
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Tolerations specifies the tolerations for the driver pod
         displayName: Tolerations
         path: tolerations
@@ -1006,6 +942,19 @@ spec:
           verbs:
           - get
           - list
+          - watch
+        - apiGroups:
+          - nfd.k8s-sigs.io
+          - nfd.openshift.io
+          resources:
+          - nodefeaturerules
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
           - watch
         - apiGroups:
           - rbac.authorization.k8s.io
@@ -1221,6 +1170,12 @@ spec:
           verbs:
           - create
           - patch
+        - apiGroups:
+          - ""
+          resources:
+          - secrets
+          verbs:
+          - get
         serviceAccountName: controller-manager
     strategy: deployment
   installModes:

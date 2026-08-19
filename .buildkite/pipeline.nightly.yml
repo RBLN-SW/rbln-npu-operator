@@ -58,10 +58,11 @@ env:
   # raise when a driver install (firmware update + module build + insmod, 6+
   # minutes on the rebel100 node) outgrows it.
   SENTINEL_WAIT_TIMEOUT: "${SENTINEL_WAIT_TIMEOUT:-900}"
+  # rbln-smd (image rebellions/rbln-daemon, not family-split) has NO tag var:
+  # its tag always follows the per-CR driver version above. Sentinel maps
+  # these into helm driver.smd.image.{registry,repository}.
   SENTINEL_RBLN_DAEMON_IMAGE_REGISTRY: harbor.ssw.rbln.in
   SENTINEL_RBLN_DAEMON_IMAGE_REPOSITORY: rebellions-dev/rbln-daemon
-  # Per-build overridable, same mechanism. (rbln-daemon is not family-split.)
-  SENTINEL_RBLN_DAEMON_IMAGE_TAG: "${SENTINEL_RBLN_DAEMON_IMAGE_TAG:-3.2.2}"
   # Compilers paired per family with the drivers above (docs.rbln.ai version
   # matrix) — used by the model-zoo inference runs; sentinel resolves the
   # compiler per node from its npu.family label. Migrated from the retired

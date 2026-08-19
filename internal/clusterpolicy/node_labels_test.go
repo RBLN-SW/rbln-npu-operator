@@ -133,10 +133,9 @@ func TestListAndClassifyNodes(t *testing.T) {
 
 func TestReconcileNodes(t *testing.T) {
 	type want struct {
-		count           int
-		hostDriverNodes int
-		labels          map[string]string
-		absentLabels    []string
+		count        int
+		labels       map[string]string
+		absentLabels []string
 	}
 
 	tests := map[string]struct {
@@ -242,8 +241,7 @@ func TestReconcileNodes(t *testing.T) {
 				}),
 			},
 			want: want{
-				count:           1,
-				hostDriverNodes: 1,
+				count: 1,
 				labels: map[string]string{
 					consts.RBLNPresentLabelKey:                   labelValueTrue,
 					consts.RBLNDeployDriverLabelKey:              consts.RBLNDeployDriverPreInstalled,
@@ -269,8 +267,7 @@ func TestReconcileNodes(t *testing.T) {
 				)),
 			},
 			want: want{
-				count:           1,
-				hostDriverNodes: 1,
+				count: 1,
 				labels: map[string]string{
 					consts.RBLNPresentLabelKey:               labelValueTrue,
 					consts.RBLNDeployDriverLabelKey:          consts.RBLNDeployDriverPreInstalled,
@@ -312,9 +309,6 @@ func TestReconcileNodes(t *testing.T) {
 			}
 			if int(census.TotalNPU) != tc.want.count {
 				t.Fatalf("ReconcileNodes() count = %d, want %d", census.TotalNPU, tc.want.count)
-			}
-			if int(census.HostDriverNodes) != tc.want.hostDriverNodes {
-				t.Fatalf("ReconcileNodes() hostDriverNodes = %d, want %d", census.HostDriverNodes, tc.want.hostDriverNodes)
 			}
 
 			var updated corev1.Node

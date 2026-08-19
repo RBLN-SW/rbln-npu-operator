@@ -73,6 +73,7 @@ type DriverSummary struct {
 	NodePools    []rblnv1alpha1.RBLNDriverPoolStatus
 	DesiredNodes int32
 	ReadyNodes   int32
+	Smd          *rblnv1alpha1.RBLNDriverSmdStatus
 }
 
 func (u *Updater) SetDriverReady(ctx context.Context, driver *rblnv1alpha1.RBLNDriver, summary DriverSummary, reason, message string) error {
@@ -123,6 +124,7 @@ func applyDriverSummary(driver *rblnv1alpha1.RBLNDriver, s DriverSummary) {
 		driver.Status.NodePools = s.NodePools
 		driver.Status.DesiredNodes = s.DesiredNodes
 		driver.Status.ReadyNodes = s.ReadyNodes
+		driver.Status.Smd = s.Smd
 	}
 }
 
