@@ -185,7 +185,7 @@ metricsExporter:
   image:
     registry: docker.io
     repository: rebellions/rbln-metrics-exporter
-    tag: v0.3.1
+    tag: v0.3.2
     pullPolicy: IfNotPresent
 
 # NPU Feature Discovery configuration
