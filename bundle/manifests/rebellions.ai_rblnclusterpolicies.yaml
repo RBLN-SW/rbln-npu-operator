@@ -8699,6 +8699,11 @@ spec:
                 nodes'
               rule: '!(has(self.draKubeletPlugin) && self.draKubeletPlugin.enabled
                 && self.sandboxDevicePlugin.enabled)'
+            - message: 'devicePlugin.enabled and draKubeletPlugin.enabled are mutually
+                exclusive: both advertise the same NPUs as rebellions.ai/npu on container
+                nodes'
+              rule: '!(has(self.draKubeletPlugin) && self.draKubeletPlugin.enabled
+                && self.devicePlugin.enabled)'
           status:
             description: RBLNClusterPolicyStatus defines the observed state of RBLNClusterPolicy
             properties:

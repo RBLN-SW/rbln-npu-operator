@@ -184,6 +184,20 @@ func TestRBLNClusterPolicy_CELRejection(t *testing.T) {
 			},
 			errSubstr: "mutually exclusive",
 		},
+		"devicePlugin and draKubeletPlugin both enabled": {
+			spec: rblnv1beta1.RBLNClusterPolicySpec{
+				WorkloadType:        "container",
+				VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{},
+				SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{},
+				DRAKubeletPlugin:    rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: true},
+				DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{Enabled: true},
+				MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{},
+				NPUFeatureDiscovery: rblnv1beta1.RBLNNPUFeatureDiscoverySpec{},
+				ContainerToolkit:    rblnv1beta1.RBLNContainerToolkitSpec{},
+				Driver:              rblnv1beta1.DriverSpec{},
+			},
+			errSubstr: "devicePlugin.enabled and draKubeletPlugin.enabled are mutually exclusive",
+		},
 		"invalid pull policy enum": {
 			spec: rblnv1beta1.RBLNClusterPolicySpec{
 				WorkloadType: "container",

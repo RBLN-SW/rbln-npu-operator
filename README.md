@@ -37,8 +37,11 @@ RBLNClusterPolicy (Cluster-scoped CR)
 
 1. Enable by keeping `spec.workloadType` (or the Helm value) set to `container`, which is the default.
 2. Components:
-   - **Device Plugin** publishes `rebellions.ai/npu` resources.
-   - **DRA Kubelet Plugin** enables workloads to consume NPUs through Kubernetes Dynamic Resource Allocation (DRA).
+   - **Device Plugin** publishes `rebellions.ai/npu` resources, or the
+     **DRA Kubelet Plugin** serves the same NPUs through Kubernetes Dynamic
+     Resource Allocation (DRA). The two allocators are mutually exclusive —
+     both advertise the same devices, so the CR validation rejects a policy
+     that enables `devicePlugin` and `draKubeletPlugin` together.
    - **Metrics Exporter** exposes Prometheus-ready telemetry.
    - **NPU Feature Discovery** labels nodes with RBLN hardware inventory.
    - Leaves native RBLN drivers bound for container passthrough workloads.
