@@ -75,7 +75,7 @@ spec:
           - name: RELATED_IMAGE_RBLN_METRICS_EXPORTER
             value: docker.io/rebellions/rbln-metrics-exporter:v0.3.1@sha256:14d7ac9700e506463ae17ff4ec7c34cb6662dac02c5ed3e40777b2d0f3a64a2b
           - name: RELATED_IMAGE_RBLN_NPU_FEATURE_DISCOVERY
-            value: docker.io/rebellions/rbln-npu-feature-discovery:v0.2.1@sha256:f9a31fa0bde0072230565bf7fc0e27bdb1904321db2395dc366f5954f156c0e1
+            value: docker.io/rebellions/rbln-npu-feature-discovery:v0.2.2@sha256:7840ceaef63c22fdddc4b6199c57e4ea5a4f3bf2735417d5775f908c02f52235
           - name: RELATED_IMAGE_VFIO_MANAGER
             value: docker.io/rebellions/rbln-vfio-manager:v1.0.0@sha256:f468876573e8ba6d726bc6443314d2ae039b3b341fb6de4623fd40cfc53772b5
           - name: RELATED_IMAGE_RBLN_NPU_OPERATOR_VALIDATOR

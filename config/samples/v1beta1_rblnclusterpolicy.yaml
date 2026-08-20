@@ -63,7 +63,7 @@ spec:
     enabled: true
     registry: docker.io
     image: rebellions/rbln-npu-feature-discovery
-    version: v0.2.1
+    version: v0.2.2
     imagePullPolicy: IfNotPresent
   containerToolkit:
     enabled: true
