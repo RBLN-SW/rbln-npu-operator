@@ -73,7 +73,7 @@ spec:
           - name: RELATED_IMAGE_RBLN_K8S_DEVICE_PLUGIN
             value: docker.io/rebellions/k8s-device-plugin:v0.4.2@sha256:85ba52ca521deffa63e24c6f7f50fe9b891bc994398b25781485094cb041bfe4
           - name: RELATED_IMAGE_RBLN_METRICS_EXPORTER
-            value: docker.io/rebellions/rbln-metrics-exporter:v0.3.1@sha256:14d7ac9700e506463ae17ff4ec7c34cb6662dac02c5ed3e40777b2d0f3a64a2b
+            value: docker.io/rebellions/rbln-metrics-exporter:v0.3.2@sha256:c16ab2bf4ef2394553f5e7c42719aee030a5e542fa34396e3ddb02952ec9b79d
           - name: RELATED_IMAGE_RBLN_NPU_FEATURE_DISCOVERY
             value: docker.io/rebellions/rbln-npu-feature-discovery:v0.2.2@sha256:7840ceaef63c22fdddc4b6199c57e4ea5a4f3bf2735417d5775f908c02f52235
           - name: RELATED_IMAGE_VFIO_MANAGER
