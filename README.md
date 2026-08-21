@@ -11,7 +11,7 @@ The RBLN NPU Operator automates the deployment and management of all Rebellions 
 
 | Category | Minimum Version | Notes |
 | --- | --- | --- |
-| Kubernetes | v1.19+ | Validated through v1.32+ |
+| Kubernetes | v1.19+ | Validated through v1.32+; the DRA passthrough path requires v1.34+ |
 | OpenShift | 4.19+ | Detected automatically; SCC integration enabled |
 | Helm | v3.9 | Required for chart install/upgrade |
 | Container Runtime | containerd | Needs hostPath access to `/dev`, `/sys`, kubelet plugin dirs |
@@ -37,24 +37,47 @@ RBLNClusterPolicy (Cluster-scoped CR)
 
 1. Enable by keeping `spec.workloadType` (or the Helm value) set to `container`, which is the default.
 2. Components:
-   - **Device Plugin** publishes `rebellions.ai/npu` resources.
-   - **DRA Kubelet Plugin** enables workloads to consume NPUs through Kubernetes Dynamic Resource Allocation (DRA).
+   - **Device Plugin** publishes `rebellions.ai/npu` resources, or the
+     **DRA Kubelet Plugin** serves the same NPUs through Kubernetes Dynamic
+     Resource Allocation (DRA). The two allocators are mutually exclusive —
+     both advertise the same devices, so the CR validation rejects a policy
+     that enables `devicePlugin` and `draKubeletPlugin` together.
    - **Metrics Exporter** exposes Prometheus-ready telemetry.
    - **NPU Feature Discovery** labels nodes with RBLN hardware inventory.
    - Leaves native RBLN drivers bound for container passthrough workloads.
 
 ### Sandbox / VM Passthrough
 
-1. Enable via Helm values or set `spec.workloadType: vm-passthrough`
+Enable via Helm values or set `spec.workloadType: vm-passthrough`. On these
+nodes **NPU Feature Discovery** continues to label VFIO-ready hardware and the
+**VFIO Manager** rebinding script (`vfio-manage.sh`) detaches vendor devices
+and binds them to `vfio-pci`. VMs then consume the devices through one of two
+allocation paths. The paths are mutually exclusive — both advertise the same
+vfio devices, so the CR validation rejects a policy that enables
+`sandboxDevicePlugin` and `draKubeletPlugin` together. When switching paths,
+shut down all NPU-attached VMs first: the two allocators cannot see each
+other's allocations.
+
+#### Device-plugin path
+
+1. Set `spec.sandboxDevicePlugin.enabled: true`
 2. Components:
-   - **NPU Feature Discovery** continues to label VFIO-ready nodes so sandbox DaemonSets pin only to hardware that matches the policy.
-   - **VFIO Manager** rebinding script (`vfio-manage.sh`) detaches vendor devices and binds them to `vfio-pci`.
    - **Sandbox Device Plugin** advertises `rebellions.ai/ATOM_*_PT` resources.
    - **VFIO Checker** ensures nodes remain in a ready state for KubeVirt.
 3. KubeVirt integration:
    - Enable `HostDevices` feature gate
    - Populate `permittedHostDevices` with vendor selector `1eff:XXXX`
    - Reference `rebellions.ai/ATOM_CA25_PT` inside `VirtualMachine.spec.template.spec.domain.devices.hostDevices`
+
+#### DRA path (Kubernetes v1.34+, KubeVirt v1.9+)
+
+1. Set `spec.draKubeletPlugin.enabled: true`
+2. The **DRA Kubelet Plugin** publishes vfio-bound NPUs in ResourceSlices and
+   creates the `vfio-npu.rebellions.ai` DeviceClass.
+3. KubeVirt integration:
+   - Enable the `HostDevicesWithDRA` feature gate
+   - Request devices through a ResourceClaim — see the
+     [DRA driver passthrough example](https://github.com/RBLN-SW/rbln-k8s-dra-driver/blob/main/examples/kubevirt-vm-passthrough.md)
 
 ## Quick Start
 

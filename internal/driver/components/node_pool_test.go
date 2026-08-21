@@ -42,7 +42,7 @@ func TestBuildNodePoolSplitsByFamily(t *testing.T) {
 	}}
 	pools, nodesWithoutFamily := buildNodePools([]corev1.Node{*atomNode, *rebel100Node}, map[string]string{
 		consts.RBLNDriverOwnerLabelKey: "cr-a",
-	}, logf.Log)
+	}, false, logf.Log)
 	if len(nodesWithoutFamily) != 0 {
 		t.Errorf("nodesWithoutFamily = %v, want none", nodesWithoutFamily)
 	}
@@ -87,7 +87,7 @@ func TestBuildNodePoolsSkipsAndReportsNodesWithoutFamily(t *testing.T) {
 	}}
 	pools, nodesWithoutFamily := buildNodePools([]corev1.Node{*node}, map[string]string{
 		consts.RBLNDriverOwnerLabelKey: "cr-a",
-	}, logf.Log)
+	}, false, logf.Log)
 	if len(pools) != 0 {
 		t.Fatalf("pools = %d, want 0 (no family label to compose an image path with): %+v", len(pools), pools)
 	}
@@ -123,7 +123,7 @@ func TestBuildNodePoolsMixedFamilyAndNoFamily(t *testing.T) {
 	}}
 	pools, nodesWithoutFamily := buildNodePools([]corev1.Node{*labeled, *unlabeled}, map[string]string{
 		consts.RBLNDriverOwnerLabelKey: "cr-a",
-	}, logf.Log)
+	}, false, logf.Log)
 	if len(pools) == 0 {
 		t.Fatalf("pools = %d, want > 0 (the labeled node should still produce a pool)", len(pools))
 	}
@@ -159,7 +159,7 @@ func TestBuildNodePoolsSortsNodesWithoutFamily(t *testing.T) {
 
 	pools, nodesWithoutFamily := buildNodePools(nodes, map[string]string{
 		consts.RBLNDriverOwnerLabelKey: "cr-a",
-	}, logf.Log)
+	}, false, logf.Log)
 	if len(pools) != 0 {
 		t.Fatalf("pools = %d, want 0 (none of these nodes carry the family label): %+v", len(pools), pools)
 	}
@@ -254,7 +254,7 @@ func TestBuildNodePool_MissingLabels(t *testing.T) {
 			node := corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-node", Labels: tc.labels},
 			}
-			_, ok := buildNodePool(node, map[string]string{}, logger)
+			_, ok := buildNodePool(node, map[string]string{}, false, logger)
 			if ok {
 				t.Fatal("expected buildNodePool to return false for missing labels")
 			}
@@ -275,7 +275,7 @@ func TestBuildNodePool_AllLabels(t *testing.T) {
 		},
 	}
 
-	pool, ok := buildNodePool(node, map[string]string{}, logger)
+	pool, ok := buildNodePool(node, map[string]string{}, false, logger)
 	if !ok {
 		t.Fatal("expected buildNodePool to return true")
 	}
@@ -366,7 +366,7 @@ func TestBuildNodePool_FamilyLabelValidation(t *testing.T) {
 			node := corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-node", Labels: baseLabels(tc.rawFamily)},
 			}
-			pool, ok := buildNodePool(node, map[string]string{}, logger)
+			pool, ok := buildNodePool(node, map[string]string{}, false, logger)
 			if !ok {
 				t.Fatal("expected buildNodePool to return true (os/kernel labels are present)")
 			}
@@ -387,6 +387,54 @@ func TestBuildNodePool_FamilyLabelValidation(t *testing.T) {
 			}
 			if pool.name != "ubuntu22.04-5.15.0-100-generic" {
 				t.Fatalf("pool.name = %q, want unprefixed (invalid family treated as missing)", pool.name)
+			}
+		})
+	}
+}
+
+func TestBuildNodePool_RDS(t *testing.T) {
+	logger := logf.Log
+	baseLabels := map[string]string{
+		consts.NFDOSReleaseIDLabelKey: "ubuntu",
+		consts.NFDOSVersionIDLabelKey: "22.04",
+		consts.NFDKernelLabelKey:      "5.15.0-100-generic",
+		consts.RBLNNPUFamilyLabelKey:  "atom",
+	}
+
+	tests := map[string]struct {
+		rdsPresent string // "" means the label is absent
+		rdsEnabled bool
+		wantRDS    bool
+	}{
+		"present and enabled":        {rdsPresent: labelValueTrue, rdsEnabled: true, wantRDS: true},
+		"present but disabled":       {rdsPresent: labelValueTrue, rdsEnabled: false, wantRDS: false},
+		"enabled but node unlabeled": {rdsPresent: "", rdsEnabled: true, wantRDS: false},
+		"enabled but present=false":  {rdsPresent: "false", rdsEnabled: true, wantRDS: false},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			labels := make(map[string]string, len(baseLabels)+1)
+			for k, v := range baseLabels {
+				labels[k] = v
+			}
+			if tc.rdsPresent != "" {
+				labels[rdsPresentLabelKey] = tc.rdsPresent
+			}
+			node := corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n", Labels: labels}}
+
+			pool, ok := buildNodePool(node, map[string]string{}, tc.rdsEnabled, logger)
+			if !ok {
+				t.Fatal("expected buildNodePool to return true")
+			}
+			if pool.rds != tc.wantRDS {
+				t.Errorf("pool.rds = %v, want %v", pool.rds, tc.wantRDS)
+			}
+			if _, hasSelector := pool.nodeSelector[rdsPresentLabelKey]; hasSelector != tc.wantRDS {
+				t.Errorf("nodeSelector[%s] present = %v, want %v", rdsPresentLabelKey, hasSelector, tc.wantRDS)
+			}
+			if strings.HasSuffix(pool.name, rdsPoolNameSuffix) != tc.wantRDS {
+				t.Errorf("pool.name = %q, want -rds suffix = %v", pool.name, tc.wantRDS)
 			}
 		})
 	}

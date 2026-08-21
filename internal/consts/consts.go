@@ -23,9 +23,12 @@ const (
 	RBLNWorkloadConfigContainer     = "container"
 	RBLNWorkloadConfigVMPassthrough = "vm-passthrough"
 	RBLNWorkloadConfigUnknown       = "unknown"
-	RBLNPresentLabelKey             = "rebellions.ai/npu.present"
-	RBLNDeploySkipLabelKey          = "rebellions.ai/npu.deploy.skip"
-	RBLNDeployDriverLabelKey        = "rebellions.ai/npu.deploy.driver"
+	// RBLNWorkloadConfigAll marks components that serve every workload type
+	// (readiness accounting only — never used as a node label value).
+	RBLNWorkloadConfigAll    = "all"
+	RBLNPresentLabelKey      = "rebellions.ai/npu.present"
+	RBLNDeploySkipLabelKey   = "rebellions.ai/npu.deploy.skip"
+	RBLNDeployDriverLabelKey = "rebellions.ai/npu.deploy.driver"
 
 	// RBLNDeployRBLNDaemonLabelKey gates rbln-smd pods, and is the eviction
 	// handle k8s-driver-manager flips to paused-for-driver-upgrade on every
