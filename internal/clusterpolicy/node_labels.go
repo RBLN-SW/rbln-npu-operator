@@ -34,7 +34,7 @@ var rblnComponentLabels = map[string]map[string]string{
 	consts.RBLNWorkloadConfigVMPassthrough: {
 		"rebellions.ai/npu.deploy.vfio-manager":          labelValueTrue,
 		"rebellions.ai/npu.deploy.sandbox-device-plugin": labelValueTrue,
-		"rebellions.ai/npu.deploy.dra-kubelet-plugin": labelValueTrue,
+		"rebellions.ai/npu.deploy.dra-kubelet-plugin":    labelValueTrue,
 	},
 }
 
