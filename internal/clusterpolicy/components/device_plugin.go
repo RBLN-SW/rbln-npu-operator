@@ -76,6 +76,12 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 
 	envs := []corev1.EnvVar{
 		{Name: "USE_GENERIC_RESOURCE_NAME", Value: strconv.FormatBool(h.desiredSpec.UseGenericResourceName)},
+		{
+			Name: "NODE_NAME",
+			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+				APIVersion: "v1", FieldPath: "spec.nodeName",
+			}},
+		},
 	}
 	if h.desiredSpec.OtlpEndpoint != "" {
 		envs = append(envs, corev1.EnvVar{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: h.desiredSpec.OtlpEndpoint})
