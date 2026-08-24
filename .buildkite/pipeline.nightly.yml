@@ -20,6 +20,12 @@ env:
   SENTINEL_DIR: npu-operator-sentinel
   SENTINEL_RUNNER_IMAGE: harbor.k8s.rebellions.in/rebellions/npu-operator-sentinel:latest
 
+  # Target namespace for every cluster-touching step. Not passed to sentinel via
+  # --namespace (it matches sentinel's own default; see
+  # npu-operator-sentinel/config/default.yaml), but nuke() and the cleanup steps
+  # need it literally, so it is declared once here rather than hardcoded in each.
+  TEST_NAMESPACE: "${TEST_NAMESPACE:-rbln-system}"
+
   # ---- Helm chart ------------------------------------------------------------
   # Empty default -> resolves to the absolute path of the chart bundled with
   # this repo (deployments/rbln-npu-operator), computed at runtime from the
@@ -160,6 +166,35 @@ _scenario_command: &scenario_command |
   chmod 600 "$$HOME/.kube/config"
   export KUBECONFIG="$$HOME/.kube/config"
   export SENTINEL_KUBECONFIG="$$KUBECONFIG"
+
+  # Pre-run teardown, mirroring pipeline.pr.yml's nuke(). The `cleanup` /
+  # `sandbox-cleanup` steps only cover the post-run side, and a *cancelled* build
+  # cancels them along with everything else pending — so without this a run that
+  # dies mid-scenario hands its namespace, pods and helm release records to the
+  # next build. Runs first, before the sentinel clone, so a cluster that cannot
+  # be cleaned fails the step before minutes of clone + uv sync.
+  #
+  # We hold the cluster's concurrency slot for the whole track, so a full nuke
+  # (incl. cluster-scoped CRs and RBAC) cannot touch another build's resources.
+  nuke() {
+    echo "--- :broom: nuke ${TEST_NAMESPACE}"
+    # --all: the default list mask is deployed+failed, so a release left
+    # pending-install by a killed run is invisible to plain `helm list` and would
+    # skip uninstall entirely — then the namespace delete below removes helm's
+    # sh.helm.release.v1.* Secrets and puts it beyond uninstall's reach for good.
+    helm list -n "${TEST_NAMESPACE}" -q --all | xargs -r -n1 helm uninstall -n "${TEST_NAMESPACE}" || true
+    kubectl delete rblnclusterpolicies --all --ignore-not-found || true
+    kubectl delete rblndrivers --all --ignore-not-found || true
+    # Cluster-scoped RBAC outlives the namespace delete, so any release helm did
+    # not uninstall orphans its ClusterRoles/ClusterRoleBindings. A label delete
+    # is the only way to reach those.
+    kubectl delete clusterrole,clusterrolebinding -l app.kubernetes.io/name=rbln-npu-operator || true
+    # KubeVirt test VMs are sentinel-owned: sentinel sweeps them at session
+    # start and deletes them on scenario teardown, so nuke doesn't touch them.
+    kubectl delete namespace "${TEST_NAMESPACE}" --ignore-not-found || true
+    echo "--- :broom: nuke done"
+  }
+  nuke
 
   # Authenticate git clone via GIT_PAT (GitHub App flow is unreliable on this
   # agent). url.insteadOf rewrites the protocol+host so ${SENTINEL_REPO} stays
@@ -522,7 +557,7 @@ steps:
       # `helm list` and would skip uninstall entirely — then the namespace delete
       # below removes helm's sh.helm.release.v1.* Secrets and puts it beyond
       # uninstall's reach.
-      helm list -n rbln-system --filter 'rbln' -q --all | xargs -r -n1 helm uninstall -n rbln-system || true
+      helm list -n "${TEST_NAMESPACE}" --filter 'rbln' -q --all | xargs -r -n1 helm uninstall -n "${TEST_NAMESPACE}" || true
       kubectl delete rblnclusterpolicies --all --ignore-not-found || true
       kubectl delete rblndrivers --all --ignore-not-found || true
       # Cluster-scoped RBAC outlives the namespace delete, so any release helm
@@ -532,7 +567,7 @@ steps:
       # delete is the only way to reach those; safe because this step is in the
       # cloud-ci-container group, so it holds the cluster slot while it runs.
       kubectl delete clusterrole,clusterrolebinding -l app.kubernetes.io/name=rbln-npu-operator || true
-      kubectl delete namespace rbln-system --ignore-not-found || true
+      kubectl delete namespace "${TEST_NAMESPACE}" --ignore-not-found || true
       exit 0
 
   # Sandbox-cluster cleanup — mirrors `cleanup`: same second-line-of-defense
@@ -563,9 +598,9 @@ steps:
       # Same two guards as the `cleanup` step above: --all so a pending-install
       # release is not left behind for the namespace delete to orphan, and a
       # label delete for the cluster-scoped RBAC that delete cannot reach.
-      helm list -n rbln-system --filter 'rbln' -q --all | xargs -r -n1 helm uninstall -n rbln-system || true
+      helm list -n "${TEST_NAMESPACE}" --filter 'rbln' -q --all | xargs -r -n1 helm uninstall -n "${TEST_NAMESPACE}" || true
       kubectl delete rblnclusterpolicies --all --ignore-not-found || true
       kubectl delete rblndrivers --all --ignore-not-found || true
       kubectl delete clusterrole,clusterrolebinding -l app.kubernetes.io/name=rbln-npu-operator || true
-      kubectl delete namespace rbln-system --ignore-not-found || true
+      kubectl delete namespace "${TEST_NAMESPACE}" --ignore-not-found || true
       exit 0
