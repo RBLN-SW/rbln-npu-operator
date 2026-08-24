@@ -107,6 +107,18 @@ _scenario_defaults: &scenario_defaults
     - "${SENTINEL_DIR}/reports/**/*"
     - "${SENTINEL_DIR}/logs/**/*"
 
+# Sandbox-cluster sentinel pins (vm track). The shared sandbox cluster has a
+# CR13 (rebel100) node whose driver must stay at 3.5.0-rc2, so the sandbox
+# step must not inherit the top-level rebel100 defaults. CLOUD_SANDBOX_SENTINEL_*
+# are Buildkite pipeline env vars (interpolated at upload time); the YAML
+# fallbacks mirror their current values so a deleted UI var cannot silently
+# revert the sandbox cluster to the top-level defaults.
+_sandbox_sentinel_env: &sandbox_sentinel_env
+  SENTINEL_ATOM_DRIVER_VERSION: "${CLOUD_SANDBOX_SENTINEL_ATOM_DRIVER_VERSION:-3.2.3}"
+  SENTINEL_REBEL100_DRIVER_VERSION: "${CLOUD_SANDBOX_SENTINEL_REBEL100_DRIVER_VERSION:-3.5.0-rc2}"
+  SENTINEL_ATOM_COMPILER_VERSION: "${CLOUD_SANDBOX_SENTINEL_ATOM_COMPILER_VERSION:-rebel-compiler==0.10.4.post1}"
+  SENTINEL_REBEL100_COMPILER_VERSION: "${CLOUD_SANDBOX_SENTINEL_REBEL100_COMPILER_VERSION:-rebel-compiler==0.11.1.post1}"
+
 # Shared scenario runner. SCENARIO_FAMILY (step env) selects the scenarios; it may
 # hold several space-separated families, so it is passed UNQUOTED into
 # `sentinel run` (word-split into multiple args).
@@ -296,6 +308,7 @@ steps:
     timeout_in_minutes: 90
     concurrency_group: "cloud-ci-sandbox"
     env:
+      <<: *sandbox_sentinel_env
       SCENARIO_FAMILY: "vm"
     notify:
       - github_commit_status:
