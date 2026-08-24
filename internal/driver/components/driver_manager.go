@@ -106,12 +106,12 @@ func (h *driverManagerPatcher) Patch(ctx context.Context, owner *rebellionsaiv1a
 			// Tearing down here would uninstall the driver fleet-wide on
 			// every label gap. Debug, not Info: the CR condition is the
 			// user-facing signal.
-			h.log.V(consts.LogLevelDebug).Info("owned nodes lack the npu.family label; keeping existing DaemonSets",
-				"instance", h.instanceName, "nodesWithoutFamily", len(nodesWithoutFamily))
+			h.log.V(consts.VDebug).Info("Owned nodes lack the npu.family label; keeping existing DaemonSets",
+				"driver", h.instanceName, "nodesWithoutFamily", len(nodesWithoutFamily))
 			return nil
 		}
-		h.log.Info("the resolver assigned this driver no nodes; removing its DaemonSets",
-			"instance", h.instanceName, "ownerLabel", consts.RBLNDriverOwnerLabelKey)
+		h.log.Info("The resolver assigned this driver no nodes; removing its DaemonSets",
+			"driver", h.instanceName, "ownerLabel", consts.RBLNDriverOwnerLabelKey)
 		stale, err := h.findStaleDaemonSets(ctx, nil)
 		if err != nil {
 			return err
@@ -147,8 +147,8 @@ func (h *driverManagerPatcher) Patch(ctx context.Context, owner *rebellionsaiv1a
 			// never replaced by this update anyway.
 			h.diagnostics.MissingImagePools = append(h.diagnostics.MissingImagePools,
 				MissingImagePool{Pool: pool.name, Image: imagePath})
-			h.log.V(consts.LogLevelDebug).Info("driver image not found in registry; skipping pool",
-				"pool", pool.name, "image", imagePath, "cause", fmt.Sprintf("%v", cause))
+			h.log.V(consts.VDebug).Info("Driver image not found in registry; skipping pool",
+				"pool", pool.name, "image", imagePath, "err", cause)
 			continue
 		}
 		renderable = append(renderable, poolCheck{pool: pool, imagePath: imagePath})
@@ -212,8 +212,9 @@ func (h *driverManagerPatcher) fetchPullSecrets(ctx context.Context) []corev1.Se
 		if err := h.apiReader.Get(ctx, client.ObjectKey{Name: name, Namespace: h.namespace}, secret); err != nil {
 			h.diagnostics.UnreadablePullSecrets = append(h.diagnostics.UnreadablePullSecrets,
 				fmt.Sprintf("%s (%s)", name, kapierrors.ReasonForError(err)))
-			h.log.Info("WARNING: configured image pull secret is unreadable; the registry image check runs without it",
-				"name", name, "namespace", h.namespace, "error", err.Error())
+			h.log.Info("Configured image pull secret is unreadable",
+				"name", name, "namespace", h.namespace, "err", err,
+				"effect", "registry image check runs anonymously; a private image may be misread as missing and block its pool")
 			continue
 		}
 		secrets = append(secrets, *secret)

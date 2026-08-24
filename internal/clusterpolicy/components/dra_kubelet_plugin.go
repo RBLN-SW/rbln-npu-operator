@@ -82,7 +82,7 @@ func (h *draKubeletPluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.
 }
 
 func (h *draKubeletPluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "DRA kubelet plugin")
+	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "DRA kubelet plugin")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}

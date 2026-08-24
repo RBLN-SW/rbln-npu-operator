@@ -56,7 +56,7 @@ func (h *driverManagerPatcher) handleDaemonSet(
 			return err
 		}
 		if deferCreate {
-			h.log.V(consts.LogLevelDebug).Info("deferring pool DaemonSet creation; a stale DaemonSet was kept this pass",
+			h.log.V(consts.VDebug).Info("Deferring pool DaemonSet creation; a stale DaemonSet was kept this pass",
 				"pool", pool.name)
 			return nil
 		}

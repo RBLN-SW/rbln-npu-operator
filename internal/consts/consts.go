@@ -1,12 +1,10 @@
 package consts
 
-// log level
-const (
-	LogLevelError = iota - 2
-	LogLevelWarning
-	LogLevelInfo
-	LogLevelDebug
-)
+// Verbosity levels for logr call sites. Severity is expressed by the method
+// (Error vs Info), never by V: V(0) carries state changes and warnings,
+// VDebug per-reconcile detail. Messages start with a capital letter, carry
+// no trailing period, and never embed a severity prefix such as "WARNING:".
+const VDebug = 1
 
 // NFD label keys
 const (

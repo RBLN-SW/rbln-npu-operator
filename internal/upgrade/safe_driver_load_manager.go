@@ -5,8 +5,6 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 // SafeDriverLoadManagerInterface abstracts safe driver load operations for testability.
@@ -44,7 +42,7 @@ func (s *SafeDriverLoadManager) UnblockLoading(ctx context.Context, node *corev1
 	}
 	err := s.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node, annotationKey)
 	if err != nil {
-		s.log.V(consts.LogLevelError).Error(
+		s.log.Error(
 			err, "Failed to change node upgrade annotation for node", "node",
 			node, "annotation", annotationKey)
 		return err

@@ -62,7 +62,8 @@ func NewNPUFamilyRulePatcher(client client.Client, log logr.Logger, namespace st
 func (h *npuFamilyRulePatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	mappings := h.availableRuleMappings()
 	if len(mappings) == 0 {
-		h.log.Info("WARNING: no NodeFeatureRule API is served; NPU family labels stay unavailable until NFD is installed")
+		h.log.Info("No NodeFeatureRule API is served by the cluster",
+			"effect", "no npu.family node labels until NFD is installed; no driver pool can be built")
 		return nil
 	}
 	for _, mapping := range mappings {
@@ -73,8 +74,9 @@ func (h *npuFamilyRulePatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBL
 			// time). Degrade to this component's notReady instead of
 			// aborting every remaining operand.
 			if kapierrors.IsForbidden(err) {
-				h.log.Info("WARNING: RBAC forbids managing NodeFeatureRules; NPU family labels stay unavailable until the operator's RBAC covers them",
-					"group", mapping.GroupVersionKind.Group, "error", err.Error())
+				h.log.Info("RBAC forbids managing NodeFeatureRules",
+					"group", mapping.GroupVersionKind.Group, "err", err,
+					"effect", "no npu.family node labels from this API group until the operator's RBAC covers it")
 				continue
 			}
 			return err
@@ -84,7 +86,7 @@ func (h *npuFamilyRulePatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBL
 }
 
 func (h *npuFamilyRulePatcher) CleanUp(ctx context.Context, _ *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "NPU Family Rule")
+	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "NPU Family Rule")
 	for _, mapping := range h.availableRuleMappings() {
 		if err := h.deleteIfExists(ctx, h.emptyRule(mapping)); err != nil {
 			return err
@@ -139,7 +141,7 @@ func (h *npuFamilyRulePatcher) availableRuleMappings() []*meta.RESTMapping {
 		mapping, err := h.client.RESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 		if err != nil {
 			if !meta.IsNoMatchError(err) {
-				h.log.V(consts.LogLevelDebug).Error(err, "failed to resolve NodeFeatureRule mapping", "group", gvk.Group)
+				h.log.Error(err, "Failed to resolve NodeFeatureRule mapping", "group", gvk.Group)
 			}
 			continue
 		}
@@ -169,8 +171,9 @@ func (h *npuFamilyRulePatcher) reconcileRule(ctx context.Context, owner *rblnv1b
 	probe := h.emptyRule(mapping)
 	if err := h.client.Get(ctx, client.ObjectKeyFromObject(probe), probe); err == nil {
 		if ref := foreignRuleController(probe); ref != nil {
-			h.log.Info("WARNING: NodeFeatureRule exists but is controlled by another owner; leaving it untouched",
-				"name", h.name, "group", mapping.GroupVersionKind.Group, "ownerKind", ref.Kind, "ownerName", ref.Name)
+			h.log.Info("NodeFeatureRule is controlled by another owner; leaving it untouched",
+				"name", h.name, "group", mapping.GroupVersionKind.Group, "ownerKind", ref.Kind, "ownerName", ref.Name,
+				"effect", "the operator's npu.family rules are not applied in this API group")
 			return nil
 		}
 	} else if !kapierrors.IsNotFound(err) {

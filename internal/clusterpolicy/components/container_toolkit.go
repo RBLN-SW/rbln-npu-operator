@@ -92,7 +92,7 @@ func (h *containerToolkitPatcher) Patch(ctx context.Context, owner *rblnv1beta1.
 }
 
 func (h *containerToolkitPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "Container Toolkit")
+	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "Container Toolkit")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}

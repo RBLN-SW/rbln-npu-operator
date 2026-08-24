@@ -70,7 +70,7 @@ func (h *sandboxDevicePluginPatcher) Patch(ctx context.Context, owner *rblnv1bet
 }
 
 func (h *sandboxDevicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "Sandbox Device Plugin")
+	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "Sandbox Device Plugin")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}

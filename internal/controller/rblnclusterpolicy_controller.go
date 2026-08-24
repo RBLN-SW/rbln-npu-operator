@@ -120,7 +120,7 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if err := instance.Spec.Validate(); err != nil {
 		r.Log.Error(err, "RBLNClusterPolicy spec is invalid")
 		if statusErr := r.Conditions.SetPolicyNotReady(ctx, instance, consts.RBLNConditionReasonInvalidSpec, err.Error()); statusErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set ClusterPolicy status")
+			r.Log.Error(statusErr, "Failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{}, nil
 	}
@@ -132,14 +132,14 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	candidates, nfdInstalled, err := clusterpolicy.ListAndClassifyNodes(ctx, r.Client)
 	if err != nil {
-		r.Log.Error(err, "")
+		r.Log.Error(err, "Failed to list and classify NPU candidate nodes")
 		return ctrl.Result{}, err
 	}
 
 	if !nfdInstalled {
-		r.Log.V(consts.LogLevelWarning).Info("NodeFeatureDiscovery labels not found", "requeue_after", nfdCheckInterval)
+		r.Log.Info("NodeFeatureDiscovery labels not found", "requeueAfter", nfdCheckInterval)
 		if err := r.Conditions.SetPolicyNotReady(ctx, instance, consts.RBLNConditionReasonNFDNotFound, "NodeFeatureDiscovery labels not found"); err != nil {
-			r.Log.V(consts.LogLevelDebug).Error(err, "failed to set ClusterPolicy status")
+			r.Log.Error(err, "Failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{RequeueAfter: nfdCheckInterval}, nil
 	}
@@ -156,14 +156,14 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	census, err := service.ReconcileNodes(ctx, candidates)
 	if err != nil {
-		r.Log.Error(err, "")
+		r.Log.Error(err, "Failed to reconcile node labels and annotations")
 		return ctrl.Result{}, err
 	}
 
 	if census.TotalNPU == 0 {
 		r.Log.Info("No Rebellions NPU discovered; skipping reconcile")
 		if err := r.Conditions.SetPolicyNotReady(ctx, instance, consts.RBLNConditionReasonNoRBLNNodes, "No Rebellions NPU discovered"); err != nil {
-			r.Log.V(consts.LogLevelDebug).Error(err, "failed to set ClusterPolicy status")
+			r.Log.Error(err, "Failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{}, nil
 	}
@@ -176,7 +176,7 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		// .status too or it is lost an hour later.
 		if statusErr := r.Conditions.SetPolicyNotReady(ctx, instance,
 			consts.RBLNEventReasonComponentApplyFailed, err.Error()); statusErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set ClusterPolicy status")
+			r.Log.Error(statusErr, "Failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{}, err
 	}
@@ -202,13 +202,13 @@ func (r *RBLNClusterPolicyReconciler) fetchClusterPolicy(
 	if err := r.Get(ctx, req.NamespacedName, instance); err != nil {
 		if kapierrors.IsNotFound(err) {
 			if r.clearSingletonIf(req.Name) {
-				r.Log.V(consts.LogLevelInfo).Info("singleton RBLNClusterPolicy cleared", "name", req.Name)
+				r.Log.Info("Singleton RBLNClusterPolicy cleared", "name", req.Name)
 			}
 			return nil, nil
 		}
 
 		wrappedErr := fmt.Errorf("failed to get RBLNClusterPolicy object: %w", err)
-		r.Log.Error(err, "failed to get RBLNClusterPolicy object")
+		r.Log.Error(err, "Failed to get RBLNClusterPolicy object")
 		return nil, wrappedErr
 	}
 
@@ -221,7 +221,7 @@ func (r *RBLNClusterPolicyReconciler) handleSingletonPolicy(
 ) (bool, error) {
 	owner := r.claimSingletonIfVacant(instance.Name)
 	if owner != instance.Name {
-		r.Log.V(consts.LogLevelDebug).Info("Set RBLNClusterPolicy status as ignored")
+		r.Log.V(consts.VDebug).Info("Set RBLNClusterPolicy status as ignored")
 		wasIgnored := instance.Status.State == consts.RBLNStateIgnored
 		if err := r.Conditions.SetPolicyIgnored(ctx, instance, "Another RBLNClusterPolicy is already active; this policy is ignored"); err != nil {
 			return false, err
@@ -380,7 +380,7 @@ func (r *RBLNClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // surviving ignored policy is re-evaluated and can be promoted to singleton.
 func (r *RBLNClusterPolicyReconciler) policyDeleted(ctx context.Context, o client.Object) []ctrl.Request {
 	if r.clearSingletonIf(o.GetName()) {
-		r.Log.V(consts.LogLevelInfo).Info("singleton RBLNClusterPolicy cleared", "name", o.GetName())
+		r.Log.Info("Singleton RBLNClusterPolicy cleared", "name", o.GetName())
 	}
 	list := &rblnv1beta1.RBLNClusterPolicyList{}
 	if err := r.List(ctx, list); err != nil {
@@ -398,7 +398,7 @@ func (r *RBLNClusterPolicyReconciler) policyDeleted(ctx context.Context, o clien
 
 func (r *RBLNClusterPolicyReconciler) singletonRequest(_ context.Context, o client.Object) []ctrl.Request {
 	if owner := r.singletonOwner(); owner != "" {
-		r.Log.V(consts.LogLevelDebug).Info("Rebellions Node label changed, triggering reconcile", "node", o.GetName())
+		r.Log.V(consts.VDebug).Info("Rebellions Node label changed, triggering reconcile", "node", o.GetName())
 		return []ctrl.Request{
 			{
 				NamespacedName: client.ObjectKey{

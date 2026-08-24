@@ -29,7 +29,7 @@ func (m *ClusterUpgradeStateManagerImpl) logNodeStates(currentState *ClusterUpgr
 	for _, state := range managedUpgradeStates {
 		logArgs = append(logArgs, logKeyForNodeState(state), len(currentState.NodeStates[state]))
 	}
-	m.log.Info("Node states:", logArgs...)
+	m.log.Info("Node states", logArgs...)
 }
 
 // recordNodeStateMetrics publishes every managed state's node count,
@@ -45,7 +45,7 @@ func (m *ClusterUpgradeStateManagerImpl) runApplyStateStep(step applyStateStep) 
 	if err := step.run(); err != nil {
 		errorArgs := append([]any{}, step.errorArgs...)
 		errorArgs = append(errorArgs, "step", step.name)
-		m.log.V(consts.LogLevelError).Error(err, step.errorMsg, errorArgs...)
+		m.log.Error(err, step.errorMsg, errorArgs...)
 		return fmt.Errorf("apply state step %q failed: %w", step.name, err)
 	}
 
@@ -55,7 +55,7 @@ func (m *ClusterUpgradeStateManagerImpl) runApplyStateStep(step applyStateStep) 
 func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 	namespace string, currentState *ClusterUpgradeState, upgradePolicy *v1beta1.DriverUpgradePolicySpec,
 ) error {
-	m.log.Info("State Manager, got state update")
+	m.log.V(consts.VDebug).Info("State Manager, got state update")
 
 	if currentState == nil {
 		return fmt.Errorf("currentState should not be empty")
@@ -189,6 +189,6 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 		}
 	}
 
-	m.log.V(consts.LogLevelInfo).Info("State Manager, finished processing")
+	m.log.V(consts.VDebug).Info("State Manager, finished processing")
 	return nil
 }

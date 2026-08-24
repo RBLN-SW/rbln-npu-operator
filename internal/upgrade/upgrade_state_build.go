@@ -9,12 +9,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 func (m *ClusterUpgradeStateManagerImpl) BuildState(ctx context.Context, namespace string,
 	driverLabels map[string]string,
 ) (*ClusterUpgradeState, error) {
-	m.log.Info("Building state")
+	m.log.V(consts.VDebug).Info("Building state")
 
 	upgradeState := NewClusterUpgradeState()
 
@@ -24,7 +26,7 @@ func (m *ClusterUpgradeStateManagerImpl) BuildState(ctx context.Context, namespa
 		return nil, err
 	}
 
-	m.log.Info("Got driver DaemonSets", "length", len(daemonSets))
+	m.log.V(consts.VDebug).Info("Got driver DaemonSets", "length", len(daemonSets))
 
 	podList := &corev1.PodList{}
 
@@ -104,7 +106,7 @@ func (m *ClusterUpgradeStateManagerImpl) partitionDriverPods(
 
 		podsByDaemonSet[ownerUID] = append(podsByDaemonSet[ownerUID], *pod)
 	}
-	m.log.Info("Total orphaned Pods found:", "count", len(orphanedPods))
+	m.log.V(consts.VDebug).Info("Total orphaned Pods found", "count", len(orphanedPods))
 	return podsByDaemonSet, orphanedPods
 }
 
@@ -141,7 +143,7 @@ func (m *ClusterUpgradeStateManagerImpl) buildNodeUpgradeState(
 		nodeCache[nodeName] = node
 	}
 
-	m.log.Info("Node hosting a driver pod",
+	m.log.V(consts.VDebug).Info("Node hosting a driver pod",
 		"node", node.Name, "state", node.Labels[UpgradeStateLabelKey])
 
 	return &NodeUpgradeState{Node: node, DriverPod: pod, DriverDaemonSet: ds}, nil

@@ -55,12 +55,12 @@ type UpgradeReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
 
 func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.Log.Info("Reconciling driver upgrade", "name", req.NamespacedName)
+	r.Log.V(consts.VDebug).Info("Reconciling driver upgrade", "name", req.NamespacedName)
 
 	clusterPolicy := &rblnv1beta1.RBLNClusterPolicy{}
 	err := r.Get(ctx, req.NamespacedName, clusterPolicy)
 	if err != nil {
-		r.Log.Error(err, "error getting RBLNClusterPolicy object")
+		r.Log.Error(err, "Error getting RBLNClusterPolicy object")
 		if apierrors.IsNotFound(err) {
 			return reconcile.Result{}, r.cleanupIfNoPoliciesLeft(ctx)
 		}

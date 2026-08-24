@@ -61,7 +61,7 @@ func (h *devicePluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLN
 }
 
 func (h *devicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "Device Plugin")
+	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "Device Plugin")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}

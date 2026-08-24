@@ -51,7 +51,7 @@ func (h *npuFeatureDiscoveryPatcher) Patch(ctx context.Context, owner *rblnv1bet
 }
 
 func (h *npuFeatureDiscoveryPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "NPU Feature Discovery")
+	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "NPU Feature Discovery")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}

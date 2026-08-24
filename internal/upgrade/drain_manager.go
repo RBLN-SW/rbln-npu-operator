@@ -62,9 +62,9 @@ func (m *DrainManager) ScheduleNodesDrain(ctx context.Context, drainConfig *Drai
 		Timeout:             time.Duration(drainSpec.TimeoutSeconds) * time.Second,
 		PodSelector:         drainSpec.PodSelector,
 		OnPodDeletionOrEvictionFinished: func(pod *corev1.Pod, usingEviction bool, err error) {
-			log := m.Log.WithValues("using-eviction", usingEviction, "pod", pod.Name, "namespace", pod.Namespace)
+			log := m.Log.WithValues("usingEviction", usingEviction, "pod", pod.Name, "namespace", pod.Namespace)
 			if err != nil {
-				log.Info("Drain Pod failed", "error", err)
+				log.Info("Drain Pod failed", "err", err)
 				return
 			}
 			log.Info("Drain Pod finished")

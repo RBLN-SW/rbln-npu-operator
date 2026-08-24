@@ -198,8 +198,8 @@ func (r *OwnerResolver) Resolve(ctx context.Context) (*ResolveResult, error) {
 		// An invalid CR must fail only itself, not wedge the global
 		// assignment pass.
 		if err := ValidateDriverSpec(&d); err != nil {
-			r.log.V(consts.LogLevelDebug).Info("excluding unroutable RBLNDriver from routing",
-				"driver", d.Name, "reason", err.Error())
+			r.log.V(consts.VDebug).Info("Excluding unroutable RBLNDriver from routing",
+				"driver", d.Name, "err", err)
 			continue
 		}
 		candidates = append(candidates, d)
@@ -301,7 +301,7 @@ func (r *OwnerResolver) Resolve(ctx context.Context) (*ResolveResult, error) {
 	sort.Strings(result.ScopeExitNodes)
 
 	if len(result.OwnerChanges) > 0 || len(result.ScopeExitNodes) > 0 {
-		r.log.Info("driver owner labels updated",
+		r.log.Info("Driver owner labels updated",
 			"changed", len(result.OwnerChanges), "scopeExits", len(result.ScopeExitNodes))
 	}
 
