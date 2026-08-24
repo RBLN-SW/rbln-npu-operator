@@ -19,31 +19,35 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
+	"log/slog"
 	"os"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/rebellions-sw/rbln-npu-operator/internal/logging"
 )
 
 func main() {
+	logging.SetupFromEnv()
+
 	crdDir := flag.String("crd-dir", "/opt/rbln/crds", "directory containing CRD manifests to apply")
 	fieldOwner := flag.String("field-owner", "rbln-npu-operator-crd", "server-side apply field manager")
 	flag.Parse()
 
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "get kubeconfig: %v\n", err)
+		slog.Error("Failed to get kubeconfig", "err", err)
 		os.Exit(1)
 	}
 	c, err := client.New(cfg, client.Options{})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "create client: %v\n", err)
+		slog.Error("Failed to create client", "err", err)
 		os.Exit(1)
 	}
 	if err := applyManifests(context.Background(), c, *crdDir, *fieldOwner); err != nil {
-		fmt.Fprintf(os.Stderr, "apply CRDs: %v\n", err)
+		slog.Error("Failed to apply CRDs", "err", err)
 		os.Exit(1)
 	}
-	fmt.Println("CRDs applied successfully from", *crdDir)
+	slog.Info("Applied CRDs successfully", "dir", *crdDir)
 }
