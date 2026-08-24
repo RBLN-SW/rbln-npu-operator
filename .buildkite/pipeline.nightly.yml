@@ -516,9 +516,22 @@ steps:
       # want a "resource type not found" on step 2 to mask anything that
       # step 3 might still need to delete.
       # sentinel's default namespace: see npu-operator-sentinel/config/default.yaml.
-      helm list -n rbln-system --filter 'rbln' -q | xargs -r -n1 helm uninstall -n rbln-system || true
+      #
+      # --all: the default list mask is deployed+failed, so a release left
+      # pending-install by a killed scenario step is invisible to plain
+      # `helm list` and would skip uninstall entirely — then the namespace delete
+      # below removes helm's sh.helm.release.v1.* Secrets and puts it beyond
+      # uninstall's reach.
+      helm list -n rbln-system --filter 'rbln' -q --all | xargs -r -n1 helm uninstall -n rbln-system || true
       kubectl delete rblnclusterpolicies --all --ignore-not-found || true
       kubectl delete rblndrivers --all --ignore-not-found || true
+      # Cluster-scoped RBAC outlives the namespace delete, so any release helm
+      # did not uninstall orphans its ClusterRoles/ClusterRoleBindings — which is
+      # what scenario 05's no-lingering-resources assertion trips over on a later
+      # build, since it selects on the release-agnostic chart-name label. A label
+      # delete is the only way to reach those; safe because this step is in the
+      # cloud-ci-container group, so it holds the cluster slot while it runs.
+      kubectl delete clusterrole,clusterrolebinding -l app.kubernetes.io/name=rbln-npu-operator || true
       kubectl delete namespace rbln-system --ignore-not-found || true
       exit 0
 
@@ -547,8 +560,12 @@ steps:
       chmod 600 "$$HOME/.kube/config"
       export KUBECONFIG="$$HOME/.kube/config"
 
-      helm list -n rbln-system --filter 'rbln' -q | xargs -r -n1 helm uninstall -n rbln-system || true
+      # Same two guards as the `cleanup` step above: --all so a pending-install
+      # release is not left behind for the namespace delete to orphan, and a
+      # label delete for the cluster-scoped RBAC that delete cannot reach.
+      helm list -n rbln-system --filter 'rbln' -q --all | xargs -r -n1 helm uninstall -n rbln-system || true
       kubectl delete rblnclusterpolicies --all --ignore-not-found || true
       kubectl delete rblndrivers --all --ignore-not-found || true
+      kubectl delete clusterrole,clusterrolebinding -l app.kubernetes.io/name=rbln-npu-operator || true
       kubectl delete namespace rbln-system --ignore-not-found || true
       exit 0

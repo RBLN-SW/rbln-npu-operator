@@ -145,9 +145,17 @@ _scenario_command: &scenario_command |
   # Run before install too, to clear any hard-killed run's leftover, and after
   # to release a clean cluster.
   nuke() {
-    helm list -n "${TEST_NAMESPACE}" -q | xargs -r -n1 helm uninstall -n "${TEST_NAMESPACE}" || true
+    # --all: the default list mask is deployed+failed, so a release left
+    # pending-install by a killed run is invisible to plain `helm list` and would
+    # skip uninstall entirely — then the namespace delete below removes helm's
+    # sh.helm.release.v1.* Secrets and puts it beyond uninstall's reach for good.
+    helm list -n "${TEST_NAMESPACE}" -q --all | xargs -r -n1 helm uninstall -n "${TEST_NAMESPACE}" || true
     kubectl delete rblnclusterpolicies --all --ignore-not-found || true
     kubectl delete rblndrivers --all --ignore-not-found || true
+    # Cluster-scoped RBAC outlives the namespace delete, so any release helm did
+    # not uninstall orphans its ClusterRoles/ClusterRoleBindings. A label delete
+    # is the only way to reach those; safe because we hold the cluster lock.
+    kubectl delete clusterrole,clusterrolebinding -l app.kubernetes.io/name=rbln-npu-operator || true
     # KubeVirt test VMs are sentinel-owned: sentinel deletes them itself on
     # scenario teardown (success or failure), so nuke doesn't touch them.
     kubectl delete namespace "${TEST_NAMESPACE}" --ignore-not-found || true
