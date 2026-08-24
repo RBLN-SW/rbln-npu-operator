@@ -422,12 +422,12 @@ steps:
   - label: ":pytest: S08 workload switch"
     key: s08
     # Workload-type switch test (vm-passthrough <-> container <-> vm-passthrough).
-    # Gated on both the vm scenario (s00) and the container chain (s07) so it runs
-    # after both workload types are exercised and never contends with them. Uses
-    # the sandbox cluster — the vm-passthrough phases rebind NPUs to vfio-pci.
-    # Defined after s07 because Buildkite resolves depends_on against steps
-    # already declared above it.
-    depends_on: [s00, s07]
+    # Uses the sandbox cluster — the vm-passthrough phases rebind NPUs to
+    # vfio-pci — so it is gated on s00, the only other sandbox-cluster step.
+    # The main-cluster chain (s01..s07) is deliberately NOT a dependency: it runs
+    # on a different cluster, so gating on it would idle the sandbox cluster for
+    # the whole chain and let an unrelated main-cluster failure skip s08.
+    depends_on: s00
     env:
       <<: *sandbox_sentinel_env
       SCENARIO_FAMILY: workload_switch
