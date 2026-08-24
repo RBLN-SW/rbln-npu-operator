@@ -20,6 +20,11 @@ crds:
     imagePullSecrets: []
     tolerations: []
     resources: {}
+    # crd-apply hook Job logging. The hook runs pre-install, before the
+    # operator exists, so cluster-level logging configuration cannot reach it.
+    logging:
+      level: info        # error|warning|info|debug
+      format: json       # json|text
 
 # Common defaults applied to all managed DaemonSet pods.
 podDefaults:
@@ -50,6 +55,17 @@ operator:
     requests:
       cpu: 50m
       memory: 128Mi
+  logging:
+    # zap gate for the operator manager's own logs. Redirected client-go/klog
+    # records surface at V(0) only; raising their verbosity needs a klog -v
+    # container arg AND this level raised to match.
+    # NOTE: invalid values crash the operator at startup (unlike
+    # crds.upgrade.logging, which falls back).
+    # error|info|debug|panic or an integer N>0 (logr V<=N)
+    level: info
+    encoder: json      # json|console
+    timeEncoding: rfc3339nano  # epoch|millis|nanos|iso8601|rfc3339|rfc3339nano
+    develMode: false  # true = zap development behavior: DPanic panics + full Kubernetes-object dumps in log values; encoder/level are unaffected — set them explicitly above
   # Operator self-metrics. HTTPS + authn/authz — scrapers need a SA token
   # bound to the -metrics-reader ClusterRole.
   metrics:

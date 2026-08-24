@@ -40,6 +40,13 @@ spec:
             - /usr/bin/npu-operator
           args:
             - --leader-elect
+            {{- $operatorLogging := .Values.operator.logging | default dict }}
+            - --zap-log-level={{ $operatorLogging.level | default "info" }}
+            - --zap-encoder={{ $operatorLogging.encoder | default "json" }}
+            - --zap-time-encoding={{ $operatorLogging.timeEncoding | default "rfc3339nano" }}
+            {{- if $operatorLogging.develMode }}
+            - --zap-devel
+            {{- end }}
             - --health-probe-bind-address=:8081
             {{- if and .Values.operator.metrics .Values.operator.metrics.enabled }}
             - --metrics-bind-address=:{{ .Values.operator.metrics.port | default 8443 }}
