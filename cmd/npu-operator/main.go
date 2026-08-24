@@ -21,6 +21,7 @@ import (
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -33,7 +34,12 @@ import (
 var setupLog = ctrl.Log.WithName("setup")
 
 func initLogger(zapOpts *zap.Options) {
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(zapOpts)))
+	logger := zap.New(zap.UseFlagOptions(zapOpts))
+	ctrl.SetLogger(logger)
+	// client-go logs via klog; route it into the same zap JSON stream.
+	// ContextualLogger lets klog.Background()/FromContext callers hit the
+	// zap sink directly instead of going through the klogr shim.
+	klog.SetLoggerWithOptions(logger.WithName("klog"), klog.ContextualLogger(true))
 }
 
 func main() {
@@ -41,7 +47,7 @@ func main() {
 	initLogger(&opts.ZapOpts)
 
 	if err := run(opts); err != nil {
-		setupLog.Error(err, "operator failed")
+		setupLog.Error(err, "Operator failed")
 		os.Exit(1)
 	}
 }
@@ -76,6 +82,6 @@ func run(opts startOptions) error {
 		return err
 	}
 
-	setupLog.Info("starting manager")
+	setupLog.Info("Starting manager")
 	return mgr.Start(ctx)
 }
