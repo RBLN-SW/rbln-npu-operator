@@ -296,7 +296,11 @@ func TestReconcileNodes(t *testing.T) {
 				absentLabels: []string{consts.RBLNDeployRBLNDaemonLabelKey},
 			},
 		},
-		"repairs a component label that k8s-driver-manager left empty": {
+		// Fill-only: k8s-driver-manager owns every value transition on these
+		// keys, so an empty value is left alone (and reported) rather than
+		// repaired — repairing it could undo a pause and defeat the eviction
+		// that keeps smd aligned with the driver.
+		"leaves a component label k8s-driver-manager left empty": {
 			workloadType: consts.RBLNWorkloadConfigContainer,
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-empty-gate", map[string]string{
@@ -307,7 +311,7 @@ func TestReconcileNodes(t *testing.T) {
 			},
 			want: want{
 				count:  1,
-				labels: map[string]string{consts.RBLNDeploySmdLabelKey: labelValueTrue},
+				labels: map[string]string{consts.RBLNDeploySmdLabelKey: ""},
 			},
 		},
 		"preserves a deploy label k8s-driver-manager paused": {
@@ -373,6 +377,67 @@ func TestReconcileNodes(t *testing.T) {
 			for _, key := range tc.want.absentLabels {
 				if _, exists := updated.Labels[key]; exists {
 					t.Fatalf("label %s should be absent", key)
+				}
+			}
+		})
+	}
+}
+
+func TestEmptyDesiredComponentLabels(t *testing.T) {
+	tests := map[string]struct {
+		labels map[string]string
+		config string
+		want   []string
+	}{
+		"reports an empty desired label": {
+			labels: map[string]string{consts.RBLNDeploySmdLabelKey: ""},
+			config: consts.RBLNWorkloadConfigContainer,
+			want:   []string{consts.RBLNDeploySmdLabelKey},
+		},
+		"reports every empty desired label in sorted order": {
+			labels: map[string]string{
+				consts.RBLNDeploySmdLabelKey:             "",
+				consts.RBLNDeployDriverLabelKey:          "",
+				"rebellions.ai/npu.deploy.device-plugin": "",
+			},
+			config: consts.RBLNWorkloadConfigContainer,
+			want: []string{
+				"rebellions.ai/npu.deploy.device-plugin",
+				consts.RBLNDeployDriverLabelKey,
+				consts.RBLNDeploySmdLabelKey,
+			},
+		},
+		"ignores labels that carry a value": {
+			labels: map[string]string{consts.RBLNDeploySmdLabelKey: "paused-for-driver-upgrade"},
+			config: consts.RBLNWorkloadConfigContainer,
+			want:   []string{},
+		},
+		"ignores absent labels": {
+			labels: map[string]string{},
+			config: consts.RBLNWorkloadConfigContainer,
+			want:   []string{},
+		},
+		// The smd label is not desired on a pre-installed-driver node, so an
+		// empty value there is pruned rather than reported.
+		"ignores a label this node should not carry": {
+			labels: map[string]string{
+				consts.RBLNDeployDriverLabelKey: consts.RBLNDeployDriverPreInstalled,
+				consts.RBLNDeploySmdLabelKey:    "",
+			},
+			config: consts.RBLNWorkloadConfigContainer,
+			want:   []string{},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := emptyDesiredComponentLabels(tc.labels, tc.config)
+			if len(got) != len(tc.want) {
+				t.Fatalf("emptyDesiredComponentLabels() = %v, want %v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("emptyDesiredComponentLabels() = %v, want %v", got, tc.want)
 				}
 			}
 		})

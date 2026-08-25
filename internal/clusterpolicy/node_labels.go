@@ -3,6 +3,7 @@ package clusterpolicy
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -206,7 +207,35 @@ func (s *ClusterPolicyService) reconcileWorkloadLabels(nodeName string, labels m
 		)
 	}
 
-	return updateRBLNComponentLabels(labels, workloadConfig)
+	modified := updateRBLNComponentLabels(labels, workloadConfig)
+
+	// A deploy label left empty gates its component off for as long as it stays
+	// empty, and the fill-only loop above will not repair it. Nothing here can
+	// safely fix it, so make it visible instead of letting a node sit silently
+	// without a component.
+	if empty := emptyDesiredComponentLabels(labels, workloadConfig); len(empty) > 0 {
+		s.log.Info(
+			"Component deploy labels are empty; those components stay gated off until the value is restored",
+			"node", nodeName,
+			"labels", empty,
+		)
+	}
+
+	return modified
+}
+
+// emptyDesiredComponentLabels returns the deploy labels this node should carry
+// as "true" but whose value is empty, sorted for a stable log line.
+func emptyDesiredComponentLabels(labels map[string]string, config string) []string {
+	desired := desiredComponentLabels(labels, config)
+	empty := make([]string, 0, len(desired))
+	for key := range desired {
+		if value, exists := labels[key]; exists && value == "" {
+			empty = append(empty, key)
+		}
+	}
+	sort.Strings(empty)
+	return empty
 }
 
 func hasRBLNPresentLabel(labels map[string]string) bool {
@@ -289,12 +318,12 @@ func updateRBLNComponentLabels(labels map[string]string, config string) bool {
 	}
 
 	for key, value := range desired {
-		// Values are never overwritten: k8s-driver-manager owns the pause
-		// transitions and must not be fought. An empty value is the exception —
-		// its strategic-merge patch writes "" for keys it finds absent, and a
-		// fill-only loop would leave such a key empty forever, gating its
-		// component off for good.
-		if existing, exists := labels[key]; !exists || existing == "" {
+		// Fill only. An existing value is never overwritten — not even an empty
+		// one — because k8s-driver-manager owns every value transition on these
+		// keys (it flips them to paused-for-driver-upgrade to evict a node's
+		// components) and the operator must not race it. An empty value is
+		// reported by emptyDesiredComponentLabels rather than repaired here.
+		if _, exists := labels[key]; !exists {
 			labels[key] = value
 			modified = true
 		}
