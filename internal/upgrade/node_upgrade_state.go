@@ -108,16 +108,6 @@ func (p *NodeUpgradeStateProvider) recordStateTransitionEvent(node *corev1.Node,
 	}
 }
 
-func (p *NodeUpgradeStateProvider) ChangeNodeUpgradeAnnotation(
-	ctx context.Context, node *corev1.Node, key string, value string,
-) error {
-	if value == nullString {
-		return p.RemoveNodeUpgradeAnnotation(ctx, node, key)
-	}
-
-	return p.SetNodeUpgradeAnnotation(ctx, node, key, value)
-}
-
 func (p *NodeUpgradeStateProvider) SetNodeUpgradeAnnotation(
 	ctx context.Context, node *corev1.Node, key string, value string,
 ) error {

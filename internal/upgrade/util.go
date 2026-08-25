@@ -50,9 +50,3 @@ func (s *StringSet) Has(item string) bool {
 	_, ok := s.m[item]
 	return ok
 }
-
-func (s *StringSet) Clear() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.m = make(map[string]bool)
-}

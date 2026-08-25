@@ -26,16 +26,6 @@ func TestStringSet(t *testing.T) {
 		}
 	})
 
-	t.Run("clear", func(t *testing.T) {
-		s := NewStringSet()
-		s.Add("a")
-		s.Add("b")
-		s.Clear()
-		if s.Has("a") || s.Has("b") {
-			t.Fatal("expected empty set after Clear")
-		}
-	})
-
 	t.Run("concurrent access", func(t *testing.T) {
 		s := NewStringSet()
 		var wg sync.WaitGroup
