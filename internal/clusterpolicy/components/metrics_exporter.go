@@ -17,14 +17,9 @@ import (
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
-// The exporter reads the unprefixed pair; every other operand takes an
-// RBLN_<COMPONENT>_ prefixed one. These names track the *shipped* image, so
-// renaming them upstream means bumping the default tag in the same change --
-// a newer operator rendering prefixed names at an older pinned exporter tag
-// would leave the knob silently inert.
 const (
-	metricsExporterLogLevelEnv  = "LOG_LEVEL"
-	metricsExporterLogFormatEnv = "LOG_FORMAT"
+	metricsExporterLogLevelEnv  = "RBLN_METRICS_EXPORTER_LOG_LEVEL"
+	metricsExporterLogFormatEnv = "RBLN_METRICS_EXPORTER_LOG_FORMAT"
 )
 
 type metricsExporterPatcher struct {

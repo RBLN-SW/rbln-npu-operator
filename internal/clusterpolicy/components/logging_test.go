@@ -13,9 +13,9 @@ import (
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
-// The operand images do not share one variable name -- the metrics exporter
-// reads the unprefixed pair -- so each component is asserted against the names
-// its own image actually reads.
+// Each component is asserted against the names its own image actually reads:
+// the RBLN_ prefix does not derive from the component name, so a copy-paste
+// slip would otherwise render a variable no operand looks at.
 func TestLoggingSpecRendersOperandEnv(t *testing.T) {
 	tests := map[string]struct {
 		component string

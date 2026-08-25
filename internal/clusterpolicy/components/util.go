@@ -101,9 +101,10 @@ func mergeEnvVars(base []corev1.EnvVar, additions ...[]corev1.EnvVar) []corev1.E
 	return merged
 }
 
-// loggingEnvVars renders an operand's logging gate. The variable names are not
-// uniform across the operand images -- most read an RBLN_<COMPONENT>_LOG_* pair,
-// the metrics exporter the unprefixed one -- so the caller names them.
+// loggingEnvVars renders an operand's logging gate. The caller spells both
+// names out rather than passing a prefix: the prefix does not derive from the
+// component name (the DRA kubelet plugin reads RBLN_DRA_DRIVER_*), and literal
+// names stay greppable against the operand repos that define them.
 // An unset field renders nothing, leaving the operand's own info/json default
 // in place rather than restating it on every DaemonSet.
 func loggingEnvVars(spec *rblnv1beta1.LoggingSpec, levelEnv, formatEnv string) []corev1.EnvVar {

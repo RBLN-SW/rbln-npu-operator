@@ -271,8 +271,7 @@ metricsExporter:
     repository: rebellions/rbln-metrics-exporter
     tag: v0.3.3
     pullPolicy: IfNotPresent
-  # See devicePlugin.logging. This image reads the unprefixed LOG_LEVEL /
-  # LOG_FORMAT pair; the controller handles the difference.
+  # See devicePlugin.logging.
   # logging:
   #   level: debug
   #   format: text
