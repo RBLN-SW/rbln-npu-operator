@@ -44,4 +44,4 @@ spec:
   # field -- its image tag always equals spec.version above.
   smd:
     registry: repo.rebellions.ai
-    image: rebellions/rbln-daemon
+    image: rebellions/rbln-smd

@@ -316,7 +316,7 @@ instead.
 
 Every RBLNDriver CR deploys one `rbln-smd` DaemonSet (`<CR name>-smd`) — the
 node management daemon (gRPC on host port 50051, container image
-`rebellions/rbln-daemon`) — alongside its driver. There is no enable toggle
+`rebellions/rbln-smd`) — alongside its driver. There is no enable toggle
 and no version field: the smd image tag **always equals the driver
 `spec.version`**, so two RBLNDriver CRs with different versions run two smd
 DaemonSets, each matching its own driver. Only the image coordinates are

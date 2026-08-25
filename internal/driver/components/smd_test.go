@@ -21,7 +21,7 @@ func newSmdTestOwner() *rebellionsaiv1alpha1.RBLNDriver {
 	owner := newTestOwner()
 	owner.Spec.Smd = rebellionsaiv1alpha1.SmdSpec{
 		Registry: "docker.io",
-		Image:    "rebellions/rbln-daemon",
+		Image:    "rebellions/rbln-smd",
 	}
 	owner.Spec.Manager = rebellionsaiv1alpha1.DriverManagerSpec{
 		Registry: "docker.io",
@@ -129,11 +129,13 @@ func TestSmdPatcher_Patch(t *testing.T) {
 	}
 
 	container := podSpec.Containers[0]
-	if want := "docker.io/rebellions/rbln-daemon:" + owner.Spec.Version; container.Image != want {
+	if want := "docker.io/rebellions/rbln-smd:" + owner.Spec.Version; container.Image != want {
 		t.Fatalf("smd image = %q, want %q (tag must equal spec.version)", container.Image, want)
 	}
-	if container.Command[0] != smdCommand {
-		t.Fatalf("command = %q, want %q", container.Command[0], smdCommand)
+	// The image's ENTRYPOINT owns the binary path; overriding it here would tie
+	// the operator to a path the smd image is free to move.
+	if len(container.Command) != 0 {
+		t.Fatalf("command = %v, want empty (image ENTRYPOINT)", container.Command)
 	}
 	assertSmdContainerContract(t, container)
 
@@ -231,7 +233,7 @@ func TestSmdPatcher_Patch_EmptyVersionKeepsExisting(t *testing.T) {
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"a": "b"}},
 				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{Name: smdName, Image: "docker.io/rebellions/rbln-daemon:2.0.0"}},
+					Containers: []corev1.Container{{Name: smdName, Image: "docker.io/rebellions/rbln-smd:2.0.0"}},
 				},
 			},
 		},
@@ -252,7 +254,7 @@ func TestSmdPatcher_Patch_EmptyVersionKeepsExisting(t *testing.T) {
 
 	ds := &appsv1.DaemonSet{}
 	assertObjectExists(t, c, smdDaemonSetKey(), ds)
-	if got := ds.Spec.Template.Spec.Containers[0].Image; got != "docker.io/rebellions/rbln-daemon:2.0.0" {
+	if got := ds.Spec.Template.Spec.Containers[0].Image; got != "docker.io/rebellions/rbln-smd:2.0.0" {
 		t.Fatalf("existing DaemonSet must be left as-is with an empty version, image became %q", got)
 	}
 }
@@ -282,7 +284,7 @@ func TestSmdPatcher_Patch_UpdatesTemplateOnVersionBump(t *testing.T) {
 
 	ds := &appsv1.DaemonSet{}
 	assertObjectExists(t, c, smdDaemonSetKey(), ds)
-	if got, want := ds.Spec.Template.Spec.Containers[0].Image, "docker.io/rebellions/rbln-daemon:3.0.0"; got != want {
+	if got, want := ds.Spec.Template.Spec.Containers[0].Image, "docker.io/rebellions/rbln-smd:3.0.0"; got != want {
 		t.Fatalf("image after version bump = %q, want %q", got, want)
 	}
 	if got := ds.Spec.UpdateStrategy.Type; got != appsv1.OnDeleteDaemonSetStrategyType {

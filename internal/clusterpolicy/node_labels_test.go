@@ -164,9 +164,10 @@ func TestReconcileNodes(t *testing.T) {
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-skip", mergeLabelMaps(
 					map[string]string{
-						consts.NFDDevicePCILabelKey:   labelValueTrue,
-						consts.RBLNPresentLabelKey:    labelValueTrue,
-						consts.RBLNDeploySkipLabelKey: labelValueTrue,
+						consts.NFDDevicePCILabelKey:         labelValueTrue,
+						consts.RBLNPresentLabelKey:          labelValueTrue,
+						consts.RBLNDeploySkipLabelKey:       labelValueTrue,
+						consts.RBLNDeployRBLNDaemonLabelKey: labelValueTrue,
 					},
 					rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
 				)),
@@ -185,7 +186,8 @@ func TestReconcileNodes(t *testing.T) {
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-removed", mergeLabelMaps(
 					map[string]string{
-						consts.RBLNPresentLabelKey: labelValueTrue,
+						consts.RBLNPresentLabelKey:          labelValueTrue,
+						consts.RBLNDeployRBLNDaemonLabelKey: labelValueTrue,
 					},
 					rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
 				)),
@@ -395,10 +397,12 @@ func labelKeys(labels map[string]string) []string {
 	return keys
 }
 
+// allComponentLabelKeys includes the legacy keys so that every "removes all
+// component labels" case also guards the legacy sweep on that path.
 func allComponentLabelKeys() []string {
 	keys := make([]string, 0)
 	for _, labels := range rblnComponentLabels {
 		keys = append(keys, labelKeys(labels)...)
 	}
-	return keys
+	return append(keys, legacyComponentLabelKeys...)
 }

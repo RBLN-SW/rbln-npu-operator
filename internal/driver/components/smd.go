@@ -191,10 +191,13 @@ func (h *SmdPatcher) handleDaemonSet(ctx context.Context, owner *rebellionsaiv1a
 func (h *SmdPatcher) buildPodSpec(version string) *corev1.PodSpec {
 	initContainer := h.buildDriverReadyInitContainer()
 
+	// No command override: every rbln-smd image ships an ENTRYPOINT pointing at
+	// its own binary, so leaving it unset keeps the operator out of the way when
+	// that path moves (it did once already: /opt/rebellions/bin/rbln_daemon →
+	// /usr/bin/rbln-smd) instead of requiring a lockstep operator release.
 	smdContainer := k8sutil.NewContainerBuilder().
 		WithName(h.name).
 		WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Smd.Registry, h.desiredSpec.Smd.Image), version, h.desiredSpec.ImagePullPolicy).
-		WithCommands([]string{smdCommand}).
 		WithResources(corev1.ResourceRequirements{}, "250m", "40Mi").
 		WithPorts([]corev1.ContainerPort{
 			{

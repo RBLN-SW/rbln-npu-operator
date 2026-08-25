@@ -41,6 +41,8 @@ var rblnComponentLabels = map[string]map[string]string{
 // They are swept but never added: the prune loops below only walk
 // rblnComponentLabels, so a key dropped from that map would otherwise sit on
 // every already-labeled node forever, naming a component that no longer exists.
+// TODO(remove after two releases): drop together with the clusterpolicy legacy
+// rbln-daemon cleanup once no supported upgrade path carries these keys.
 var legacyComponentLabelKeys = []string{
 	consts.RBLNDeployRBLNDaemonLabelKey,
 }

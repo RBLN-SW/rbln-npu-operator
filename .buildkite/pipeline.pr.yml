@@ -35,7 +35,7 @@ env:
   # The cluster lock serializes runs, so a single namespace is fine.
   TEST_NAMESPACE: "${TEST_NAMESPACE:-rbln-system}"
 
-  # ---- Driver + rbln-daemon images (dev) -------------------------------------
+  # ---- Driver + rbln-smd images (dev) ----------------------------------------
   # External dependency images (not operands), pinned to the dev images exactly
   # like the nightly pipeline.
   #
@@ -58,11 +58,19 @@ env:
   # raise when a driver install (firmware update + module build + insmod, 6+
   # minutes on the rebel100 node) outgrows it.
   SENTINEL_WAIT_TIMEOUT: "${SENTINEL_WAIT_TIMEOUT:-900}"
-  # rbln-smd (image rebellions/rbln-daemon, not family-split) has NO tag var:
+  # rbln-smd (image rebellions/rbln-smd, not family-split) has NO tag var:
   # its tag always follows the per-CR driver version above. Sentinel maps
   # these into helm driver.smd.image.{registry,repository}.
+  #
+  # The repository was renamed rbln-daemon -> rbln-smd from ATOM 3.4.0-rc3 /
+  # REBEL100 3.5.0-rc3; the driver versions pinned above predate that, so they
+  # resolve only through the same-digest backfill under the new name. If a
+  # scenario ever fails pulling smd, revert this value to rebellions-dev/
+  # rbln-daemon — the old name keeps receiving the same digest.
+  # The variable NAMES keep the rbln-daemon spelling: they are sentinel's
+  # config contract (src/sentinel/config.py), not ours to rename unilaterally.
   SENTINEL_RBLN_DAEMON_IMAGE_REGISTRY: harbor.ssw.rbln.in
-  SENTINEL_RBLN_DAEMON_IMAGE_REPOSITORY: rebellions-dev/rbln-daemon
+  SENTINEL_RBLN_DAEMON_IMAGE_REPOSITORY: rebellions-dev/rbln-smd
   # Compilers paired per family with the drivers above (docs.rbln.ai version
   # matrix) — used by the model-zoo inference runs (container/dra/vm);
   # sentinel resolves the compiler per node from its npu.family label.

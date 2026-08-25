@@ -121,7 +121,7 @@ func TestPatchComponents_GatesSmdOnDriverPools(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "test-driver", UID: "test-uid"},
 				Spec: rebellionsaiv1alpha1.RBLNDriverSpec{
 					Version: "3.0.0",
-					Smd:     rebellionsaiv1alpha1.SmdSpec{Registry: "docker.io", Image: "rebellions/rbln-daemon"},
+					Smd:     rebellionsaiv1alpha1.SmdSpec{Registry: "docker.io", Image: "rebellions/rbln-smd"},
 					Manager: rebellionsaiv1alpha1.DriverManagerSpec{
 						Registry: "docker.io", Image: "rebellions/rbln-k8s-driver-manager", Version: "1.0.0",
 					},
