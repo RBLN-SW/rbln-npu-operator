@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -354,7 +353,7 @@ func TestResolve(t *testing.T) {
 				objs = append(objs, &tc.drivers[i])
 			}
 			c := newTestResolverClient(t, objs...)
-			r := NewOwnerResolver(c, logr.Discard())
+			r := NewOwnerResolver(c)
 
 			result, err := r.Resolve(context.Background())
 			if err != nil {
@@ -418,7 +417,7 @@ func TestResolveIdempotent(t *testing.T) {
 	n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{deployKey: "true"}}}
 	d := driverWithSelector("rbln-driver", nil)
 	c := newTestResolverClient(t, n, &d)
-	r := NewOwnerResolver(c, logr.Discard())
+	r := NewOwnerResolver(c)
 
 	first, err := r.Resolve(context.Background())
 	if err != nil {

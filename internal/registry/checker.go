@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // Verdict is the outcome of checking whether an image exists in its registry.
@@ -78,7 +78,6 @@ type Checker struct {
 
 	disabled     bool
 	transport    http.RoundTripper
-	log          logr.Logger
 	now          func() time.Time
 	checkTimeout time.Duration
 }
@@ -86,10 +85,9 @@ type Checker struct {
 // Option configures a Checker.
 type Option func(*Checker)
 
-func NewChecker(log logr.Logger, opts ...Option) *Checker {
+func NewChecker(opts ...Option) *Checker {
 	c := &Checker{
 		cache:        make(map[string]cacheEntry),
-		log:          log,
 		now:          time.Now,
 		checkTimeout: defaultCheckTimeout,
 	}
@@ -128,7 +126,7 @@ func (c *Checker) Check(ctx context.Context, imageRef string, pullSecrets []core
 
 	ref, err := name.ParseReference(imageRef)
 	if err != nil {
-		return c.record(imageRef, VerdictUnknown, err)
+		return c.record(ctx, imageRef, VerdictUnknown, err)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, c.checkTimeout)
@@ -143,7 +141,7 @@ func (c *Checker) Check(ctx context.Context, imageRef string, pullSecrets []core
 	}
 
 	_, headErr := remote.Head(ref, opts...)
-	return c.record(imageRef, verdictFromError(headErr), headErr)
+	return c.record(ctx, imageRef, verdictFromError(headErr), headErr)
 }
 
 func (c *Checker) cached(imageRef string) (cacheEntry, bool) {
@@ -164,13 +162,13 @@ func (c *Checker) cached(imageRef string) (cacheEntry, bool) {
 // rather than at the call site: only a cache miss reaches this function, so the
 // TTL doubles as the log's rate limit. Logging per call instead would emit a
 // line on every reconcile pass for as long as the registry stays unreachable.
-func (c *Checker) record(imageRef string, v Verdict, cause error) (Verdict, error) {
+func (c *Checker) record(ctx context.Context, imageRef string, v Verdict, cause error) (Verdict, error) {
 	causeText := ""
 	if cause != nil {
 		causeText = cause.Error()
 	}
 	if v == VerdictUnknown {
-		c.log.Info("Could not verify whether the driver image exists in its registry",
+		log.FromContext(ctx).Info("Could not verify whether the driver image exists in its registry",
 			"image", imageRef, "error", cause,
 			"effect", "pool rendered without image existence verification; kubelet decides at pull time")
 	}
