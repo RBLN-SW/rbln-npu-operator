@@ -110,9 +110,9 @@ func TestSmdPatcher_Patch(t *testing.T) {
 	}
 
 	wantSelector := map[string]string{
-		driverManagerDeployLabelKey:         "true",
-		consts.RBLNDriverOwnerLabelKey:      testInstanceName,
-		consts.RBLNDeployRBLNDaemonLabelKey: "true",
+		driverManagerDeployLabelKey:    "true",
+		consts.RBLNDriverOwnerLabelKey: testInstanceName,
+		consts.RBLNDeploySmdLabelKey:   "true",
 	}
 	for key, want := range wantSelector {
 		if got := ds.Spec.Template.Spec.NodeSelector[key]; got != want {

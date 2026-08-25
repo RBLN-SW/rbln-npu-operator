@@ -136,17 +136,17 @@ func (h *SmdPatcher) smdLabels() map[string]string {
 }
 
 // smdNodeSelector pins smd pods to this instance's driver nodes. The owner
-// label alone scopes the instance; npu.deploy.rbln-daemon is additionally
+// label alone scopes the instance; npu.deploy.rbln-smd is additionally
 // required because it is the eviction handle k8s-driver-manager flips to
 // paused-for-driver-upgrade on every driver pod start, which (with OnDelete)
 // is what rolls this pod onto the current template in step with the driver.
 // The key name is that binary's hardcoded contract — do not rename it here
-// alone.
+// alone, and note that a driver-manager predating the rename never flips it.
 func (h *SmdPatcher) smdNodeSelector() map[string]string {
 	return map[string]string{
-		driverManagerDeployLabelKey:         "true",
-		consts.RBLNDriverOwnerLabelKey:      h.instanceName,
-		consts.RBLNDeployRBLNDaemonLabelKey: "true",
+		driverManagerDeployLabelKey:    "true",
+		consts.RBLNDriverOwnerLabelKey: h.instanceName,
+		consts.RBLNDeploySmdLabelKey:   "true",
 	}
 }
 

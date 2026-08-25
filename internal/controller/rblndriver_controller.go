@@ -422,7 +422,7 @@ func (r *RBLNDriverReconciler) reportSmdProgressing(
 		// k8s-driver-manager pauses the deploy label during a driver pod
 		// start, or before any owned node carries it.
 		msg = fmt.Sprintf("rbln-smd DaemonSet is progressing: no eligible nodes (%s=true absent on owned nodes — paused during a driver pod start, or not yet labeled)",
-			consts.RBLNDeployRBLNDaemonLabelKey)
+			consts.RBLNDeploySmdLabelKey)
 	}
 	logger := log.FromContext(ctx)
 	logger.Info("Driver components not ready", "driver", instance.Name, "reason", msg)

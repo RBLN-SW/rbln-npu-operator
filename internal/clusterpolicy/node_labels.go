@@ -26,7 +26,7 @@ var rblnComponentLabels = map[string]map[string]string{
 		"rebellions.ai/npu.deploy.device-plugin":         labelValueTrue,
 		"rebellions.ai/npu.deploy.dra-kubelet-plugin":    labelValueTrue,
 		"rebellions.ai/npu.deploy.metrics-exporter":      labelValueTrue,
-		consts.RBLNDeployRBLNDaemonLabelKey:              labelValueTrue,
+		consts.RBLNDeploySmdLabelKey:                     labelValueTrue,
 		"rebellions.ai/npu.deploy.npu-feature-discovery": labelValueTrue,
 		"rebellions.ai/npu.deploy.operator-validator":    labelValueTrue,
 		"rebellions.ai/npu.deploy.container-toolkit":     labelValueTrue,
@@ -35,6 +35,14 @@ var rblnComponentLabels = map[string]map[string]string{
 		"rebellions.ai/npu.deploy.vfio-manager":          labelValueTrue,
 		"rebellions.ai/npu.deploy.sandbox-device-plugin": labelValueTrue,
 	},
+}
+
+// legacyComponentLabelKeys are deploy labels the operator no longer applies.
+// They are swept but never added: the prune loops below only walk
+// rblnComponentLabels, so a key dropped from that map would otherwise sit on
+// every already-labeled node forever, naming a component that no longer exists.
+var legacyComponentLabelKeys = []string{
+	consts.RBLNDeployRBLNDaemonLabelKey,
 }
 
 // ListAndClassifyNodes returns NPU-candidate nodes and whether NFD is
@@ -237,7 +245,7 @@ func isValidWorkloadConfig(workloadConfig string) bool {
 }
 
 func removeAllRBLNComponentLabels(labels map[string]string) bool {
-	modified := false
+	modified := removeLegacyComponentLabels(labels)
 	for _, labelsMap := range rblnComponentLabels {
 		for key := range labelsMap {
 			if _, exists := labels[key]; !exists {
@@ -250,9 +258,21 @@ func removeAllRBLNComponentLabels(labels map[string]string) bool {
 	return modified
 }
 
+func removeLegacyComponentLabels(labels map[string]string) bool {
+	modified := false
+	for _, key := range legacyComponentLabelKeys {
+		if _, exists := labels[key]; !exists {
+			continue
+		}
+		delete(labels, key)
+		modified = true
+	}
+	return modified
+}
+
 func updateRBLNComponentLabels(labels map[string]string, config string) bool {
 	desired := desiredComponentLabels(labels, config)
-	modified := false
+	modified := removeLegacyComponentLabels(labels)
 
 	for _, labelsMap := range rblnComponentLabels {
 		for key := range labelsMap {
@@ -267,7 +287,12 @@ func updateRBLNComponentLabels(labels map[string]string, config string) bool {
 	}
 
 	for key, value := range desired {
-		if _, exists := labels[key]; !exists {
+		// Values are never overwritten: k8s-driver-manager owns the pause
+		// transitions and must not be fought. An empty value is the exception —
+		// its strategic-merge patch writes "" for keys it finds absent, and a
+		// fill-only loop would leave such a key empty forever, gating its
+		// component off for good.
+		if existing, exists := labels[key]; !exists || existing == "" {
 			labels[key] = value
 			modified = true
 		}
@@ -285,7 +310,7 @@ func desiredComponentLabels(labels map[string]string, config string) map[string]
 
 	desired := make(map[string]string, len(base))
 	for key, value := range base {
-		if key == consts.RBLNDeployRBLNDaemonLabelKey {
+		if key == consts.RBLNDeploySmdLabelKey {
 			continue
 		}
 		desired[key] = value

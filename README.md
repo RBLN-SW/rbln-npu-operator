@@ -331,7 +331,7 @@ Ordering and updates are tied to the driver lifecycle:
 - The DaemonSet uses `OnDelete`, so a template change replaces no running
   pod. Replacement rides the driver: on every driver pod start,
   k8s-driver-manager evicts the node's components via the
-  `rebellions.ai/npu.deploy.rbln-daemon` label flip and the recreated smd pod
+  `rebellions.ai/npu.deploy.rbln-smd` label flip and the recreated smd pod
   picks up the current template. A version bump therefore reaches each node
   exactly when the upgrade controller replaces that node's driver pod, and an
   smd-only change (registry/repository) applies on the next driver pod
@@ -341,8 +341,13 @@ Ordering and updates are tied to the driver lifecycle:
   `Ready=False`/`SmdNotReady` on the CR.
 
 Node selection follows the driver's owner-label routing (plus the
-`npu.deploy.rbln-daemon` gate), so pre-installed-driver nodes — which run
+`npu.deploy.rbln-smd` gate), so pre-installed-driver nodes — which run
 their own host `rbln-smd` — and vm-passthrough nodes never receive one.
+That gate is flipped by k8s-driver-manager, and a driver-manager predating
+the `rbln-daemon` → `rbln-smd` rename never flips it — smd pods then sit on
+a stale image across driver upgrades with nothing reporting it. The two
+therefore ship as a version pair; the chart's `driver.manager.image.tag` is
+the authority on which driver-manager this operator expects.
 Readiness is reported in `status.smd` (`desired`/`ready`/`state`) and gates
 the CR's `Ready` condition (`SmdNotReady` while catching up, no event —
 ordinary rollout progress); `status.desiredNodes`/`readyNodes` stay

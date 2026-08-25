@@ -232,7 +232,7 @@ func TestReconcileNodes(t *testing.T) {
 				absentLabels: labelKeys(rblnComponentLabels[consts.RBLNWorkloadConfigContainer]),
 			},
 		},
-		"excludes rbln-daemon on pre-installed driver nodes": {
+		"excludes rbln-smd on pre-installed driver nodes": {
 			workloadType: consts.RBLNWorkloadConfigContainer,
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-preinstalled", map[string]string{
@@ -249,12 +249,12 @@ func TestReconcileNodes(t *testing.T) {
 					"rebellions.ai/npu.deploy.container-toolkit": labelValueTrue,
 				},
 				absentLabels: append(
-					[]string{consts.RBLNDeployRBLNDaemonLabelKey},
+					[]string{consts.RBLNDeploySmdLabelKey},
 					labelKeys(rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough])...,
 				),
 			},
 		},
-		"removes the rbln-daemon label once the driver becomes pre-installed": {
+		"removes the rbln-smd label once the driver becomes pre-installed": {
 			workloadType: consts.RBLNWorkloadConfigContainer,
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-preinstalled-existing", mergeLabelMaps(
@@ -273,7 +273,53 @@ func TestReconcileNodes(t *testing.T) {
 					consts.RBLNDeployDriverLabelKey:          consts.RBLNDeployDriverPreInstalled,
 					"rebellions.ai/npu.deploy.device-plugin": labelValueTrue,
 				},
+				absentLabels: []string{consts.RBLNDeploySmdLabelKey},
+			},
+		},
+		"sweeps the pre-rename rbln-daemon label off an upgraded node": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			node: &corev1.Node{
+				ObjectMeta: newObjectMeta("node-upgraded", mergeLabelMaps(
+					rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
+					map[string]string{
+						consts.NFDDevicePCILabelKey:         labelValueTrue,
+						consts.RBLNPresentLabelKey:          labelValueTrue,
+						consts.RBLNDeployRBLNDaemonLabelKey: labelValueTrue,
+					},
+				)),
+			},
+			want: want{
+				count:        1,
+				labels:       map[string]string{consts.RBLNDeploySmdLabelKey: labelValueTrue},
 				absentLabels: []string{consts.RBLNDeployRBLNDaemonLabelKey},
+			},
+		},
+		"repairs a component label that k8s-driver-manager left empty": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			node: &corev1.Node{
+				ObjectMeta: newObjectMeta("node-empty-gate", map[string]string{
+					consts.NFDDevicePCILabelKey:  labelValueTrue,
+					consts.RBLNPresentLabelKey:   labelValueTrue,
+					consts.RBLNDeploySmdLabelKey: "",
+				}),
+			},
+			want: want{
+				count:  1,
+				labels: map[string]string{consts.RBLNDeploySmdLabelKey: labelValueTrue},
+			},
+		},
+		"preserves a deploy label k8s-driver-manager paused": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			node: &corev1.Node{
+				ObjectMeta: newObjectMeta("node-paused-gate", map[string]string{
+					consts.NFDDevicePCILabelKey:  labelValueTrue,
+					consts.RBLNPresentLabelKey:   labelValueTrue,
+					consts.RBLNDeploySmdLabelKey: "paused-for-driver-upgrade",
+				}),
+			},
+			want: want{
+				count:  1,
+				labels: map[string]string{consts.RBLNDeploySmdLabelKey: "paused-for-driver-upgrade"},
 			},
 		},
 		"does not modify labels when the node already has the correct workload labels": {
