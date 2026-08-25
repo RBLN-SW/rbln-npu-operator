@@ -6,11 +6,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/kubectl/pkg/drain"
+
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
@@ -30,15 +31,14 @@ type DrainManager struct {
 	k8sInterface             kubernetes.Interface
 	drainingNodes            *StringSet
 	nodeUpgradeStateProvider *NodeUpgradeStateProvider
-	Log                      logr.Logger
 	eventRecorder            record.EventRecorder
 }
 
 func (m *DrainManager) ScheduleNodesDrain(ctx context.Context, drainConfig *DrainConfiguration) error {
-	m.Log.Info("Drain Manager, starting Node Drain")
+	log.FromContext(ctx).Info("Drain Manager, starting Node Drain")
 
 	if len(drainConfig.Nodes) == 0 {
-		m.Log.Info("Drain Manager, no nodes scheduled to drain")
+		log.FromContext(ctx).Info("Drain Manager, no nodes scheduled to drain")
 		return nil
 	}
 
@@ -48,7 +48,7 @@ func (m *DrainManager) ScheduleNodesDrain(ctx context.Context, drainConfig *Drai
 		return fmt.Errorf("drain spec should not be empty")
 	}
 	if !drainSpec.Enable {
-		m.Log.Info("Drain Manager, drain is disabled")
+		log.FromContext(ctx).Info("Drain Manager, drain is disabled")
 		return nil
 	}
 
@@ -62,7 +62,7 @@ func (m *DrainManager) ScheduleNodesDrain(ctx context.Context, drainConfig *Drai
 		Timeout:             time.Duration(drainSpec.TimeoutSeconds) * time.Second,
 		PodSelector:         drainSpec.PodSelector,
 		OnPodDeletionOrEvictionFinished: func(pod *corev1.Pod, usingEviction bool, err error) {
-			log := m.Log.WithValues("usingEviction", usingEviction, "pod", pod.Name, "namespace", pod.Namespace)
+			log := log.FromContext(ctx).WithValues("usingEviction", usingEviction, "pod", pod.Name, "namespace", pod.Namespace)
 			if err != nil {
 				log.Info("Drain Pod failed", "error", err)
 				return
@@ -75,32 +75,32 @@ func (m *DrainManager) ScheduleNodesDrain(ctx context.Context, drainConfig *Drai
 
 	for _, node := range drainConfig.Nodes {
 		if !m.drainingNodes.Has(node.Name) {
-			m.Log.Info("Schedule drain for node", "node", node.Name)
+			log.FromContext(ctx).Info("Schedule drain for node", "node", node.Name)
 
 			m.drainingNodes.Add(node.Name)
 			go func() {
 				defer m.drainingNodes.Remove(node.Name)
 				err := drain.RunCordonOrUncordon(drainHelper, node, true)
 				if err != nil {
-					m.Log.Error(err, "Failed to cordon node", "node", node.Name)
+					log.FromContext(ctx).Error(err, "Failed to cordon node", "node", node.Name)
 					recordNodeEvent(m.eventRecorder, node, corev1.EventTypeWarning,
 						consts.RBLNEventReasonNodeDrainFailed,
 						fmt.Sprintf("Failed to cordon node: %v", err))
 					m.changeNodeUpgradeStateAsync(ctx, node, UpgradeStateFailed)
 					return
 				}
-				m.Log.Info("Cordoned the node", "node", node.Name)
+				log.FromContext(ctx).Info("Cordoned the node", "node", node.Name)
 
 				err = drain.RunNodeDrain(drainHelper, node.Name)
 				if err != nil {
-					m.Log.Error(err, "Failed to drain node", "node", node.Name)
+					log.FromContext(ctx).Error(err, "Failed to drain node", "node", node.Name)
 					recordNodeEvent(m.eventRecorder, node, corev1.EventTypeWarning,
 						consts.RBLNEventReasonNodeDrainFailed,
 						fmt.Sprintf("Failed to drain node: %v", err))
 					m.changeNodeUpgradeStateAsync(ctx, node, UpgradeStateFailed)
 					return
 				}
-				m.Log.Info("Drained the node", "node", node.Name)
+				log.FromContext(ctx).Info("Drained the node", "node", node.Name)
 				recordNodeEvent(m.eventRecorder, node, corev1.EventTypeNormal,
 					consts.RBLNEventReasonNodeDrained,
 					"Node drained for driver upgrade (workload pods evicted)")
@@ -108,7 +108,7 @@ func (m *DrainManager) ScheduleNodesDrain(ctx context.Context, drainConfig *Drai
 				m.changeNodeUpgradeStateAsync(ctx, node, UpgradeStatePodRestartRequired)
 			}()
 		} else {
-			m.Log.Info("Node is already being drained, skipping", "node", node.Name)
+			log.FromContext(ctx).Info("Node is already being drained, skipping", "node", node.Name)
 		}
 	}
 	return nil
@@ -122,7 +122,7 @@ func (m *DrainManager) changeNodeUpgradeStateAsync(ctx context.Context, node *co
 	stateCtx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:contextcheck // intentional short-lived timeout for goroutine state transition
 	defer cancel()
 	if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(stateCtx, node, state); err != nil {
-		m.Log.Error(err, "Failed to transition node state in goroutine; will retry next reconcile",
+		log.FromContext(ctx).Error(err, "Failed to transition node state in goroutine; will retry next reconcile",
 			"node", node.Name, "targetState", state)
 	}
 }
@@ -130,12 +130,10 @@ func (m *DrainManager) changeNodeUpgradeStateAsync(ctx context.Context, node *co
 func NewDrainManager(
 	k8sInterface kubernetes.Interface,
 	nodeUpgradeStateProvider *NodeUpgradeStateProvider,
-	log logr.Logger,
 	eventRecorder record.EventRecorder,
 ) *DrainManager {
 	mgr := &DrainManager{
 		k8sInterface:             k8sInterface,
-		Log:                      log,
 		drainingNodes:            NewStringSet(),
 		nodeUpgradeStateProvider: nodeUpgradeStateProvider,
 		eventRecorder:            eventRecorder,

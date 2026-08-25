@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
 	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/metrics"
@@ -24,12 +26,12 @@ func logKeyForNodeState(state string) string {
 	return state
 }
 
-func (m *ClusterUpgradeStateManagerImpl) logNodeStates(currentState *ClusterUpgradeState) {
+func (m *ClusterUpgradeStateManagerImpl) logNodeStates(ctx context.Context, currentState *ClusterUpgradeState) {
 	logArgs := make([]any, 0, len(managedUpgradeStates)*2)
 	for _, state := range managedUpgradeStates {
 		logArgs = append(logArgs, logKeyForNodeState(state), len(currentState.NodeStates[state]))
 	}
-	m.log.Info("Node states", logArgs...)
+	log.FromContext(ctx).Info("Node states", logArgs...)
 }
 
 // recordNodeStateMetrics publishes every managed state's node count,
@@ -41,11 +43,11 @@ func recordNodeStateMetrics(currentState *ClusterUpgradeState) {
 	}
 }
 
-func (m *ClusterUpgradeStateManagerImpl) runApplyStateStep(step applyStateStep) error {
+func (m *ClusterUpgradeStateManagerImpl) runApplyStateStep(ctx context.Context, step applyStateStep) error {
 	if err := step.run(); err != nil {
 		errorArgs := append([]any{}, step.errorArgs...)
 		errorArgs = append(errorArgs, "step", step.name)
-		m.log.Error(err, step.errorMsg, errorArgs...)
+		log.FromContext(ctx).Error(err, step.errorMsg, errorArgs...)
 		return fmt.Errorf("apply state step %q failed: %w", step.name, err)
 	}
 
@@ -55,14 +57,14 @@ func (m *ClusterUpgradeStateManagerImpl) runApplyStateStep(step applyStateStep) 
 func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 	namespace string, currentState *ClusterUpgradeState, upgradePolicy *v1beta1.DriverUpgradePolicySpec,
 ) error {
-	m.log.V(consts.VDebug).Info("State Manager, got state update")
+	log.FromContext(ctx).V(consts.VDebug).Info("State Manager, got state update")
 
 	if currentState == nil {
 		return fmt.Errorf("currentState should not be empty")
 	}
 
 	if upgradePolicy == nil || !upgradePolicy.AutoUpgrade {
-		m.log.Info("Driver auto upgrade is disabled, skipping")
+		log.FromContext(ctx).Info("Driver auto upgrade is disabled, skipping")
 		return nil
 	}
 
@@ -70,7 +72,7 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 	rebootConfig := upgradePolicy.Reboot
 	rebootRequired := rebootConfig != nil && rebootConfig.Enable
 
-	m.logNodeStates(currentState)
+	m.logNodeStates(ctx, currentState)
 	recordNodeStateMetrics(currentState)
 
 	steps := []applyStateStep{
@@ -184,11 +186,11 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 	}
 
 	for _, step := range steps {
-		if err := m.runApplyStateStep(step); err != nil {
+		if err := m.runApplyStateStep(ctx, step); err != nil {
 			return err
 		}
 	}
 
-	m.log.V(consts.VDebug).Info("State Manager, finished processing")
+	log.FromContext(ctx).V(consts.VDebug).Info("State Manager, finished processing")
 	return nil
 }

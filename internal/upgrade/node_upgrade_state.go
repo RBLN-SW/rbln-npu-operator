@@ -5,28 +5,27 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 type NodeUpgradeStateProvider struct {
 	K8sClient     client.Client
-	Log           logr.Logger
 	nodeMutex     KeyedMutex
 	eventRecorder record.EventRecorder
 }
 
 func NewNodeUpgradeStateProvider(
-	k8sClient client.Client, log logr.Logger, eventRecorder record.EventRecorder,
+	k8sClient client.Client, eventRecorder record.EventRecorder,
 ) *NodeUpgradeStateProvider {
 	return &NodeUpgradeStateProvider{
 		K8sClient:     k8sClient,
-		Log:           log,
 		nodeMutex:     KeyedMutex{},
 		eventRecorder: eventRecorder,
 	}
@@ -59,13 +58,13 @@ func (p *NodeUpgradeStateProvider) ChangeNodeUpgradeState(
 		return nil
 	}
 
-	p.Log.Info("Updating node upgrade state",
+	log.FromContext(ctx).Info("Updating node upgrade state",
 		"node", node.Name,
 		"new state", newNodeState)
 
 	err := p.patchNodeLabelsLocked(ctx, &current, map[string]any{UpgradeStateLabelKey: newNodeState})
 	if err != nil {
-		p.Log.Error(err, "Failed to patch node state label on a node object",
+		log.FromContext(ctx).Error(err, "Failed to patch node state label on a node object",
 			"node", node.Name,
 			"state", newNodeState)
 		return err
@@ -84,7 +83,7 @@ func (p *NodeUpgradeStateProvider) ChangeNodeUpgradeState(
 	}
 	node.Labels[UpgradeStateLabelKey] = newNodeState
 
-	p.Log.Info("Successfully changed node upgrade state label",
+	log.FromContext(ctx).Info("Successfully changed node upgrade state label",
 		"node", node.Name,
 		"new state", newNodeState)
 
@@ -122,21 +121,21 @@ func (p *NodeUpgradeStateProvider) ChangeNodeUpgradeAnnotation(
 func (p *NodeUpgradeStateProvider) SetNodeUpgradeAnnotation(
 	ctx context.Context, node *corev1.Node, key string, value string,
 ) error {
-	p.Log.Info("Updating node upgrade annotation",
+	log.FromContext(ctx).Info("Updating node upgrade annotation",
 		"node", node.Name,
 		"annotationKey", key,
 		"annotationValue", value)
 
 	err := p.patchNodeAnnotations(ctx, node, map[string]any{key: value})
 	if err != nil {
-		p.Log.Error(err, "Failed to patch node state annotation on a node object",
+		log.FromContext(ctx).Error(err, "Failed to patch node state annotation on a node object",
 			"node", node,
 			"annotationKey", key,
 			"annotationValue", value)
 		return err
 	}
 
-	p.Log.Info("Successfully changed node upgrade state annotation",
+	log.FromContext(ctx).Info("Successfully changed node upgrade state annotation",
 		"node", node.Name,
 		"annotationKey", key,
 		"annotationValue", value)
@@ -147,19 +146,19 @@ func (p *NodeUpgradeStateProvider) SetNodeUpgradeAnnotation(
 func (p *NodeUpgradeStateProvider) RemoveNodeUpgradeAnnotation(
 	ctx context.Context, node *corev1.Node, key string,
 ) error {
-	p.Log.Info("Removing node upgrade annotation",
+	log.FromContext(ctx).Info("Removing node upgrade annotation",
 		"node", node.Name,
 		"annotationKey", key)
 
 	err := p.patchNodeAnnotations(ctx, node, map[string]any{key: nil})
 	if err != nil {
-		p.Log.Error(err, "Failed to patch node state annotation on a node object",
+		log.FromContext(ctx).Error(err, "Failed to patch node state annotation on a node object",
 			"node", node,
 			"annotationKey", key)
 		return err
 	}
 
-	p.Log.Info("Successfully removed node upgrade annotation",
+	log.FromContext(ctx).Info("Successfully removed node upgrade annotation",
 		"node", node.Name,
 		"annotationKey", key)
 

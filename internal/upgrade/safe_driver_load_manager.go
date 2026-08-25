@@ -3,8 +3,8 @@ package upgrade
 import (
 	"context"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // SafeDriverLoadManagerInterface abstracts safe driver load operations for testability.
@@ -14,7 +14,6 @@ type SafeDriverLoadManagerInterface interface {
 }
 
 type SafeDriverLoadManager struct {
-	log                      logr.Logger
 	nodeUpgradeStateProvider *NodeUpgradeStateProvider
 }
 
@@ -26,10 +25,9 @@ func (s *SafeDriverLoadManager) IsWaitingForSafeDriverLoad(_ context.Context, no
 }
 
 func NewSafeDriverLoadManager(
-	nodeUpgradeStateProvider *NodeUpgradeStateProvider, log logr.Logger,
+	nodeUpgradeStateProvider *NodeUpgradeStateProvider,
 ) *SafeDriverLoadManager {
 	mgr := &SafeDriverLoadManager{
-		log:                      log,
 		nodeUpgradeStateProvider: nodeUpgradeStateProvider,
 	}
 	return mgr
@@ -42,7 +40,7 @@ func (s *SafeDriverLoadManager) UnblockLoading(ctx context.Context, node *corev1
 	}
 	err := s.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node, annotationKey)
 	if err != nil {
-		s.log.Error(
+		log.FromContext(ctx).Error(
 			err, "Failed to change node upgrade annotation for node", "node",
 			node, "annotation", annotationKey)
 		return err

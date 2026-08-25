@@ -10,23 +10,25 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 func (m *ClusterUpgradeStateManagerImpl) BuildState(ctx context.Context, namespace string,
 	driverLabels map[string]string,
 ) (*ClusterUpgradeState, error) {
-	m.log.V(consts.VDebug).Info("Building state")
+	log.FromContext(ctx).V(consts.VDebug).Info("Building state")
 
 	upgradeState := NewClusterUpgradeState()
 
 	daemonSets, err := m.GetDriverDaemonSets(ctx, namespace, driverLabels)
 	if err != nil {
-		m.log.Error(err, "Failed to get driver DaemonSet list")
+		log.FromContext(ctx).Error(err, "Failed to get driver DaemonSet list")
 		return nil, err
 	}
 
-	m.log.V(consts.VDebug).Info("Got driver DaemonSets", "length", len(daemonSets))
+	log.FromContext(ctx).V(consts.VDebug).Info("Got driver DaemonSets", "length", len(daemonSets))
 
 	podList := &corev1.PodList{}
 
@@ -38,8 +40,8 @@ func (m *ClusterUpgradeStateManagerImpl) BuildState(ctx context.Context, namespa
 		return nil, err
 	}
 
-	podsByDaemonSet, orphanedPods := m.partitionDriverPods(podList.Items, daemonSets)
-	m.filterStableDaemonSets(daemonSets, podsByDaemonSet)
+	podsByDaemonSet, orphanedPods := m.partitionDriverPods(ctx, podList.Items, daemonSets)
+	m.filterStableDaemonSets(ctx, daemonSets, podsByDaemonSet)
 
 	nodeCache := make(map[string]*corev1.Node)
 
@@ -82,6 +84,7 @@ func (m *ClusterUpgradeStateManagerImpl) GetDriverDaemonSets(ctx context.Context
 }
 
 func (m *ClusterUpgradeStateManagerImpl) partitionDriverPods(
+	ctx context.Context,
 	pods []corev1.Pod,
 	daemonSets map[types.UID]*appsv1.DaemonSet,
 ) (map[types.UID][]corev1.Pod, []corev1.Pod) {
@@ -92,21 +95,21 @@ func (m *ClusterUpgradeStateManagerImpl) partitionDriverPods(
 		pod := &pods[i]
 		controllerRef := metav1.GetControllerOf(pod)
 		if controllerRef == nil {
-			m.log.Info("Driver Pod has no controller owner", "pod", pod.Name)
+			log.FromContext(ctx).Info("Driver Pod has no controller owner", "pod", pod.Name)
 			orphanedPods = append(orphanedPods, *pod)
 			continue
 		}
 
 		ownerUID := controllerRef.UID
 		if _, found := daemonSets[ownerUID]; !found {
-			m.log.Info("Driver Pod is not owned by a managed Driver DaemonSet",
+			log.FromContext(ctx).Info("Driver Pod is not owned by a managed Driver DaemonSet",
 				"pod", pod.Name, "ownerUID", ownerUID)
 			continue
 		}
 
 		podsByDaemonSet[ownerUID] = append(podsByDaemonSet[ownerUID], *pod)
 	}
-	m.log.V(consts.VDebug).Info("Total orphaned Pods found", "count", len(orphanedPods))
+	log.FromContext(ctx).V(consts.VDebug).Info("Total orphaned Pods found", "count", len(orphanedPods))
 	return podsByDaemonSet, orphanedPods
 }
 
@@ -114,12 +117,13 @@ func (m *ClusterUpgradeStateManagerImpl) partitionDriverPods(
 // both daemonSets and podsByDaemonSet so that stable DaemonSets can proceed with
 // upgrade processing while transiently inconsistent ones are skipped.
 func (m *ClusterUpgradeStateManagerImpl) filterStableDaemonSets(
+	ctx context.Context,
 	daemonSets map[types.UID]*appsv1.DaemonSet,
 	podsByDaemonSet map[types.UID][]corev1.Pod,
 ) {
 	for uid, ds := range daemonSets {
 		if int(ds.Status.DesiredNumberScheduled) != len(podsByDaemonSet[uid]) {
-			m.log.Info("Driver DaemonSet has scheduling inconsistency; skipping until stable",
+			log.FromContext(ctx).Info("Driver DaemonSet has scheduling inconsistency; skipping until stable",
 				"name", ds.Name,
 				"desiredNumberScheduled", ds.Status.DesiredNumberScheduled,
 				"observedPods", len(podsByDaemonSet[uid]))
@@ -143,7 +147,7 @@ func (m *ClusterUpgradeStateManagerImpl) buildNodeUpgradeState(
 		nodeCache[nodeName] = node
 	}
 
-	m.log.V(consts.VDebug).Info("Node hosting a driver pod",
+	log.FromContext(ctx).V(consts.VDebug).Info("Node hosting a driver pod",
 		"node", node.Name, "state", node.Labels[UpgradeStateLabelKey])
 
 	return &NodeUpgradeState{Node: node, DriverPod: pod, DriverDaemonSet: ds}, nil
@@ -186,19 +190,19 @@ func (m *ClusterUpgradeStateManagerImpl) addPodToUpgradeState(
 	nodeCache map[string]*corev1.Node,
 ) error {
 	if pod.Spec.NodeName == "" && pod.Status.Phase == corev1.PodPending {
-		m.log.Info("Driver Pod has no NodeName, skipping", "pod", pod.Name)
+		log.FromContext(ctx).Info("Driver Pod has no NodeName, skipping", "pod", pod.Name)
 		return nil
 	}
 
 	nodeState, err := m.buildNodeUpgradeState(ctx, pod, ownerDaemonSet, nodeCache)
 	if err != nil {
-		m.log.Error(err, "Failed to build node upgrade state for pod", "pod", pod)
+		log.FromContext(ctx).Error(err, "Failed to build node upgrade state for pod", "pod", pod)
 		return err
 	}
 
 	nodeStateLabel := nodeState.Node.Labels[UpgradeStateLabelKey]
 	if !IsManagedUpgradeState(nodeStateLabel) {
-		m.log.Info("Unknown node upgrade state label; falling back to unknown",
+		log.FromContext(ctx).Info("Unknown node upgrade state label; falling back to unknown",
 			"node", nodeState.Node.Name,
 			"state", nodeStateLabel)
 		nodeStateLabel = UpgradeStateUnknown

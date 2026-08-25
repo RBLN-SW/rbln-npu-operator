@@ -123,7 +123,7 @@ func newTestManager(t *testing.T, opts ...func(*ClusterUpgradeStateManagerImpl))
 		t.Fatalf("add corev1 scheme: %v", err)
 	}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	provider := NewNodeUpgradeStateProvider(k8sClient, logr.Discard(), nil)
+	provider := NewNodeUpgradeStateProvider(k8sClient, nil)
 
 	mgr := &ClusterUpgradeStateManagerImpl{
 		log:                      logr.Discard(),
