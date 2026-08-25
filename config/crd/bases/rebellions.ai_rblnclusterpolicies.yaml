@@ -2248,6 +2248,27 @@ spec:
                       type: string
                     description: Labels specifies the labels for the DaemonSet pods
                     type: object
+                  logging:
+                    description: |-
+                      Logging gates the device plugin's own log stream, forwarded to the
+                      container as RBLN_DEVICE_PLUGIN_LOG_LEVEL / _LOG_FORMAT.
+                    properties:
+                      format:
+                        description: Format selects the operand's log encoding.
+                        enum:
+                        - json
+                        - text
+                        type: string
+                      level:
+                        description: Level gates which records the operand emits.
+                        enum:
+                        - error
+                        - warning
+                        - warn
+                        - info
+                        - debug
+                        type: string
+                    type: object
                   otlpEndpoint:
                     description: |-
                       OtlpEndpoint is the OTLP gRPC endpoint (host:port, or a scheme-qualified URL) the
@@ -3352,6 +3373,27 @@ spec:
                     additionalProperties:
                       type: string
                     description: Labels specifies the labels for the DaemonSet pods
+                    type: object
+                  logging:
+                    description: |-
+                      Logging gates the DRA kubelet plugin's own log stream, forwarded to the
+                      container as RBLN_DRA_DRIVER_LOG_LEVEL / _LOG_FORMAT.
+                    properties:
+                      format:
+                        description: Format selects the operand's log encoding.
+                        enum:
+                        - json
+                        - text
+                        type: string
+                      level:
+                        description: Level gates which records the operand emits.
+                        enum:
+                        - error
+                        - warning
+                        - warn
+                        - info
+                        - debug
+                        type: string
                     type: object
                   registry:
                     default: docker.io
@@ -4541,6 +4583,27 @@ spec:
                       type: string
                     description: Labels specifies the labels for the DaemonSet pods
                     type: object
+                  logging:
+                    description: |-
+                      Logging gates the metrics exporter's own log stream, forwarded to the
+                      container as RBLN_METRICS_EXPORTER_LOG_LEVEL / _LOG_FORMAT.
+                    properties:
+                      format:
+                        description: Format selects the operand's log encoding.
+                        enum:
+                        - json
+                        - text
+                        type: string
+                      level:
+                        description: Level gates which records the operand emits.
+                        enum:
+                        - error
+                        - warning
+                        - warn
+                        - info
+                        - debug
+                        type: string
+                    type: object
                   registry:
                     default: docker.io
                     description: Registry override for the RBLN Metrics Exporter image
@@ -5611,6 +5674,27 @@ spec:
                     additionalProperties:
                       type: string
                     description: Labels specifies the labels for the DaemonSet pods
+                    type: object
+                  logging:
+                    description: |-
+                      Logging gates NPU feature discovery's own log stream, forwarded to the
+                      container as RBLN_NPU_FEATURE_DISCOVERY_LOG_LEVEL / _LOG_FORMAT.
+                    properties:
+                      format:
+                        description: Format selects the operand's log encoding.
+                        enum:
+                        - json
+                        - text
+                        type: string
+                      level:
+                        description: Level gates which records the operand emits.
+                        enum:
+                        - error
+                        - warning
+                        - warn
+                        - info
+                        - debug
+                        type: string
                     type: object
                   registry:
                     default: docker.io
@@ -6744,6 +6828,27 @@ spec:
                     additionalProperties:
                       type: string
                     description: Labels specifies the labels for the DaemonSet pods
+                    type: object
+                  logging:
+                    description: |-
+                      Logging gates the sandbox device plugin's own log stream, forwarded to
+                      the container as RBLN_SANDBOX_DEVICE_PLUGIN_LOG_LEVEL / _LOG_FORMAT.
+                    properties:
+                      format:
+                        description: Format selects the operand's log encoding.
+                        enum:
+                        - json
+                        - text
+                        type: string
+                      level:
+                        description: Level gates which records the operand emits.
+                        enum:
+                        - error
+                        - warning
+                        - warn
+                        - info
+                        - debug
+                        type: string
                     type: object
                   registry:
                     default: docker.io

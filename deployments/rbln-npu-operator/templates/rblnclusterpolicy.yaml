@@ -70,6 +70,10 @@ spec:
     {{- with .Values.devicePlugin.otlpEndpoint }}
     otlpEndpoint: {{ . | quote }}
     {{- end }}
+    {{- with .Values.devicePlugin.logging }}
+    logging:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
 
   draKubeletPlugin:
     enabled: {{ .Values.draKubeletPlugin.enabled }}
@@ -81,6 +85,10 @@ spec:
     kubeletRegistrarDirectoryPath: {{ .Values.draKubeletPlugin.kubeletRegistrarDirectoryPath | quote }}
     kubeletPluginsDirectoryPath: {{ .Values.draKubeletPlugin.kubeletPluginsDirectoryPath | quote }}
     healthcheckPort: {{ .Values.draKubeletPlugin.healthcheckPort }}
+    {{- with .Values.draKubeletPlugin.logging }}
+    logging:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
 
   metricsExporter:
     enabled: {{ .Values.metricsExporter.enabled }}
@@ -88,6 +96,10 @@ spec:
     image: {{ .Values.metricsExporter.image.repository | quote }}
     imagePullPolicy: {{ .Values.metricsExporter.image.pullPolicy | quote }}
     version: {{ .Values.metricsExporter.image.tag | quote }}
+    {{- with .Values.metricsExporter.logging }}
+    logging:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
 
   npuFeatureDiscovery:
     enabled: {{ .Values.npuFeatureDiscovery.enabled }}
@@ -95,6 +107,10 @@ spec:
     image: {{ .Values.npuFeatureDiscovery.image.repository | quote }}
     imagePullPolicy: {{ .Values.npuFeatureDiscovery.image.pullPolicy | quote }}
     version: {{ .Values.npuFeatureDiscovery.image.tag | quote }}
+    {{- with .Values.npuFeatureDiscovery.logging }}
+    logging:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
 
   containerToolkit:
     enabled: {{ .Values.containerToolkit.enabled }}
@@ -124,6 +140,10 @@ spec:
     image: {{ .Values.sandboxDevicePlugin.image.repository | quote }}
     imagePullPolicy: {{ .Values.sandboxDevicePlugin.image.pullPolicy | quote }}
     version: {{ .Values.sandboxDevicePlugin.image.tag | quote }}
+    {{- with .Values.sandboxDevicePlugin.logging }}
+    logging:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
 
   vfioManager:
     enabled: {{ .Values.vfioManager.enabled }}

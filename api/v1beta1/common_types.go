@@ -25,6 +25,25 @@ type PodDefaultsSpec struct {
 	PriorityClassName string `json:"priorityClassName,omitempty"`
 }
 
+// LoggingSpec gates an operand's own log stream. It is declared per component
+// rather than on PodSpec because not every operand image implements the
+// contract -- a field on PodSpec would be silently ignored by those.
+// Each operand defaults to info/json on its own, so an unset field renders no
+// environment variable at all and leaves that default in place.
+type LoggingSpec struct {
+	// Level gates which records the operand emits.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Enum=error;warning;warn;info;debug
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Log Level",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
+	Level string `json:"level,omitempty"`
+
+	// Format selects the operand's log encoding.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Enum=json;text
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Log Format",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
+	Format string `json:"format,omitempty"`
+}
+
 // PodSpec defines common configuration for individual DaemonSet components
 type PodSpec struct {
 	// ImagePullPolicy specifies the image pull policy for the DaemonSet pods

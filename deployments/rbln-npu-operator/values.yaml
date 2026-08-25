@@ -240,6 +240,11 @@ devicePlugin:
   # OTLP gRPC endpoint (host:port, or a scheme-qualified URL) for device-plugin allocation traces.
   # The controller forwards it to the container as OTEL_EXPORTER_OTLP_ENDPOINT; empty disables tracing.
   otlpEndpoint: ""
+  # Operand log gate. Unset (the default) leaves the image's own info/json in
+  # place; the controller renders an env var only for the keys you set here.
+  # logging:
+  #   level: debug     # error|warning|warn|info|debug
+  #   format: text     # json|text
 
 # NPU DRA kubelet plugin configuration
 draKubeletPlugin:
@@ -253,6 +258,10 @@ draKubeletPlugin:
   kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
   kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
   healthcheckPort: 51515
+  # See devicePlugin.logging.
+  # logging:
+  #   level: debug
+  #   format: text
 
 # NPU Metrics Exporter configuration
 metricsExporter:
@@ -262,6 +271,10 @@ metricsExporter:
     repository: rebellions/rbln-metrics-exporter
     tag: v0.3.3
     pullPolicy: IfNotPresent
+  # See devicePlugin.logging.
+  # logging:
+  #   level: debug
+  #   format: text
 
 # NPU Feature Discovery configuration
 npuFeatureDiscovery:
@@ -271,6 +284,10 @@ npuFeatureDiscovery:
     repository: rebellions/rbln-npu-feature-discovery
     tag: v0.2.2
     pullPolicy: IfNotPresent
+  # See devicePlugin.logging.
+  # logging:
+  #   level: debug
+  #   format: text
 
 # Container Toolkit configuration
 containerToolkit:
@@ -296,6 +313,10 @@ sandboxDevicePlugin:
     repository: rebellions/sandbox-device-plugin
     tag: v0.1.0
     pullPolicy: IfNotPresent
+  # See devicePlugin.logging.
+  # logging:
+  #   level: debug
+  #   format: text
 
   # Per-model: empty RBLN_PT_ALIAS → one resource per (model, function),
   # e.g. rebellions.ai/RBLN-CA22_PF. KubeVirt permittedHostDevices must

@@ -30,6 +30,9 @@ const (
 	draClusterRoleSuffix = "-role"
 	draClusterBindSuffix = "-rolebinding"
 	draExtendedResource  = "rebellions.ai/npu"
+	// Named for the rbln-k8s-dra-driver repo, not this component.
+	draLogLevelEnv  = "RBLN_DRA_DRIVER_LOG_LEVEL"
+	draLogFormatEnv = "RBLN_DRA_DRIVER_LOG_FORMAT"
 )
 
 type draKubeletPluginPatcher struct {
@@ -246,6 +249,7 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 			}},
 		},
 	}
+	env = mergeEnvVars(env, loggingEnvVars(h.desiredSpec.Logging, draLogLevelEnv, draLogFormatEnv))
 
 	var livenessProbe *corev1.Probe
 	if h.desiredSpec.HealthcheckPort > 0 {

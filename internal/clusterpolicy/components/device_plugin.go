@@ -23,6 +23,9 @@ const (
 	hostDriverUsrBinPath      = "/run/rbln/driver/usr/bin"
 	hostDriverUsrBinName      = "host-driver-usr-bin"
 	hostDriverUsrBinMountPath = "/host/driver/usr/bin"
+
+	devicePluginLogLevelEnv  = "RBLN_DEVICE_PLUGIN_LOG_LEVEL"
+	devicePluginLogFormatEnv = "RBLN_DEVICE_PLUGIN_LOG_FORMAT"
 )
 
 type devicePluginPatcher struct {
@@ -86,6 +89,7 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 	if h.desiredSpec.OtlpEndpoint != "" {
 		envs = append(envs, corev1.EnvVar{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: h.desiredSpec.OtlpEndpoint})
 	}
+	envs = mergeEnvVars(envs, loggingEnvVars(h.desiredSpec.Logging, devicePluginLogLevelEnv, devicePluginLogFormatEnv))
 
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).
