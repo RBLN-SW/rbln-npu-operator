@@ -34,6 +34,13 @@ type RBLNDevicePluginSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Use Generic Resource Name",xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
 	UseGenericResourceName bool `json:"useGenericResourceName"`
 
+	// OtlpEndpoint is the OTLP gRPC endpoint (host:port, or a scheme-qualified URL) the
+	// device plugin exports allocation traces to. Forwarded to the device plugin container
+	// as the OTEL_EXPORTER_OTLP_ENDPOINT environment variable. Empty disables tracing.
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="OTLP Endpoint",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
+	OtlpEndpoint string `json:"otlpEndpoint,omitempty"`
+
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
