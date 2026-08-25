@@ -10,7 +10,7 @@ import (
 
 func TestIsWaitingForSafeDriverLoad(t *testing.T) {
 	provider := newTestNodeUpgradeStateProvider(t)
-	mgr := NewSafeDriverLoadManager(provider, provider.Log)
+	mgr := NewSafeDriverLoadManager(provider)
 
 	tests := map[string]struct {
 		node *corev1.Node
@@ -49,7 +49,7 @@ func TestIsWaitingForSafeDriverLoad(t *testing.T) {
 func TestUnblockLoading(t *testing.T) {
 	t.Run("no-op when annotation is absent", func(t *testing.T) {
 		provider := newTestNodeUpgradeStateProvider(t)
-		mgr := NewSafeDriverLoadManager(provider, provider.Log)
+		mgr := NewSafeDriverLoadManager(provider)
 
 		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
 		if err := provider.K8sClient.Create(context.Background(), node); err != nil {

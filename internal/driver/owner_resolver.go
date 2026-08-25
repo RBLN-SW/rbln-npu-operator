@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	kapierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
@@ -172,11 +172,10 @@ type ResolveResult struct {
 
 type OwnerResolver struct {
 	client client.Client
-	log    logr.Logger
 }
 
-func NewOwnerResolver(c client.Client, log logr.Logger) *OwnerResolver {
-	return &OwnerResolver{client: c, log: log}
+func NewOwnerResolver(c client.Client) *OwnerResolver {
+	return &OwnerResolver{client: c}
 }
 
 // Resolve computes the desired owner for every driver-deploy node and patches
@@ -198,8 +197,8 @@ func (r *OwnerResolver) Resolve(ctx context.Context) (*ResolveResult, error) {
 		// An invalid CR must fail only itself, not wedge the global
 		// assignment pass.
 		if err := ValidateDriverSpec(&d); err != nil {
-			r.log.V(consts.LogLevelDebug).Info("excluding unroutable RBLNDriver from routing",
-				"driver", d.Name, "reason", err.Error())
+			log.FromContext(ctx).V(consts.VDebug).Info("Excluding unroutable RBLNDriver from routing",
+				"driver", d.Name, "error", err)
 			continue
 		}
 		candidates = append(candidates, d)
@@ -301,7 +300,7 @@ func (r *OwnerResolver) Resolve(ctx context.Context) (*ResolveResult, error) {
 	sort.Strings(result.ScopeExitNodes)
 
 	if len(result.OwnerChanges) > 0 || len(result.ScopeExitNodes) > 0 {
-		r.log.Info("driver owner labels updated",
+		log.FromContext(ctx).Info("Driver owner labels updated",
 			"changed", len(result.OwnerChanges), "scopeExits", len(result.ScopeExitNodes))
 	}
 

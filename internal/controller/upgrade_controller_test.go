@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
@@ -332,7 +331,6 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 func newTestUpgradeReconciler(sm upgrade.ClusterUpgradeStateManager) *UpgradeReconciler {
 	return &UpgradeReconciler{
 		Client:       k8sClient,
-		Log:          logf.Log,
 		Scheme:       k8sClient.Scheme(),
 		Namespace:    "test-namespace",
 		StateManager: sm,

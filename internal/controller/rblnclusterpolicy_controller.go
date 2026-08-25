@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
@@ -99,7 +100,11 @@ func (r *RBLNClusterPolicyReconciler) clearSingletonIf(name string) bool {
 // +kubebuilder:rbac:groups=nfd.k8s-sigs.io;nfd.openshift.io,resources=nodefeaturerules,verbs=get;list;watch;create;update;patch;delete
 
 func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.Log.Info("Reconciling RBLNClusterPolicy", "name", req.Name)
+	// The context logger carries reconcileID plus the controller/object
+	// identity, so every record from this pass can be grouped -- including the
+	// framework's own "Reconciler error" for the errors returned below.
+	logger := log.FromContext(ctx)
+	logger.V(consts.VDebug).Info("Reconciling RBLNClusterPolicy", "policy", req.Name)
 	metrics.ReconcileTotal.WithLabelValues("clusterpolicy").Inc()
 
 	instance, err := r.fetchClusterPolicy(ctx, req)
@@ -118,9 +123,9 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	if err := instance.Spec.Validate(); err != nil {
-		r.Log.Error(err, "RBLNClusterPolicy spec is invalid")
+		logger.Error(err, "RBLNClusterPolicy spec is invalid")
 		if statusErr := r.Conditions.SetPolicyNotReady(ctx, instance, consts.RBLNConditionReasonInvalidSpec, err.Error()); statusErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set ClusterPolicy status")
+			logger.Error(statusErr, "Failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{}, nil
 	}
@@ -132,21 +137,21 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	candidates, nfdInstalled, err := clusterpolicy.ListAndClassifyNodes(ctx, r.Client)
 	if err != nil {
-		r.Log.Error(err, "")
+		logger.Error(err, "Failed to list and classify NPU candidate nodes")
 		return ctrl.Result{}, err
 	}
 
 	if !nfdInstalled {
-		r.Log.V(consts.LogLevelWarning).Info("NodeFeatureDiscovery labels not found", "requeue_after", nfdCheckInterval)
+		logger.Info("NodeFeatureDiscovery labels not found", "requeueAfter", nfdCheckInterval)
 		if err := r.Conditions.SetPolicyNotReady(ctx, instance, consts.RBLNConditionReasonNFDNotFound, "NodeFeatureDiscovery labels not found"); err != nil {
-			r.Log.V(consts.LogLevelDebug).Error(err, "failed to set ClusterPolicy status")
+			logger.Error(err, "Failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{RequeueAfter: nfdCheckInterval}, nil
 	}
 
 	service := clusterpolicy.NewClusterPolicyService(
 		r.Client,
-		r.Log,
+		logger,
 		r.Scheme,
 		instance,
 		namespace,
@@ -156,39 +161,44 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	census, err := service.ReconcileNodes(ctx, candidates)
 	if err != nil {
-		r.Log.Error(err, "")
+		logger.Error(err, "Failed to reconcile node labels and annotations")
 		return ctrl.Result{}, err
 	}
 
 	if census.TotalNPU == 0 {
-		r.Log.Info("No Rebellions NPU discovered; skipping reconcile")
+		logger.Info("No Rebellions NPU discovered; skipping reconcile")
 		if err := r.Conditions.SetPolicyNotReady(ctx, instance, consts.RBLNConditionReasonNoRBLNNodes, "No Rebellions NPU discovered"); err != nil {
-			r.Log.V(consts.LogLevelDebug).Error(err, "failed to set ClusterPolicy status")
+			logger.Error(err, "Failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{}, nil
 	}
 
 	if err := service.PatchComponents(ctx); err != nil {
-		r.Log.Error(err, "Failed to patch components in RBLNClusterPolicy Scope")
+		logger.Error(err, "Failed to patch components in RBLNClusterPolicy Scope")
 		recordEvent(r.Recorder, instance, corev1.EventTypeWarning, consts.RBLNEventReasonComponentApplyFailed,
 			fmt.Sprintf("Failed to apply component: %v", err))
 		// Events are garbage collected, so the failure reason has to reach
 		// .status too or it is lost an hour later.
 		if statusErr := r.Conditions.SetPolicyNotReady(ctx, instance,
 			consts.RBLNEventReasonComponentApplyFailed, err.Error()); statusErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set ClusterPolicy status")
+			logger.Error(statusErr, "Failed to set ClusterPolicy status")
 		}
 		return ctrl.Result{}, err
 	}
 
 	componentStatuses, workloadStatuses := service.AssembleStatus(ctx, census)
-	allReady, err := r.reconcileStatus(ctx, instance, namespace, componentStatuses, workloadStatuses)
+	allReady, notReadyMsg, err := r.reconcileStatus(ctx, instance, namespace, componentStatuses, workloadStatuses)
 	if err != nil {
-		r.Log.Error(err, "Failed to reconcile status in RBLNClusterPolicy Scope")
+		logger.Error(err, "Failed to reconcile status in RBLNClusterPolicy Scope")
 		return ctrl.Result{}, err
 	}
 
 	if !allReady {
+		// Without this the 5s requeue loop is silent at the default gate: the
+		// only trace of a stuck policy would be .status, and the per-component
+		// detail behind it is VDebug. Mirrors the driver controller's
+		// "Driver components not ready".
+		logger.Info("Cluster policy components not ready", "policy", instance.Name, "reason", notReadyMsg)
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 	return ctrl.Result{}, nil
@@ -198,17 +208,18 @@ func (r *RBLNClusterPolicyReconciler) fetchClusterPolicy(
 	ctx context.Context,
 	req ctrl.Request,
 ) (*rblnv1beta1.RBLNClusterPolicy, error) {
+	logger := log.FromContext(ctx)
 	instance := &rblnv1beta1.RBLNClusterPolicy{}
 	if err := r.Get(ctx, req.NamespacedName, instance); err != nil {
 		if kapierrors.IsNotFound(err) {
 			if r.clearSingletonIf(req.Name) {
-				r.Log.V(consts.LogLevelInfo).Info("singleton RBLNClusterPolicy cleared", "name", req.Name)
+				logger.Info("Singleton RBLNClusterPolicy cleared", "policy", req.Name)
 			}
 			return nil, nil
 		}
 
 		wrappedErr := fmt.Errorf("failed to get RBLNClusterPolicy object: %w", err)
-		r.Log.Error(err, "failed to get RBLNClusterPolicy object")
+		logger.Error(err, "Failed to get RBLNClusterPolicy object")
 		return nil, wrappedErr
 	}
 
@@ -219,9 +230,10 @@ func (r *RBLNClusterPolicyReconciler) handleSingletonPolicy(
 	ctx context.Context,
 	instance *rblnv1beta1.RBLNClusterPolicy,
 ) (bool, error) {
+	logger := log.FromContext(ctx)
 	owner := r.claimSingletonIfVacant(instance.Name)
 	if owner != instance.Name {
-		r.Log.V(consts.LogLevelDebug).Info("Set RBLNClusterPolicy status as ignored")
+		logger.V(consts.VDebug).Info("Set RBLNClusterPolicy status as ignored")
 		wasIgnored := instance.Status.State == consts.RBLNStateIgnored
 		if err := r.Conditions.SetPolicyIgnored(ctx, instance, "Another RBLNClusterPolicy is already active; this policy is ignored"); err != nil {
 			return false, err
@@ -242,10 +254,10 @@ func (r *RBLNClusterPolicyReconciler) reconcileStatus(
 	namespace string,
 	componentStatuses []rblnv1beta1.RBLNComponentStatus,
 	workloadStatuses []rblnv1beta1.RBLNWorkloadStatus,
-) (bool, error) {
+) (allReady bool, notReadyMsg string, err error) {
 	instance := &rblnv1beta1.RBLNClusterPolicy{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(policy), instance); err != nil {
-		return false, fmt.Errorf("get cluster policy for status update: %w", err)
+		return false, "", fmt.Errorf("get cluster policy for status update: %w", err)
 	}
 	prevState := instance.Status.State
 
@@ -271,13 +283,15 @@ func (r *RBLNClusterPolicyReconciler) reconcileStatus(
 	})
 
 	if err := r.Client.Status().Update(ctx, instance); err != nil {
-		return false, fmt.Errorf("update cluster policy status: %w", err)
+		return false, "", fmt.Errorf("update cluster policy status: %w", err)
 	}
 	// Reusing the condition's reason/message keeps the two from drifting apart.
 	if state == consts.RBLNStateReady && prevState != consts.RBLNStateReady {
 		recordEvent(r.Recorder, instance, corev1.EventTypeNormal, reason, message)
 	}
-	return state == consts.RBLNStateReady, nil
+	// The message doubles as the caller's not-ready log reason, so the log line
+	// and the Ready condition cannot report different causes.
+	return state == consts.RBLNStateReady, message, nil
 }
 
 func exportWorkloadMetrics(workloads []rblnv1beta1.RBLNWorkloadStatus, topState string) {
@@ -380,7 +394,7 @@ func (r *RBLNClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // surviving ignored policy is re-evaluated and can be promoted to singleton.
 func (r *RBLNClusterPolicyReconciler) policyDeleted(ctx context.Context, o client.Object) []ctrl.Request {
 	if r.clearSingletonIf(o.GetName()) {
-		r.Log.V(consts.LogLevelInfo).Info("singleton RBLNClusterPolicy cleared", "name", o.GetName())
+		r.Log.Info("Singleton RBLNClusterPolicy cleared", "policy", o.GetName())
 	}
 	list := &rblnv1beta1.RBLNClusterPolicyList{}
 	if err := r.List(ctx, list); err != nil {
@@ -398,7 +412,7 @@ func (r *RBLNClusterPolicyReconciler) policyDeleted(ctx context.Context, o clien
 
 func (r *RBLNClusterPolicyReconciler) singletonRequest(_ context.Context, o client.Object) []ctrl.Request {
 	if owner := r.singletonOwner(); owner != "" {
-		r.Log.V(consts.LogLevelDebug).Info("Rebellions Node label changed, triggering reconcile", "node", o.GetName())
+		r.Log.V(consts.VDebug).Info("Rebellions Node label changed, triggering reconcile", "node", o.GetName())
 		return []ctrl.Request{
 			{
 				NamespacedName: client.ObjectKey{

@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -88,7 +89,10 @@ type RBLNDriverReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.18.4/pkg/reconcile
 func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.Log.Info("Reconciling RBLNDriver", "name", req.Name)
+	// See the RBLNClusterPolicy reconciler: the context logger is what ties a
+	// pass's records to each other and to the framework's "Reconciler error".
+	logger := log.FromContext(ctx)
+	logger.V(consts.VDebug).Info("Reconciling RBLNDriver", "driver", req.Name)
 	metrics.ReconcileTotal.WithLabelValues("driver").Inc()
 
 	instance := &rebellionsaiv1alpha1.RBLNDriver{}
@@ -107,9 +111,9 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{}, nil
 		}
 		wrappedErr := fmt.Errorf("error getting RBLNDriver object: %w", err)
-		r.Log.Error(err, "error getting RBLNDriver object")
+		logger.Error(err, "Error getting RBLNDriver object")
 		if statusErr := r.Conditions.SetDriverError(ctx, instance, wrappedErr); statusErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set RBLNDriver status")
+			logger.Error(statusErr, "Failed to set RBLNDriver status")
 		}
 		return ctrl.Result{}, wrappedErr
 	}
@@ -118,20 +122,20 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	clusterPolicyList := &rblnv1beta1.RBLNClusterPolicyList{}
 	if err := r.List(ctx, clusterPolicyList); err != nil {
 		wrappedErr := fmt.Errorf("error getting RBLNClusterPolicy list: %w", err)
-		r.Log.Error(err, "error getting RBLNClusterPolicy list")
+		logger.Error(err, "Error getting RBLNClusterPolicy list")
 		if statusErr := r.Conditions.SetDriverError(ctx, instance, wrappedErr); statusErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set RBLNDriver status")
+			logger.Error(statusErr, "Failed to set RBLNDriver status")
 		}
 		return ctrl.Result{}, wrappedErr
 	}
 
 	if len(clusterPolicyList.Items) == 0 {
-		r.Log.Info("RBLNClusterPolicy not found yet; skipping driver reconcile")
+		logger.Info("RBLNClusterPolicy not found yet; skipping driver reconcile")
 		metrics.DriverReconcileStatus.WithLabelValues(instance.Name).Set(metrics.ReconcileStatusNotReady)
 		metrics.ReconcileFailed.WithLabelValues("driver").Inc()
 		if statusErr := r.Conditions.SetDriverNotReady(ctx, instance, conditions.DriverSummary{},
 			consts.RBLNConditionReasonMissingClusterPolicy, "RBLNClusterPolicy not found in the cluster"); statusErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set RBLNDriver status")
+			logger.Error(statusErr, "Failed to set RBLNDriver status")
 		}
 		return ctrl.Result{}, nil
 	}
@@ -143,9 +147,9 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// though this CR's reconcile then short-circuits.
 	resolveResult, err := r.ownerResolver.Resolve(ctx)
 	if err != nil {
-		r.Log.Error(err, "failed to resolve driver node owners")
+		logger.Error(err, "Failed to resolve driver node owners")
 		if statusErr := r.Conditions.SetDriverError(ctx, instance, err); statusErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set RBLNDriver status")
+			logger.Error(statusErr, "Failed to set RBLNDriver status")
 		}
 		return ctrl.Result{}, err
 	}
@@ -153,7 +157,7 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	conflictNodes := resolveResult.ConflictNodes[instance.Name]
 
 	if err := driver.ValidateDriverSpec(instance); err != nil {
-		r.Log.Info("WARNING: invalid driver spec; skip reconcile", "name", req.Name, "error", err.Error())
+		logger.Info("Invalid driver spec; skipping reconcile", "driver", req.Name, "error", err)
 		metrics.DriverReconcileStatus.WithLabelValues(instance.Name).Set(metrics.ReconcileStatusNotReady)
 		metrics.ReconcileFailed.WithLabelValues("driver").Inc()
 		return ctrl.Result{}, r.reportNotReadyOnce(ctx, instance, conditions.DriverSummary{},
@@ -165,31 +169,31 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		openshiftVersion = r.ClusterInfo.OpenShiftVersion
 	}
 	driverService, err := driver.NewDriverService(
-		ctx, r.Client, r.APIReader, r.Log, r.Scheme, instance, &clusterPolicyInstance, r.imageChecker, openshiftVersion,
+		ctx, r.Client, r.APIReader, logger, r.Scheme, instance, &clusterPolicyInstance, r.imageChecker, openshiftVersion,
 		resolveResult.OwnedNodes[instance.Name])
 	if err != nil {
-		r.Log.Error(err, "failed to initialize RBLNDriver service")
+		logger.Error(err, "Failed to initialize RBLNDriver service")
 		if statusErr := r.Conditions.SetDriverError(ctx, instance, err); statusErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set RBLNDriver status")
+			logger.Error(statusErr, "Failed to set RBLNDriver status")
 		}
 		return ctrl.Result{}, err
 	}
 
 	if err := driverService.PatchComponents(ctx); err != nil {
-		r.Log.Error(err, "failed to patch driver manager resources")
+		logger.Error(err, "Failed to patch driver manager resources")
 		recordEvent(r.Recorder, instance, corev1.EventTypeWarning, consts.RBLNEventReasonDriverInstallFailed,
 			fmt.Sprintf("Driver installation failed: %v", err))
 		if statusErr := r.Conditions.SetDriverError(ctx, instance, err); statusErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set RBLNDriver status")
+			logger.Error(statusErr, "Failed to set RBLNDriver status")
 		}
 		return ctrl.Result{}, err
 	}
 
 	summary, err := r.assembleDriverSummary(ctx, driverService)
 	if err != nil {
-		r.Log.Error(err, "failed to assemble driver status")
+		logger.Error(err, "Failed to assemble driver status")
 		if statusErr := r.Conditions.SetDriverError(ctx, instance, err); statusErr != nil {
-			r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set RBLNDriver status")
+			logger.Error(statusErr, "Failed to set RBLNDriver status")
 		}
 		return ctrl.Result{}, err
 	}
@@ -217,14 +221,16 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if len(diag.MissingImagePools) > 0 {
 			msg += "; additionally, " + missingImagePoolsMessage(diag)
 		}
-		r.Log.Info("WARNING: driver nodes lack a usable family label", "name", req.Name, "nodes", len(diag.NodesWithoutFamily))
+		logger.Info("Owned nodes lack a usable npu.family label",
+			"driver", req.Name, "nodes", len(diag.NodesWithoutFamily), "reason", msg)
 		metrics.DriverReconcileStatus.WithLabelValues(instance.Name).Set(metrics.ReconcileStatusNotReady)
 		metrics.ReconcileFailed.WithLabelValues("driver").Inc()
 		return r.reportNotReadyWithResult(ctx, instance, summary, consts.RBLNConditionReasonFamilyLabelMissing, msg, res)
 	}
 	if len(diag.MissingImagePools) > 0 {
 		msg := missingImagePoolsMessage(diag)
-		r.Log.Info("WARNING: driver pool image(s) not found in registry", "name", req.Name, "pools", len(diag.MissingImagePools))
+		logger.Info("Driver pool image(s) not found in registry",
+			"driver", req.Name, "pools", len(diag.MissingImagePools), "reason", msg)
 		metrics.DriverReconcileStatus.WithLabelValues(instance.Name).Set(metrics.ReconcileStatusNotReady)
 		metrics.ReconcileFailed.WithLabelValues("driver").Inc()
 		return r.reportNotReadyWithResult(ctx, instance, summary, consts.RBLNConditionReasonImageNotFound, msg, res)
@@ -244,7 +250,8 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		msg := fmt.Sprintf(
 			"nodeSelector ties with another RBLNDriver on %d node(s) (e.g. %s); tied nodes keep their current owner (check the %s node label) or stay unassigned until selectors are disambiguated",
 			len(conflictNodes), strings.Join(sampleOf(conflictNodes, 5), ", "), consts.RBLNDriverOwnerLabelKey)
-		r.Log.Info("WARNING: driver selector conflict", "name", req.Name, "nodes", len(conflictNodes))
+		logger.Info("Unresolved nodeSelector tie with another RBLNDriver",
+			"driver", req.Name, "nodes", len(conflictNodes), "reason", msg)
 		metrics.DriverReconcileStatus.WithLabelValues(instance.Name).Set(metrics.ReconcileStatusNotReady)
 		metrics.ReconcileFailed.WithLabelValues("driver").Inc()
 		return ctrl.Result{}, r.reportNotReadyOnce(ctx, instance, summary,
@@ -385,12 +392,13 @@ func (r *RBLNDriverReconciler) reportPoolsProgressing(
 	if msg == "" {
 		return ctrl.Result{}, false
 	}
-	r.Log.Info("driver components not ready", "reason", msg)
+	logger := log.FromContext(ctx)
+	logger.Info("Driver components not ready", "driver", instance.Name, "reason", msg)
 	metrics.DriverReconcileStatus.WithLabelValues(instance.Name).Set(metrics.ReconcileStatusNotReady)
 	metrics.ReconcileFailed.WithLabelValues("driver").Inc()
 	if statusErr := r.Conditions.SetDriverNotReady(ctx, instance, summary,
 		consts.RBLNConditionReasonDriverPoolNotReady, msg); statusErr != nil {
-		r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set RBLNDriver status")
+		logger.Error(statusErr, "Failed to set RBLNDriver status")
 	}
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, true
 }
@@ -416,12 +424,13 @@ func (r *RBLNDriverReconciler) reportSmdProgressing(
 		msg = fmt.Sprintf("rbln-smd DaemonSet is progressing: no eligible nodes (%s=true absent on owned nodes — paused during a driver pod start, or not yet labeled)",
 			consts.RBLNDeployRBLNDaemonLabelKey)
 	}
-	r.Log.Info("driver components not ready", "reason", msg)
+	logger := log.FromContext(ctx)
+	logger.Info("Driver components not ready", "driver", instance.Name, "reason", msg)
 	metrics.DriverReconcileStatus.WithLabelValues(instance.Name).Set(metrics.ReconcileStatusNotReady)
 	metrics.ReconcileFailed.WithLabelValues("driver").Inc()
 	if statusErr := r.Conditions.SetDriverNotReady(ctx, instance, summary,
 		consts.RBLNConditionReasonSmdNotReady, msg); statusErr != nil {
-		r.Log.V(consts.LogLevelDebug).Error(statusErr, "failed to set RBLNDriver status")
+		logger.Error(statusErr, "Failed to set RBLNDriver status")
 	}
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, true
 }
@@ -497,7 +506,7 @@ func (r *RBLNDriverReconciler) reportResolution(res *driver.ResolveResult) {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RBLNDriverReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	r.ownerResolver = driver.NewOwnerResolver(mgr.GetClient(), r.Log)
+	r.ownerResolver = driver.NewOwnerResolver(mgr.GetClient())
 
 	// Unset means enabled (the common case); only a value that's actually
 	// present but fails to parse is worth a Warning -- an unset var must not
@@ -506,18 +515,18 @@ func (r *RBLNDriverReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if raw := os.Getenv("DRIVER_IMAGE_CHECK"); raw != "" {
 		parsed, parseErr := strconv.ParseBool(raw)
 		if parseErr != nil {
-			r.Log.Info("WARNING: DRIVER_IMAGE_CHECK is not a valid bool; defaulting to enabled", "value", raw)
+			r.Log.Info("DRIVER_IMAGE_CHECK is not a valid bool; defaulting to enabled", "value", raw)
 		} else {
 			driverImageCheckEnabled = parsed
 		}
 	}
 
-	r.imageChecker = registry.NewChecker(r.Log, registry.WithDisabled(!driverImageCheckEnabled))
+	r.imageChecker = registry.NewChecker(registry.WithDisabled(!driverImageCheckEnabled))
 
 	mapFn := func(ctx context.Context, _ client.Object) []reconcile.Request {
 		list := &rebellionsaiv1alpha1.RBLNDriverList{}
 		if err := mgr.GetClient().List(ctx, list); err != nil {
-			r.Log.Error(err, "unable to list RBLNDriver resources for RBLNClusterPolicy event")
+			r.Log.Error(err, "Unable to list RBLNDriver resources for RBLNClusterPolicy event")
 			return nil
 		}
 		requests := make([]reconcile.Request, 0, len(list.Items))

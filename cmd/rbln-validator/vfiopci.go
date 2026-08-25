@@ -40,12 +40,12 @@ func assertRBLNBound(cfg vfiovalidator.AssertConfig) error {
 	if err != nil {
 		return err
 	}
-	slog.Info("rbln binding assertion",
+	slog.Info("RBLN binding assertion",
 		"clean", len(result.CleanDevices),
 		"dirty", len(result.DirtyDevices))
 	if len(result.DirtyDevices) > 0 {
 		for _, d := range result.DirtyDevices {
-			slog.Error("device not bound to rbln driver",
+			slog.Error("Device not bound to rbln driver",
 				"bdf", d.BDF,
 				"currentDriver", d.CurrentDriver)
 		}
@@ -76,11 +76,11 @@ func validateVFIOPCI(cfg vfiovalidator.Config, rt vfioPCIRuntime) error {
 	for {
 		result, err := rt.validate(cfg)
 		if err == nil {
-			slog.Info("vfio-pci validation completed", "boundDevices", result.BoundDevices)
+			slog.Info("VFIO-PCI validation completed", "boundDevices", result.BoundDevices)
 			return rt.writeStatus(cfg.OutputDir, result)
 		}
-		slog.Info("vfio-pci binding not ready, retrying",
-			"err", err, "sleepSeconds", cfg.SleepIntervalSeconds)
+		slog.Info("VFIO-PCI binding not ready, retrying",
+			"error", err, "sleepSeconds", cfg.SleepIntervalSeconds)
 		rt.sleep(time.Duration(cfg.SleepIntervalSeconds) * time.Second)
 	}
 }

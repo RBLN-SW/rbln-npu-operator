@@ -29,10 +29,10 @@ func validateDriverContainer(cfg Config, silent bool) error {
 		slog.Info("Attempting to validate a driver container installation")
 		if err := validateDriverInstall(driverInstallDirDefault); err != nil {
 			slog.Info(
-				"failed to validate the driver, retrying",
+				"Failed to validate the driver, retrying",
 				"sleepSeconds",
 				cfg.SleepIntervalSeconds,
-				"err",
+				"error",
 				err,
 			)
 			time.Sleep(time.Duration(cfg.SleepIntervalSeconds) * time.Second)
@@ -47,7 +47,7 @@ func validateDriverInstall(root string) error {
 	if err != nil {
 		return fmt.Errorf("failed to locate driver libraries: %w", err)
 	}
-	slog.Info("validated driver library path", "path", driverLibraryPath)
+	slog.Info("Validated driver library path", "path", driverLibraryPath)
 	return nil
 }
 
@@ -95,7 +95,7 @@ func runCommandWithWait(name string, args []string, sleepSeconds int, silent boo
 		if err == nil {
 			return nil
 		}
-		slog.Info("command failed, retrying", "command", name, "err", err)
+		slog.Info("Command failed, retrying", "command", name, "error", err)
 		time.Sleep(time.Duration(sleepSeconds) * time.Second)
 	}
 }

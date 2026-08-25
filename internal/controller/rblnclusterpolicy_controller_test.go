@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -285,15 +286,40 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			}}
 
 			By("first Ready transition emits exactly one event")
-			allReady, err := reconciler.reconcileStatus(ctx, policy, readyNS, nil, readyWorkloads)
+			allReady, _, err := reconciler.reconcileStatus(ctx, policy, readyNS, nil, readyWorkloads)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(allReady).To(BeTrue())
 			expectPolicyEvent(recorder, corev1.EventTypeNormal, consts.RBLNConditionReasonAllActiveWorkloadsReady)
 
 			By("repeated Ready reconcile emits nothing")
-			_, err = reconciler.reconcileStatus(ctx, policy, readyNS, nil, readyWorkloads)
+			_, _, err = reconciler.reconcileStatus(ctx, policy, readyNS, nil, readyWorkloads)
 			Expect(err).NotTo(HaveOccurred())
 			expectNoPolicyEvent(recorder)
+		})
+
+		It("returns the Ready condition message as the not-ready reason", func() {
+			policy := &rblnv1beta1.RBLNClusterPolicy{}
+			Expect(k8sClient.Get(ctx, nn, policy)).To(Succeed())
+			progressing := []rblnv1beta1.RBLNWorkloadStatus{{
+				Type:           "container",
+				State:          rblnv1beta1.WorkloadStateProgressing,
+				NodeCount:      2,
+				ComponentCount: 3,
+				ReadyCount:     1,
+			}}
+
+			allReady, notReadyMsg, err := reconciler.reconcileStatus(ctx, policy, readyNS, nil, progressing)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(allReady).To(BeFalse())
+
+			// The caller logs notReadyMsg; drift from the condition would make
+			// the log and the CR disagree about why the policy is stuck.
+			updated := &rblnv1beta1.RBLNClusterPolicy{}
+			Expect(k8sClient.Get(ctx, nn, updated)).To(Succeed())
+			cond := apimeta.FindStatusCondition(updated.Status.Conditions, consts.RBLNConditionTypeReady)
+			Expect(cond).NotTo(BeNil())
+			Expect(notReadyMsg).To(Equal(cond.Message))
+			Expect(notReadyMsg).To(ContainSubstring("container(1/3 ready)"))
 		})
 	})
 

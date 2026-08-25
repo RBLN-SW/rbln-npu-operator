@@ -80,8 +80,8 @@ func (h *SmdPatcher) Patch(ctx context.Context, owner *rebellionsaiv1alpha1.RBLN
 		// emptied; rendering here would fall back to :latest and break the
 		// driver/smd version alignment this component exists for. Keep
 		// whatever is running.
-		h.log.V(consts.LogLevelDebug).Info("driver version is empty; keeping the existing rbln-smd DaemonSet as-is",
-			"instance", h.instanceName)
+		h.log.V(consts.VDebug).Info("Driver version is empty; keeping the existing rbln-smd DaemonSet as-is",
+			"driver", h.instanceName)
 		return nil
 	}
 

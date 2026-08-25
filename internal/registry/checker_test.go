@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-containerregistry/pkg/name"
 	testregistry "github.com/google/go-containerregistry/pkg/registry"
 	"github.com/google/go-containerregistry/pkg/v1/random"
@@ -80,7 +79,7 @@ func TestChecker_ExistsAndNotFound(t *testing.T) {
 	host := newTestRegistry(t)
 	pushTestImage(t, host+"/rebellions/atom/rbln-driver:3.0.0-k-o")
 
-	c := NewChecker(logr.Discard())
+	c := NewChecker()
 
 	cases := map[string]struct {
 		ref  string
@@ -123,7 +122,7 @@ func TestChecker_PingNotFoundIsUnknownNotNotFound(t *testing.T) {
 	defer srv.Close()
 	host := strings.TrimPrefix(srv.URL, "http://")
 
-	c := NewChecker(logr.Discard())
+	c := NewChecker()
 
 	ref := host + "/rebellions/atom/rbln-driver:1.0.0"
 	got, cause := c.Check(context.Background(), ref, nil)
@@ -140,7 +139,7 @@ func TestChecker_HeadOnlyDiscipline(t *testing.T) {
 	pushTestImage(t, host+"/rebellions/atom/rbln-driver:3.0.0-k-o")
 
 	rec := &recordingTransport{}
-	c := NewChecker(logr.Discard(), withTransport(rec))
+	c := NewChecker(withTransport(rec))
 
 	ref := host + "/rebellions/atom/rbln-driver:3.0.0-k-o"
 	if got, _ := c.Check(context.Background(), ref, nil); got != VerdictExists {
@@ -172,7 +171,7 @@ func TestChecker_HeadOnlyDisciplineOnMissingImage(t *testing.T) {
 	pushTestImage(t, host+"/rebellions/atom/rbln-driver:3.0.0-k-o")
 
 	rec := &recordingTransport{}
-	c := NewChecker(logr.Discard(), withTransport(rec))
+	c := NewChecker(withTransport(rec))
 
 	ref := host + "/rebellions/atom/rbln-driver:9.9.9-missing"
 	if got, _ := c.Check(context.Background(), ref, nil); got != VerdictNotFound {
@@ -202,7 +201,7 @@ func TestChecker_Caching(t *testing.T) {
 		host := strings.TrimPrefix(srv.URL, "http://")
 		pushTestImage(t, host+"/rebellions/atom/rbln-driver:3.0.0-k-o")
 
-		c := NewChecker(logr.Discard())
+		c := NewChecker()
 
 		ref := host + "/rebellions/atom/rbln-driver:3.0.0-k-o"
 		if got, _ := c.Check(context.Background(), ref, nil); got != VerdictExists {
@@ -222,7 +221,7 @@ func TestChecker_Caching(t *testing.T) {
 		pushTestImage(t, host+"/rebellions/atom/rbln-driver:3.0.0-k-o")
 
 		now := time.Now()
-		c := NewChecker(logr.Discard(), withNow(func() time.Time { return now }))
+		c := NewChecker(withNow(func() time.Time { return now }))
 
 		ref := host + "/rebellions/atom/rbln-driver:3.0.0-k-o"
 		if got, _ := c.Check(context.Background(), ref, nil); got != VerdictExists {
@@ -243,7 +242,7 @@ func TestChecker_Caching(t *testing.T) {
 		pushTestImage(t, host+"/rebellions/atom/rbln-driver:3.0.0-k-o")
 
 		now := time.Now()
-		c := NewChecker(logr.Discard(), withNow(func() time.Time { return now }))
+		c := NewChecker(withNow(func() time.Time { return now }))
 
 		ref := host + "/rebellions/atom/rbln-driver:9.9.9-missing"
 		if got, _ := c.Check(context.Background(), ref, nil); got != VerdictNotFound {
@@ -271,7 +270,7 @@ func TestChecker_UnauthorizedIsUnknown(t *testing.T) {
 	defer srv.Close()
 	host := strings.TrimPrefix(srv.URL, "http://")
 
-	c := NewChecker(logr.Discard())
+	c := NewChecker()
 
 	ref := host + "/rebellions/atom/rbln-driver:1.0.0"
 	got, cause := c.Check(context.Background(), ref, nil)
@@ -293,7 +292,7 @@ func TestChecker_UnreachableHostIsUnknown(t *testing.T) {
 		t.Fatalf("ln.Close() error = %v", err)
 	}
 
-	c := NewChecker(logr.Discard())
+	c := NewChecker()
 
 	ref := addr + "/rebellions/atom/rbln-driver:1.0.0"
 	got, cause := c.Check(context.Background(), ref, nil)
@@ -321,7 +320,7 @@ func TestChecker_StalledRegistryTimesOut(t *testing.T) {
 	defer srv.Close()
 	host := strings.TrimPrefix(srv.URL, "http://")
 
-	c := NewChecker(logr.Discard())
+	c := NewChecker()
 	c.checkTimeout = stallTimeout
 
 	ref := host + "/rebellions/atom/rbln-driver:1.0.0"
@@ -344,7 +343,7 @@ func TestChecker_ConcurrentCheckSameRef(t *testing.T) {
 	host := newTestRegistry(t)
 	pushTestImage(t, host+"/rebellions/atom/rbln-driver:3.0.0-k-o")
 
-	c := NewChecker(logr.Discard())
+	c := NewChecker()
 	ref := host + "/rebellions/atom/rbln-driver:3.0.0-k-o"
 
 	const n = 8
@@ -369,7 +368,7 @@ func TestChecker_ConcurrentCheckSameRef(t *testing.T) {
 
 func TestChecker_Disabled(t *testing.T) {
 	rec := &recordingTransport{}
-	c := NewChecker(logr.Discard(), WithDisabled(true), withTransport(rec))
+	c := NewChecker(WithDisabled(true), withTransport(rec))
 
 	ref := "example.com/rebellions/atom/rbln-driver:1.0.0"
 	got, cause := c.Check(context.Background(), ref, nil)
@@ -385,7 +384,7 @@ func TestChecker_Disabled(t *testing.T) {
 }
 
 func TestChecker_MalformedRefIsUnknown(t *testing.T) {
-	c := NewChecker(logr.Discard())
+	c := NewChecker()
 
 	got, cause := c.Check(context.Background(), "  not a valid ref ::", nil)
 	if got != VerdictUnknown {

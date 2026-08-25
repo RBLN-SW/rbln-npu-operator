@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -40,7 +39,6 @@ const (
 
 type UpgradeReconciler struct {
 	client.Client
-	Log          logr.Logger
 	Scheme       *runtime.Scheme
 	Namespace    string
 	StateManager upgrade.ClusterUpgradeStateManager
@@ -55,12 +53,13 @@ type UpgradeReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
 
 func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.Log.Info("Reconciling driver upgrade", "name", req.NamespacedName)
+	logger := log.FromContext(ctx)
+	logger.V(consts.VDebug).Info("Reconciling driver upgrade", "policy", req.NamespacedName)
 
 	clusterPolicy := &rblnv1beta1.RBLNClusterPolicy{}
 	err := r.Get(ctx, req.NamespacedName, clusterPolicy)
 	if err != nil {
-		r.Log.Error(err, "error getting RBLNClusterPolicy object")
+		logger.Error(err, "Error getting RBLNClusterPolicy object")
 		if apierrors.IsNotFound(err) {
 			return reconcile.Result{}, r.cleanupIfNoPoliciesLeft(ctx)
 		}
@@ -80,7 +79,7 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if clusterPolicy.Spec.Driver.UpgradePolicy == nil ||
 		!clusterPolicy.Spec.Driver.UpgradePolicy.AutoUpgrade {
-		r.Log.Info("Auto-upgrade disabled; cleaning upgrade state and skipping reconciliation")
+		logger.Info("Auto-upgrade disabled; cleaning upgrade state and skipping reconciliation")
 		metrics.DriverUpgradeNodes.Reset()
 		return ctrl.Result{}, r.removeNodeUpgradeStateLabels(ctx)
 	}
@@ -90,13 +89,13 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	state, err := r.StateManager.BuildState(ctx, r.Namespace,
 		driverLabel)
 	if err != nil {
-		r.Log.Error(err, "Failed to build cluster upgrade state")
+		logger.Error(err, "Failed to build cluster upgrade state")
 		return ctrl.Result{}, err
 	}
 
 	err = r.StateManager.ApplyState(ctx, r.Namespace, state, clusterPolicy.Spec.Driver.UpgradePolicy)
 	if err != nil {
-		r.Log.Error(err, "Failed to apply cluster upgrade state")
+		logger.Error(err, "Failed to apply cluster upgrade state")
 		return ctrl.Result{}, err
 	}
 
@@ -121,11 +120,12 @@ func (r *UpgradeReconciler) cleanupIfNoPoliciesLeft(ctx context.Context) error {
 // removeNodeUpgradeStateLabels loops over nodes in the cluster and removes "rebellions.ai/npu-driver-upgrade-state"
 // It is used for cleanup when autoUpgrade feature gets disabled
 func (r *UpgradeReconciler) removeNodeUpgradeStateLabels(ctx context.Context) error {
-	r.Log.Info("Resetting node upgrade labels from all nodes")
+	logger := log.FromContext(ctx)
+	logger.Info("Resetting node upgrade labels from all nodes")
 
 	nodeList := &corev1.NodeList{}
 	if err := r.List(ctx, nodeList, client.HasLabels{upgrade.UpgradeStateLabelKey}); err != nil {
-		r.Log.Error(err, "Failed to get node list to reset upgrade labels")
+		logger.Error(err, "Failed to get node list to reset upgrade labels")
 		return err
 	}
 
@@ -133,7 +133,7 @@ func (r *UpgradeReconciler) removeNodeUpgradeStateLabels(ctx context.Context) er
 		node := &nodeList.Items[i]
 		patchBytes := fmt.Appendf(nil, `{"metadata":{"labels":{%q:null}}}`, upgrade.UpgradeStateLabelKey)
 		if err := r.Patch(ctx, node, client.RawPatch(types.MergePatchType, patchBytes)); err != nil {
-			r.Log.Error(err, "Failed to reset upgrade state label from node", "node", node.Name)
+			logger.Error(err, "Failed to reset upgrade state label from node", "node", node.Name)
 			return err
 		}
 	}

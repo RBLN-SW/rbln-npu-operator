@@ -21,7 +21,7 @@ func registerControllers(ctx context.Context, mgr ctrl.Manager) error {
 	if err != nil {
 		return fmt.Errorf("get cluster info: %w", err)
 	}
-	setupLog.Info("openshift version", "version", clusterInfo.OpenShiftVersion)
+	setupLog.Info("OpenShift version", "version", clusterInfo.OpenShiftVersion)
 
 	// One recorder shared by every controller, so all events report the same source.
 	recorder := mgr.GetEventRecorderFor(operatorName)
@@ -78,7 +78,6 @@ func registerUpgradeController(ctx context.Context, mgr ctrl.Manager, recorder r
 
 	if err := (&controller.UpgradeReconciler{
 		Client:       mgr.GetClient(),
-		Log:          upgradeLogger,
 		Scheme:       mgr.GetScheme(),
 		Namespace:    namespace,
 		StateManager: stateManager,

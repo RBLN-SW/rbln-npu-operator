@@ -46,7 +46,7 @@ func buildNodePools(
 			continue
 		}
 		if _, exists := nodePoolMap[pool.name]; !exists {
-			logger.V(consts.LogLevelDebug).Info("Detected node pool", "pool", pool.name, "os", pool.getOS(), "kernel", pool.kernel)
+			logger.V(consts.VDebug).Info("Detected node pool", "pool", pool.name, "os", pool.getOS(), "kernel", pool.kernel)
 			nodePoolMap[pool.name] = pool
 		}
 	}
@@ -112,15 +112,15 @@ func buildNodePool(node corev1.Node, baseSelector map[string]string, logger logr
 		composedName := family + "-" + nodePool.name
 		switch {
 		case len(validation.IsDNS1123Label(family)) != 0:
-			logger.V(consts.LogLevelDebug).Info("npu.family label value is not a valid DNS-1123 label; treating node as unlabeled",
-				"Node", node.Name, "value", family)
+			logger.V(consts.VDebug).Info("NPU family label value is not a valid DNS-1123 label; treating node as unlabeled",
+				"node", node.Name, "label", consts.RBLNNPUFamilyLabelKey, "value", family)
 		case len(composedName) > validation.LabelValueMaxLength:
 			// pool.name becomes a DaemonSet label value, so a family that is
 			// valid on its own can still push the composed name past the
 			// 63-char cap. Letting it through would hard-fail the DaemonSet
 			// create with an API validation error instead of failing here.
-			logger.V(consts.LogLevelDebug).Info("npu.family label value composes a node-pool name over the 63-character label-value limit; treating node as unlabeled",
-				"Node", node.Name, "value", family, "composedName", composedName)
+			logger.V(consts.VDebug).Info("NPU family label value composes a node-pool name over the 63-character label-value limit; treating node as unlabeled",
+				"node", node.Name, "label", consts.RBLNNPUFamilyLabelKey, "value", family, "composedName", composedName)
 		default:
 			nodePool.family = family
 			nodePool.nodeSelector[consts.RBLNNPUFamilyLabelKey] = family
@@ -134,7 +134,8 @@ func buildNodePool(node corev1.Node, baseSelector map[string]string, logger logr
 func getNodeLabel(labels map[string]string, nodeName string, labelKey string, logger logr.Logger) (string, bool) {
 	value, ok := labels[labelKey]
 	if !ok {
-		logger.Info("WARNING: Could not find NFD label for node. Is NFD installed?", "Node", nodeName, "Label", labelKey)
+		logger.Info("Could not find NFD label for node. Is NFD installed?", "node", nodeName, "label", labelKey,
+			"effect", "node produces no driver pool and is excluded from every driver DaemonSet")
 		return "", false
 	}
 	return value, true

@@ -56,7 +56,7 @@ func (h *metricsExporterPatcher) Patch(ctx context.Context, owner *rblnv1beta1.R
 }
 
 func (h *metricsExporterPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "Metrics Exporter")
+	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "Metrics Exporter")
 	if err := h.deleteIfExists(ctx, &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: h.name + "-service", Namespace: h.namespace},
 	}); err != nil {

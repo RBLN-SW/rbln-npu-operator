@@ -104,6 +104,12 @@ spec:
             - /usr/bin/crd-apply
           args:
             - --crd-dir=/opt/rbln/crds
+          env:
+            {{- $hookLogging := .Values.crds.upgrade.logging | default dict }}
+            - name: RBLN_NPU_OPERATOR_LOG_LEVEL
+              value: {{ $hookLogging.level | default "info" | quote }}
+            - name: RBLN_NPU_OPERATOR_LOG_FORMAT
+              value: {{ $hookLogging.format | default "json" | quote }}
           {{- with .Values.crds.upgrade.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

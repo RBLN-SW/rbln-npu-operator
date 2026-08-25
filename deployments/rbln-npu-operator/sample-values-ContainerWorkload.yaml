@@ -38,6 +38,12 @@ operator:
     requests:
       cpu: 50m
       memory: 128Mi
+  # Operator manager logging (zap flags). See values.yaml for semantics.
+  logging:
+    level: info
+    encoder: json
+    timeEncoding: rfc3339nano
+    develMode: false
   # Operator self-metrics (HTTPS + authn/authz). See values.yaml.
   metrics:
     enabled: true

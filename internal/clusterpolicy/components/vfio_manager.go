@@ -67,7 +67,7 @@ func (h *vfioManagerPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNC
 }
 
 func (h *vfioManagerPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "VFIO Manager")
+	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "VFIO Manager")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
