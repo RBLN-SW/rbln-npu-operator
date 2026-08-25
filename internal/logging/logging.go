@@ -70,10 +70,10 @@ func setupFromEnv(w io.Writer) *slog.Logger {
 	// With level=error an invalid format's warn is suppressed by the gate —
 	// accepted, since the error gate was chosen explicitly.
 	if levelErr != nil {
-		logger.Warn("Invalid "+envLogLevel+", using default", "err", levelErr, "fallback", levelInfo)
+		logger.Warn("Invalid "+envLogLevel+", using default", "error", levelErr, "fallback", levelInfo)
 	}
 	if formatErr != nil {
-		logger.Warn("Invalid "+envLogFormat+", using default", "err", formatErr, "fallback", formatJSON)
+		logger.Warn("Invalid "+envLogFormat+", using default", "error", formatErr, "fallback", formatJSON)
 	}
 	return logger
 }

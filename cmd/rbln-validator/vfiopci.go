@@ -80,7 +80,7 @@ func validateVFIOPCI(cfg vfiovalidator.Config, rt vfioPCIRuntime) error {
 			return rt.writeStatus(cfg.OutputDir, result)
 		}
 		slog.Info("VFIO-PCI binding not ready, retrying",
-			"err", err, "sleepSeconds", cfg.SleepIntervalSeconds)
+			"error", err, "sleepSeconds", cfg.SleepIntervalSeconds)
 		rt.sleep(time.Duration(cfg.SleepIntervalSeconds) * time.Second)
 	}
 }

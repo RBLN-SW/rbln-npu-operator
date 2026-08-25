@@ -171,7 +171,7 @@ func (c *Checker) record(imageRef string, v Verdict, cause error) (Verdict, erro
 	}
 	if v == VerdictUnknown {
 		c.log.Info("Could not verify whether the driver image exists in its registry",
-			"image", imageRef, "err", cause,
+			"image", imageRef, "error", cause,
 			"effect", "pool rendered without image existence verification; kubelet decides at pull time")
 	}
 	c.mu.Lock()

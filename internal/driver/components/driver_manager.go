@@ -148,7 +148,7 @@ func (h *driverManagerPatcher) Patch(ctx context.Context, owner *rebellionsaiv1a
 			h.diagnostics.MissingImagePools = append(h.diagnostics.MissingImagePools,
 				MissingImagePool{Pool: pool.name, Image: imagePath})
 			h.log.V(consts.VDebug).Info("Driver image not found in registry; skipping pool",
-				"pool", pool.name, "image", imagePath, "err", cause)
+				"pool", pool.name, "image", imagePath, "error", cause)
 			continue
 		}
 		renderable = append(renderable, poolCheck{pool: pool, imagePath: imagePath})
@@ -213,7 +213,7 @@ func (h *driverManagerPatcher) fetchPullSecrets(ctx context.Context) []corev1.Se
 			h.diagnostics.UnreadablePullSecrets = append(h.diagnostics.UnreadablePullSecrets,
 				fmt.Sprintf("%s (%s)", name, kapierrors.ReasonForError(err)))
 			h.log.Info("Configured image pull secret is unreadable",
-				"name", name, "namespace", h.namespace, "err", err,
+				"name", name, "namespace", h.namespace, "error", err,
 				"effect", "registry image check runs anonymously; a private image may be misread as missing and block its pool")
 			continue
 		}

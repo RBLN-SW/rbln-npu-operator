@@ -342,7 +342,7 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessWaitForJobsRequiredNodes(
 				nextState = UpgradeStateDrainRequired
 			}
 			if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, nextState); err != nil {
-				m.log.Info("Failed to change node upgrade state, will retry next cycle", "err", err,
+				m.log.Info("Failed to change node upgrade state, will retry next cycle", "error", err,
 					"node", nodeState.Node.Name, "state", nextState)
 				continue
 			}
@@ -375,7 +375,7 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessPodDeletionRequiredNodes(
 		m.log.Info("PodDeletion is not enabled, proceeding straight to the next state")
 		for _, nodeState := range currentClusterState.NodeStates[UpgradeStatePodDeletionRequired] {
 			if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, UpgradeStateDrainRequired); err != nil {
-				m.log.Info("Failed to change node upgrade state, will retry next cycle", "err", err,
+				m.log.Info("Failed to change node upgrade state, will retry next cycle", "error", err,
 					"node", nodeState.Node.Name, "state", UpgradeStateDrainRequired)
 				continue
 			}
@@ -613,11 +613,11 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessRebootRequiredNodes(
 					"rebootRequestedAt", requestedAtRaw, "preRebootBootID", preRebootBootID,
 				}
 				if parseErr != nil {
-					logArgs = append(logArgs, "err", parseErr)
+					logArgs = append(logArgs, "error", parseErr)
 				}
 				m.log.Info("Corrupted reboot annotations; cleaning up and retrying next cycle", logArgs...)
 				if cleanupErr := m.cleanupRebootArtifacts(ctx, namespace, node); cleanupErr != nil {
-					m.log.Info("Failed to cleanup corrupted reboot artifacts", "err", cleanupErr,
+					m.log.Info("Failed to cleanup corrupted reboot artifacts", "error", cleanupErr,
 						"node", node.Name)
 				}
 				continue
@@ -674,7 +674,7 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessRebootRequiredNodes(
 		})
 		if err != nil {
 			if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
-				m.log.Info("Failed to mark node as failed after reboot trigger error", "err", stateErr,
+				m.log.Info("Failed to mark node as failed after reboot trigger error", "error", stateErr,
 					"node", node.Name)
 			}
 			m.log.Error(err, "Failed to trigger node reboot", "node", node.Name)
@@ -726,11 +726,11 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessRebootValidationRequiredNodes(
 					"annotation", UpgradeRebootRequestedAtAnnotationKey,
 				)
 				if cleanupErr := m.cleanupRebootArtifacts(ctx, namespace, node); cleanupErr != nil {
-					m.log.Info("Failed to cleanup reboot artifacts", "err", cleanupErr,
+					m.log.Info("Failed to cleanup reboot artifacts", "error", cleanupErr,
 						"node", node.Name)
 				}
 				if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
-					m.log.Info("Failed to mark node as failed; will retry next cycle", "err", stateErr,
+					m.log.Info("Failed to mark node as failed; will retry next cycle", "error", stateErr,
 						"node", node.Name)
 				}
 				continue
@@ -739,11 +739,11 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessRebootValidationRequiredNodes(
 				timeoutErr := fmt.Errorf("reboot validation timed out after %d seconds", rebootTimeoutSeconds)
 				m.log.Error(timeoutErr, "Reboot validation timed out; marking upgrade failed", "node", node.Name)
 				if cleanupErr := m.cleanupRebootArtifacts(ctx, namespace, node); cleanupErr != nil {
-					m.log.Info("Failed to cleanup reboot artifacts", "err", cleanupErr,
+					m.log.Info("Failed to cleanup reboot artifacts", "error", cleanupErr,
 						"node", node.Name)
 				}
 				if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
-					m.log.Info("Failed to mark node as failed; will retry next cycle", "err", stateErr,
+					m.log.Info("Failed to mark node as failed; will retry next cycle", "error", stateErr,
 						"node", node.Name)
 				}
 				continue
@@ -881,14 +881,14 @@ func (m *ClusterUpgradeStateManagerImpl) handleRebootPostTimeout(
 		timeoutErr := fmt.Errorf("post-reboot stabilization timed out after %d seconds", timeoutSeconds)
 		m.log.Error(timeoutErr, "Post-reboot stabilization timed out; marking upgrade failed", "node", node.Name)
 		if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
-			m.log.Info("Failed to mark node as failed; will retry next cycle", "err", stateErr,
+			m.log.Info("Failed to mark node as failed; will retry next cycle", "error", stateErr,
 				"node", node.Name)
 			return false
 		}
 		cleanupErr := m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node, annotationKey)
 		if cleanupErr != nil {
 			m.log.Info("Failed to remove reboot post start-time annotation after timeout",
-				"err", cleanupErr,
+				"error", cleanupErr,
 				"node", node.Name,
 				"annotation", annotationKey,
 			)
@@ -1043,7 +1043,7 @@ func (m *ClusterUpgradeStateManagerImpl) cleanupRebootArtifacts(
 		if podRebootManager, ok := m.rebootManager.(*PodRebootManager); ok {
 			if err := podRebootManager.DeleteRebootPod(ctx, namespace, rebootPodName); err != nil {
 				m.log.Info("Failed to delete reboot pod (best-effort); continuing with annotation cleanup",
-					"err", err,
+					"error", err,
 					"namespace", namespace,
 					"pod", rebootPodName,
 					"node", node.Name)

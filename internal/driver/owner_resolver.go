@@ -199,7 +199,7 @@ func (r *OwnerResolver) Resolve(ctx context.Context) (*ResolveResult, error) {
 		// assignment pass.
 		if err := ValidateDriverSpec(&d); err != nil {
 			r.log.V(consts.VDebug).Info("Excluding unroutable RBLNDriver from routing",
-				"driver", d.Name, "err", err)
+				"driver", d.Name, "error", err)
 			continue
 		}
 		candidates = append(candidates, d)

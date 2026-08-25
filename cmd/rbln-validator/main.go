@@ -14,7 +14,7 @@ func run() error {
 func main() {
 	logging.SetupFromEnv()
 	if err := run(); err != nil {
-		slog.Error("Command execution failed", "err", err)
+		slog.Error("Command execution failed", "error", err)
 		os.Exit(1)
 	}
 }

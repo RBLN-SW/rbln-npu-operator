@@ -39,7 +39,7 @@ func validateDriver(cfg drivervalidator.Config, rt driverRuntime) error {
 
 	info, err := rt.validate(cfg)
 	if err != nil {
-		slog.Error("Driver is not ready", "err", err)
+		slog.Error("Driver is not ready", "error", err)
 		return err
 	}
 	slog.Info("Driver validation completed", "hostDriver", info.IsHostDriver)

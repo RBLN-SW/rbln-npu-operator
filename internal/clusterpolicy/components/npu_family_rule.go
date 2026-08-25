@@ -75,7 +75,7 @@ func (h *npuFamilyRulePatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBL
 			// aborting every remaining operand.
 			if kapierrors.IsForbidden(err) {
 				h.log.Info("RBAC forbids managing NodeFeatureRules",
-					"group", mapping.GroupVersionKind.Group, "err", err,
+					"group", mapping.GroupVersionKind.Group, "error", err,
 					"effect", "no npu.family node labels from this API group until the operator's RBAC covers it")
 				continue
 			}

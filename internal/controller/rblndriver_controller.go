@@ -153,7 +153,7 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	conflictNodes := resolveResult.ConflictNodes[instance.Name]
 
 	if err := driver.ValidateDriverSpec(instance); err != nil {
-		r.Log.Info("Invalid driver spec; skipping reconcile", "driver", req.Name, "err", err)
+		r.Log.Info("Invalid driver spec; skipping reconcile", "driver", req.Name, "error", err)
 		metrics.DriverReconcileStatus.WithLabelValues(instance.Name).Set(metrics.ReconcileStatusNotReady)
 		metrics.ReconcileFailed.WithLabelValues("driver").Inc()
 		return ctrl.Result{}, r.reportNotReadyOnce(ctx, instance, conditions.DriverSummary{},

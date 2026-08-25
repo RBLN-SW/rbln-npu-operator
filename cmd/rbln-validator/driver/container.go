@@ -32,7 +32,7 @@ func validateDriverContainer(cfg Config, silent bool) error {
 				"Failed to validate the driver, retrying",
 				"sleepSeconds",
 				cfg.SleepIntervalSeconds,
-				"err",
+				"error",
 				err,
 			)
 			time.Sleep(time.Duration(cfg.SleepIntervalSeconds) * time.Second)
@@ -95,7 +95,7 @@ func runCommandWithWait(name string, args []string, sleepSeconds int, silent boo
 		if err == nil {
 			return nil
 		}
-		slog.Info("Command failed, retrying", "command", name, "err", err)
+		slog.Info("Command failed, retrying", "command", name, "error", err)
 		time.Sleep(time.Duration(sleepSeconds) * time.Second)
 	}
 }

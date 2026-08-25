@@ -4,6 +4,12 @@ package consts
 // (Error vs Info), never by V: V(0) carries state changes and warnings,
 // VDebug per-reconcile detail. Messages start with a capital letter, carry
 // no trailing period, and never embed a severity prefix such as "WARNING:".
+//
+// An error value always travels under the key "error" -- the key zapr forces
+// on Error() records, and therefore the only one that can also serve the
+// handled transients logged at Info. Severity is the level's job, not the
+// key's: a second key would only mean every "what failed" query has to match
+// both or silently miss half the records.
 const VDebug = 1
 
 // NFD label keys

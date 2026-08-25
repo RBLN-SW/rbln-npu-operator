@@ -192,7 +192,7 @@ func (s *ClusterPolicyService) reconcileWorkloadLabels(nodeName string, labels m
 			"Using default workload config for node",
 			"node", nodeName,
 			"workloadConfig", workloadConfig,
-			"err", err,
+			"error", err,
 		)
 	}
 

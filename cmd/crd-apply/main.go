@@ -37,16 +37,16 @@ func main() {
 
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
-		slog.Error("Failed to get kubeconfig", "err", err)
+		slog.Error("Failed to get kubeconfig", "error", err)
 		os.Exit(1)
 	}
 	c, err := client.New(cfg, client.Options{})
 	if err != nil {
-		slog.Error("Failed to create client", "err", err)
+		slog.Error("Failed to create client", "error", err)
 		os.Exit(1)
 	}
 	if err := applyManifests(context.Background(), c, *crdDir, *fieldOwner); err != nil {
-		slog.Error("Failed to apply CRDs", "err", err)
+		slog.Error("Failed to apply CRDs", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("Applied CRDs successfully", "dir", *crdDir)
