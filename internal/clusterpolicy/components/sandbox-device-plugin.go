@@ -21,6 +21,11 @@ import (
 // non-empty → single-alias mode (rebellions.ai/<alias>).
 const sandboxResourceAlias = ""
 
+const (
+	sandboxDevicePluginLogLevelEnv  = "RBLN_SANDBOX_DEVICE_PLUGIN_LOG_LEVEL"
+	sandboxDevicePluginLogFormatEnv = "RBLN_SANDBOX_DEVICE_PLUGIN_LOG_FORMAT"
+)
+
 type sandboxDevicePluginPatcher struct {
 	basePatcher
 	desiredSpec *rblnv1beta1.RBLNSandboxDevicePluginSpec
@@ -115,13 +120,16 @@ func (h *sandboxDevicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 				WithName(h.name).
 				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
 				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
-				WithEnvs([]corev1.EnvVar{
-					// RBLN_PT_ALIAS empty → per-model; non-empty → single-alias.
-					{Name: "RBLN_PT_ALIAS", Value: sandboxResourceAlias},
-					// Next two match binary defaults; spelled out for review visibility.
-					{Name: "RBLN_SYSFS_PCI_PATH", Value: "/sys/bus/pci/devices"},
-					{Name: "RBLN_KUBELET_DEVICE_PLUGIN_PATH", Value: "/var/lib/kubelet/device-plugins"},
-				}).
+				WithEnvs(mergeEnvVars(
+					[]corev1.EnvVar{
+						// RBLN_PT_ALIAS empty → per-model; non-empty → single-alias.
+						{Name: "RBLN_PT_ALIAS", Value: sandboxResourceAlias},
+						// Next two match binary defaults; spelled out for review visibility.
+						{Name: "RBLN_SYSFS_PCI_PATH", Value: "/sys/bus/pci/devices"},
+						{Name: "RBLN_KUBELET_DEVICE_PLUGIN_PATH", Value: "/var/lib/kubelet/device-plugins"},
+					},
+					loggingEnvVars(h.desiredSpec.Logging, sandboxDevicePluginLogLevelEnv, sandboxDevicePluginLogFormatEnv),
+				)).
 				WithVolumeMounts([]corev1.VolumeMount{
 					{Name: "devicesock", MountPath: "/var/lib/kubelet/device-plugins"},
 					{Name: "host-vfio", MountPath: "/dev/vfio"},

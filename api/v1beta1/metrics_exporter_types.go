@@ -26,6 +26,11 @@ type RBLNMetricsExporterSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Version",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Version string `json:"version,omitempty"`
 
+	// Logging gates the metrics exporter's own log stream. Unlike the other
+	// operands it reads the unprefixed LOG_LEVEL / LOG_FORMAT pair.
+	// +kubebuilder:validation:Optional
+	Logging *LoggingSpec `json:"logging,omitempty"`
+
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`

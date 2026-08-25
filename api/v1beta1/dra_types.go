@@ -53,6 +53,11 @@ type RBLNDRAKubeletPluginSpec struct {
 	// +kubebuilder:default:=51515
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Healthcheck Port",xDescriptors="urn:alm:descriptor:com.tectonic.ui:number"
 	HealthcheckPort int32 `json:"healthcheckPort,omitempty"`
+
+	// Logging gates the DRA kubelet plugin's own log stream, forwarded to the
+	// container as RBLN_DRA_DRIVER_LOG_LEVEL / _LOG_FORMAT.
+	// +kubebuilder:validation:Optional
+	Logging *LoggingSpec `json:"logging,omitempty"`
 }
 
 func (s RBLNDRAKubeletPluginSpec) IsEnabled() bool { return s.Enabled }

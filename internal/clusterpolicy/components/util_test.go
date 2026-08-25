@@ -249,3 +249,49 @@ func TestSyncSpec(t *testing.T) {
 		}
 	})
 }
+
+func TestLoggingEnvVars(t *testing.T) {
+	tests := map[string]struct {
+		spec *rblnv1beta1.LoggingSpec
+		want map[string]string
+	}{
+		"nil spec renders nothing": {
+			spec: nil,
+			want: map[string]string{},
+		},
+		"empty spec renders nothing": {
+			spec: &rblnv1beta1.LoggingSpec{},
+			want: map[string]string{},
+		},
+		"level only": {
+			spec: &rblnv1beta1.LoggingSpec{Level: "debug"},
+			want: map[string]string{"LVL": "debug"},
+		},
+		"format only": {
+			spec: &rblnv1beta1.LoggingSpec{Format: "text"},
+			want: map[string]string{"FMT": "text"},
+		},
+		"both": {
+			spec: &rblnv1beta1.LoggingSpec{Level: "warn", Format: "json"},
+			want: map[string]string{"LVL": "warn", "FMT": "json"},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := loggingEnvVars(tc.spec, "LVL", "FMT")
+			if len(got) != len(tc.want) {
+				t.Fatalf("expected %d env vars, got %v", len(tc.want), got)
+			}
+			for _, env := range got {
+				want, ok := tc.want[env.Name]
+				if !ok {
+					t.Fatalf("unexpected env var %q", env.Name)
+				}
+				if env.Value != want {
+					t.Errorf("env %s = %q, want %q", env.Name, env.Value, want)
+				}
+			}
+		})
+	}
+}

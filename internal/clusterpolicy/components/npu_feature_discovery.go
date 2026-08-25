@@ -15,6 +15,11 @@ import (
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
+const (
+	nfdLogLevelEnv  = "RBLN_NPU_FEATURE_DISCOVERY_LOG_LEVEL"
+	nfdLogFormatEnv = "RBLN_NPU_FEATURE_DISCOVERY_LOG_FORMAT"
+)
+
 type npuFeatureDiscoveryPatcher struct {
 	basePatcher
 	desiredSpec *rblnv1beta1.RBLNNPUFeatureDiscoverySpec
@@ -80,14 +85,17 @@ func (h *npuFeatureDiscoveryPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 			k8sutil.NewContainerBuilder().
 				WithName(h.name).
 				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
-				WithEnvs([]corev1.EnvVar{
-					{
-						Name: "NODE_IP",
-						ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
-							APIVersion: "v1", FieldPath: "status.hostIP",
-						}},
+				WithEnvs(mergeEnvVars(
+					[]corev1.EnvVar{
+						{
+							Name: "NODE_IP",
+							ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+								APIVersion: "v1", FieldPath: "status.hostIP",
+							}},
+						},
 					},
-				}).
+					loggingEnvVars(h.desiredSpec.Logging, nfdLogLevelEnv, nfdLogFormatEnv),
+				)).
 				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 				WithArgs([]string{"--rbln-daemon-url", "http://$(NODE_IP):50051"}).
 				WithVolumeMounts([]corev1.VolumeMount{

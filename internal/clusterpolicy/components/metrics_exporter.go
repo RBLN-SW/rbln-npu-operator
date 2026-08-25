@@ -17,6 +17,16 @@ import (
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
+// The exporter reads the unprefixed pair; every other operand takes an
+// RBLN_<COMPONENT>_ prefixed one. These names track the *shipped* image, so
+// renaming them upstream means bumping the default tag in the same change --
+// a newer operator rendering prefixed names at an older pinned exporter tag
+// would leave the knob silently inert.
+const (
+	metricsExporterLogLevelEnv  = "LOG_LEVEL"
+	metricsExporterLogFormatEnv = "LOG_FORMAT"
+)
+
 type metricsExporterPatcher struct {
 	basePatcher
 	desiredSpec *rblnv1beta1.RBLNMetricsExporterSpec
@@ -119,22 +129,25 @@ func (h *metricsExporterPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPoli
 					{Name: "pod-resources", MountPath: "/var/lib/kubelet/pod-resources", ReadOnly: true},
 					{Name: "sysfs", MountPath: "/sys", ReadOnly: true},
 				}).
-				WithEnvs([]corev1.EnvVar{
-					{
-						Name: "NODE_IP",
-						ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
-							APIVersion: "v1", FieldPath: "status.hostIP",
-						}},
+				WithEnvs(mergeEnvVars(
+					[]corev1.EnvVar{
+						{
+							Name: "NODE_IP",
+							ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+								APIVersion: "v1", FieldPath: "status.hostIP",
+							}},
+						},
+						{
+							Name: "NODE_NAME",
+							ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+								APIVersion: "v1", FieldPath: "spec.nodeName",
+							}},
+						},
+						{Name: "RBLN_METRICS_EXPORTER_RBLN_DAEMON_URL", Value: "http://$(NODE_IP):50051"},
+						{Name: "PROMETHEUS_METRIC_NAMES", Value: "true"},
 					},
-					{
-						Name: "NODE_NAME",
-						ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
-							APIVersion: "v1", FieldPath: "spec.nodeName",
-						}},
-					},
-					{Name: "RBLN_METRICS_EXPORTER_RBLN_DAEMON_URL", Value: "http://$(NODE_IP):50051"},
-					{Name: "PROMETHEUS_METRIC_NAMES", Value: "true"},
-				}).
+					loggingEnvVars(h.desiredSpec.Logging, metricsExporterLogLevelEnv, metricsExporterLogFormatEnv),
+				)).
 				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 				WithSecurityContext(&corev1.SecurityContext{
 					Privileged:             ptr(true),
