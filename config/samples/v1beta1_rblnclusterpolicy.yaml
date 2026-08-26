@@ -40,14 +40,14 @@ spec:
     enabled: true
     registry: docker.io
     image: rebellions/k8s-device-plugin
-    version: v0.4.2
+    version: v0.4.3
     imagePullPolicy: IfNotPresent
     useGenericResourceName: true
   draKubeletPlugin:
     enabled: false
     registry: docker.io
     image: rebellions/k8s-dra-driver-npu
-    version: v0.1.2
+    version: v0.1.3
     imagePullPolicy: IfNotPresent
     driverName: npu.rebellions.ai
     kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
@@ -57,13 +57,13 @@ spec:
     enabled: true
     registry: docker.io
     image: rebellions/rbln-metrics-exporter
-    version: v0.3.3
+    version: v0.3.4
     imagePullPolicy: IfNotPresent
   npuFeatureDiscovery:
     enabled: true
     registry: docker.io
     image: rebellions/rbln-npu-feature-discovery
-    version: v0.2.2
+    version: v0.2.3
     imagePullPolicy: IfNotPresent
   containerToolkit:
     enabled: true
@@ -75,7 +75,7 @@ spec:
     enabled: false
     registry: docker.io
     image: rebellions/sandbox-device-plugin
-    version: v0.1.0
+    version: v0.1.1
     imagePullPolicy: IfNotPresent
   vfioManager:
     enabled: false
