@@ -23,7 +23,7 @@ metadata:
               "image": "rebellions/rbln-k8s-driver-manager",
               "imagePullPolicy": "IfNotPresent",
               "registry": "docker.io",
-              "version": "v0.2.1"
+              "version": "v0.2.2"
             },
             "priorityClassName": "system-node-critical",
             "registry": "repo.rebellions.ai",
@@ -38,7 +38,7 @@ metadata:
               }
             },
             "smd": {
-              "image": "rebellions/rbln-daemon",
+              "image": "rebellions/rbln-smd",
               "registry": "repo.rebellions.ai"
             },
             "version": "3.2.2"
@@ -140,7 +140,7 @@ metadata:
                 "image": "rebellions/rbln-k8s-driver-manager",
                 "imagePullPolicy": "IfNotPresent",
                 "registry": "docker.io",
-                "version": "v0.2.1"
+                "version": "v0.2.2"
               },
               "enabled": false,
               "image": "rebellions/rbln-vfio-manager",
@@ -1105,7 +1105,7 @@ spec:
                 - name: RELATED_IMAGE_NODE_REBOOT
                   value: docker.io/rebellions/rbln-node-reboot:v1.0.0@sha256:429fb4af61dfdf808bf6da3bc89513ef6934f3a5992ed8826216a52095e67788
                 - name: RELATED_IMAGE_DRIVER_MANAGER
-                  value: docker.io/rebellions/rbln-k8s-driver-manager:v0.2.1@sha256:b3ac7c05de270adc3adac0c6330c5c20a7676447bd6aaae52d97f588f7b0b39d
+                  value: docker.io/rebellions/rbln-k8s-driver-manager:v0.2.2@sha256:8dafc00eac13a9ac7076f094796e51e1ac538c5cb1de061c1b05fb83350b24af
                 image: docker.io/rebellions/rbln-npu-operator:v0.4.4
                 imagePullPolicy: Always
                 livenessProbe:
@@ -1230,6 +1230,6 @@ spec:
     name: sandbox-device-plugin
   - image: docker.io/rebellions/rbln-node-reboot:v1.0.0@sha256:429fb4af61dfdf808bf6da3bc89513ef6934f3a5992ed8826216a52095e67788
     name: node-reboot
-  - image: docker.io/rebellions/rbln-k8s-driver-manager:v0.2.1@sha256:b3ac7c05de270adc3adac0c6330c5c20a7676447bd6aaae52d97f588f7b0b39d
+  - image: docker.io/rebellions/rbln-k8s-driver-manager:v0.2.2@sha256:8dafc00eac13a9ac7076f094796e51e1ac538c5cb1de061c1b05fb83350b24af
     name: driver-manager
   version: 0.4.4

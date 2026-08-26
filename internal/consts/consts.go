@@ -31,10 +31,18 @@ const (
 	RBLNDeploySkipLabelKey          = "rebellions.ai/npu.deploy.skip"
 	RBLNDeployDriverLabelKey        = "rebellions.ai/npu.deploy.driver"
 
-	// RBLNDeployRBLNDaemonLabelKey gates rbln-smd pods, and is the eviction
-	// handle k8s-driver-manager flips to paused-for-driver-upgrade on every
-	// driver pod start to bounce that node's smd pod. The key is hardcoded in
-	// that binary — never rename it without a lockstep driver-manager release.
+	// RBLNDeploySmdLabelKey gates rbln-smd pods, and is the eviction handle
+	// k8s-driver-manager flips to paused-for-driver-upgrade on every driver pod
+	// start to bounce that node's smd pod. The key is hardcoded in that binary,
+	// so a driver-manager older than the release that introduced it never flips
+	// this label and leaves the node's smd pod stranded on a stale image. That
+	// is why the two ship as a version pair — see the chart's
+	// driver.manager.image.tag.
+	RBLNDeploySmdLabelKey = "rebellions.ai/npu.deploy.rbln-smd"
+
+	// RBLNDeployRBLNDaemonLabelKey is the pre-rename spelling of
+	// RBLNDeploySmdLabelKey. Nothing selects on it; it exists only so upgraded
+	// nodes get it swept off instead of carrying a dead label forever.
 	RBLNDeployRBLNDaemonLabelKey = "rebellions.ai/npu.deploy.rbln-daemon"
 
 	NFDLabelPrefix = "feature.node.kubernetes.io/"

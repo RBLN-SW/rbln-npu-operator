@@ -198,7 +198,7 @@ driver:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.2.1
+      tag: v0.2.2
       pullPolicy: IfNotPresent
   #  imagePullSecrets:
   #  - my-registry-secret
@@ -207,7 +207,7 @@ driver:
   smd:
     image:
       registry: repo.rebellions.ai
-      repository: rebellions/rbln-daemon
+      repository: rebellions/rbln-smd
   # Additional RBLNDriver instances for per-node-group driver versions.
   # Each key becomes a CR named rbln-driver-<key>. Fields not set on an
   # instance inherit from the driver block above (maps deep-merge; LISTS such
@@ -334,7 +334,7 @@ vfioManager:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.2.1
+      tag: v0.2.2
       pullPolicy: IfNotPresent
     env: []
 

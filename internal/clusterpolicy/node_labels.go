@@ -3,6 +3,7 @@ package clusterpolicy
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,7 +27,7 @@ var rblnComponentLabels = map[string]map[string]string{
 		"rebellions.ai/npu.deploy.device-plugin":         labelValueTrue,
 		"rebellions.ai/npu.deploy.dra-kubelet-plugin":    labelValueTrue,
 		"rebellions.ai/npu.deploy.metrics-exporter":      labelValueTrue,
-		consts.RBLNDeployRBLNDaemonLabelKey:              labelValueTrue,
+		consts.RBLNDeploySmdLabelKey:                     labelValueTrue,
 		"rebellions.ai/npu.deploy.npu-feature-discovery": labelValueTrue,
 		"rebellions.ai/npu.deploy.operator-validator":    labelValueTrue,
 		"rebellions.ai/npu.deploy.container-toolkit":     labelValueTrue,
@@ -35,6 +36,16 @@ var rblnComponentLabels = map[string]map[string]string{
 		"rebellions.ai/npu.deploy.vfio-manager":          labelValueTrue,
 		"rebellions.ai/npu.deploy.sandbox-device-plugin": labelValueTrue,
 	},
+}
+
+// legacyComponentLabelKeys are deploy labels the operator no longer applies.
+// They are swept but never added: the prune loops below only walk
+// rblnComponentLabels, so a key dropped from that map would otherwise sit on
+// every already-labeled node forever, naming a component that no longer exists.
+// TODO(remove after two releases): drop together with the clusterpolicy legacy
+// rbln-daemon cleanup once no supported upgrade path carries these keys.
+var legacyComponentLabelKeys = []string{
+	consts.RBLNDeployRBLNDaemonLabelKey,
 }
 
 // ListAndClassifyNodes returns NPU-candidate nodes and whether NFD is
@@ -196,7 +207,35 @@ func (s *ClusterPolicyService) reconcileWorkloadLabels(nodeName string, labels m
 		)
 	}
 
-	return updateRBLNComponentLabels(labels, workloadConfig)
+	modified := updateRBLNComponentLabels(labels, workloadConfig)
+
+	// A deploy label left empty gates its component off for as long as it stays
+	// empty, and the fill-only loop above will not repair it. Nothing here can
+	// safely fix it, so make it visible instead of letting a node sit silently
+	// without a component.
+	if empty := emptyDesiredComponentLabels(labels, workloadConfig); len(empty) > 0 {
+		s.log.Info(
+			"Component deploy labels are empty; those components stay gated off until the value is restored",
+			"node", nodeName,
+			"labels", empty,
+		)
+	}
+
+	return modified
+}
+
+// emptyDesiredComponentLabels returns the deploy labels this node should carry
+// as "true" but whose value is empty, sorted for a stable log line.
+func emptyDesiredComponentLabels(labels map[string]string, config string) []string {
+	desired := desiredComponentLabels(labels, config)
+	empty := make([]string, 0, len(desired))
+	for key := range desired {
+		if value, exists := labels[key]; exists && value == "" {
+			empty = append(empty, key)
+		}
+	}
+	sort.Strings(empty)
+	return empty
 }
 
 func hasRBLNPresentLabel(labels map[string]string) bool {
@@ -237,7 +276,7 @@ func isValidWorkloadConfig(workloadConfig string) bool {
 }
 
 func removeAllRBLNComponentLabels(labels map[string]string) bool {
-	modified := false
+	modified := removeLegacyComponentLabels(labels)
 	for _, labelsMap := range rblnComponentLabels {
 		for key := range labelsMap {
 			if _, exists := labels[key]; !exists {
@@ -250,9 +289,21 @@ func removeAllRBLNComponentLabels(labels map[string]string) bool {
 	return modified
 }
 
+func removeLegacyComponentLabels(labels map[string]string) bool {
+	modified := false
+	for _, key := range legacyComponentLabelKeys {
+		if _, exists := labels[key]; !exists {
+			continue
+		}
+		delete(labels, key)
+		modified = true
+	}
+	return modified
+}
+
 func updateRBLNComponentLabels(labels map[string]string, config string) bool {
 	desired := desiredComponentLabels(labels, config)
-	modified := false
+	modified := removeLegacyComponentLabels(labels)
 
 	for _, labelsMap := range rblnComponentLabels {
 		for key := range labelsMap {
@@ -267,6 +318,11 @@ func updateRBLNComponentLabels(labels map[string]string, config string) bool {
 	}
 
 	for key, value := range desired {
+		// Fill only. An existing value is never overwritten — not even an empty
+		// one — because k8s-driver-manager owns every value transition on these
+		// keys (it flips them to paused-for-driver-upgrade to evict a node's
+		// components) and the operator must not race it. An empty value is
+		// reported by emptyDesiredComponentLabels rather than repaired here.
 		if _, exists := labels[key]; !exists {
 			labels[key] = value
 			modified = true
@@ -285,7 +341,7 @@ func desiredComponentLabels(labels map[string]string, config string) map[string]
 
 	desired := make(map[string]string, len(base))
 	for key, value := range base {
-		if key == consts.RBLNDeployRBLNDaemonLabelKey {
+		if key == consts.RBLNDeploySmdLabelKey {
 			continue
 		}
 		desired[key] = value

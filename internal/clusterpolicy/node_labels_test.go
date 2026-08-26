@@ -164,9 +164,10 @@ func TestReconcileNodes(t *testing.T) {
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-skip", mergeLabelMaps(
 					map[string]string{
-						consts.NFDDevicePCILabelKey:   labelValueTrue,
-						consts.RBLNPresentLabelKey:    labelValueTrue,
-						consts.RBLNDeploySkipLabelKey: labelValueTrue,
+						consts.NFDDevicePCILabelKey:         labelValueTrue,
+						consts.RBLNPresentLabelKey:          labelValueTrue,
+						consts.RBLNDeploySkipLabelKey:       labelValueTrue,
+						consts.RBLNDeployRBLNDaemonLabelKey: labelValueTrue,
 					},
 					rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
 				)),
@@ -185,7 +186,8 @@ func TestReconcileNodes(t *testing.T) {
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-removed", mergeLabelMaps(
 					map[string]string{
-						consts.RBLNPresentLabelKey: labelValueTrue,
+						consts.RBLNPresentLabelKey:          labelValueTrue,
+						consts.RBLNDeployRBLNDaemonLabelKey: labelValueTrue,
 					},
 					rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
 				)),
@@ -232,7 +234,7 @@ func TestReconcileNodes(t *testing.T) {
 				absentLabels: labelKeys(rblnComponentLabels[consts.RBLNWorkloadConfigContainer]),
 			},
 		},
-		"excludes rbln-daemon on pre-installed driver nodes": {
+		"excludes rbln-smd on pre-installed driver nodes": {
 			workloadType: consts.RBLNWorkloadConfigContainer,
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-preinstalled", map[string]string{
@@ -249,12 +251,12 @@ func TestReconcileNodes(t *testing.T) {
 					"rebellions.ai/npu.deploy.container-toolkit": labelValueTrue,
 				},
 				absentLabels: append(
-					[]string{consts.RBLNDeployRBLNDaemonLabelKey},
+					[]string{consts.RBLNDeploySmdLabelKey},
 					labelKeys(rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough])...,
 				),
 			},
 		},
-		"removes the rbln-daemon label once the driver becomes pre-installed": {
+		"removes the rbln-smd label once the driver becomes pre-installed": {
 			workloadType: consts.RBLNWorkloadConfigContainer,
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-preinstalled-existing", mergeLabelMaps(
@@ -273,7 +275,57 @@ func TestReconcileNodes(t *testing.T) {
 					consts.RBLNDeployDriverLabelKey:          consts.RBLNDeployDriverPreInstalled,
 					"rebellions.ai/npu.deploy.device-plugin": labelValueTrue,
 				},
+				absentLabels: []string{consts.RBLNDeploySmdLabelKey},
+			},
+		},
+		"sweeps the pre-rename rbln-daemon label off an upgraded node": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			node: &corev1.Node{
+				ObjectMeta: newObjectMeta("node-upgraded", mergeLabelMaps(
+					rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
+					map[string]string{
+						consts.NFDDevicePCILabelKey:         labelValueTrue,
+						consts.RBLNPresentLabelKey:          labelValueTrue,
+						consts.RBLNDeployRBLNDaemonLabelKey: labelValueTrue,
+					},
+				)),
+			},
+			want: want{
+				count:        1,
+				labels:       map[string]string{consts.RBLNDeploySmdLabelKey: labelValueTrue},
 				absentLabels: []string{consts.RBLNDeployRBLNDaemonLabelKey},
+			},
+		},
+		// Fill-only: k8s-driver-manager owns every value transition on these
+		// keys, so an empty value is left alone (and reported) rather than
+		// repaired — repairing it could undo a pause and defeat the eviction
+		// that keeps smd aligned with the driver.
+		"leaves a component label k8s-driver-manager left empty": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			node: &corev1.Node{
+				ObjectMeta: newObjectMeta("node-empty-gate", map[string]string{
+					consts.NFDDevicePCILabelKey:  labelValueTrue,
+					consts.RBLNPresentLabelKey:   labelValueTrue,
+					consts.RBLNDeploySmdLabelKey: "",
+				}),
+			},
+			want: want{
+				count:  1,
+				labels: map[string]string{consts.RBLNDeploySmdLabelKey: ""},
+			},
+		},
+		"preserves a deploy label k8s-driver-manager paused": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			node: &corev1.Node{
+				ObjectMeta: newObjectMeta("node-paused-gate", map[string]string{
+					consts.NFDDevicePCILabelKey:  labelValueTrue,
+					consts.RBLNPresentLabelKey:   labelValueTrue,
+					consts.RBLNDeploySmdLabelKey: "paused-for-driver-upgrade",
+				}),
+			},
+			want: want{
+				count:  1,
+				labels: map[string]string{consts.RBLNDeploySmdLabelKey: "paused-for-driver-upgrade"},
 			},
 		},
 		"does not modify labels when the node already has the correct workload labels": {
@@ -331,6 +383,67 @@ func TestReconcileNodes(t *testing.T) {
 	}
 }
 
+func TestEmptyDesiredComponentLabels(t *testing.T) {
+	tests := map[string]struct {
+		labels map[string]string
+		config string
+		want   []string
+	}{
+		"reports an empty desired label": {
+			labels: map[string]string{consts.RBLNDeploySmdLabelKey: ""},
+			config: consts.RBLNWorkloadConfigContainer,
+			want:   []string{consts.RBLNDeploySmdLabelKey},
+		},
+		"reports every empty desired label in sorted order": {
+			labels: map[string]string{
+				consts.RBLNDeploySmdLabelKey:             "",
+				consts.RBLNDeployDriverLabelKey:          "",
+				"rebellions.ai/npu.deploy.device-plugin": "",
+			},
+			config: consts.RBLNWorkloadConfigContainer,
+			want: []string{
+				"rebellions.ai/npu.deploy.device-plugin",
+				consts.RBLNDeployDriverLabelKey,
+				consts.RBLNDeploySmdLabelKey,
+			},
+		},
+		"ignores labels that carry a value": {
+			labels: map[string]string{consts.RBLNDeploySmdLabelKey: "paused-for-driver-upgrade"},
+			config: consts.RBLNWorkloadConfigContainer,
+			want:   []string{},
+		},
+		"ignores absent labels": {
+			labels: map[string]string{},
+			config: consts.RBLNWorkloadConfigContainer,
+			want:   []string{},
+		},
+		// The smd label is not desired on a pre-installed-driver node, so an
+		// empty value there is pruned rather than reported.
+		"ignores a label this node should not carry": {
+			labels: map[string]string{
+				consts.RBLNDeployDriverLabelKey: consts.RBLNDeployDriverPreInstalled,
+				consts.RBLNDeploySmdLabelKey:    "",
+			},
+			config: consts.RBLNWorkloadConfigContainer,
+			want:   []string{},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := emptyDesiredComponentLabels(tc.labels, tc.config)
+			if len(got) != len(tc.want) {
+				t.Fatalf("emptyDesiredComponentLabels() = %v, want %v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("emptyDesiredComponentLabels() = %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
 func mergeLabelMaps(mapsToMerge ...map[string]string) map[string]string {
 	merged := map[string]string{}
 	for _, labels := range mapsToMerge {
@@ -349,10 +462,12 @@ func labelKeys(labels map[string]string) []string {
 	return keys
 }
 
+// allComponentLabelKeys includes the legacy keys so that every "removes all
+// component labels" case also guards the legacy sweep on that path.
 func allComponentLabelKeys() []string {
 	keys := make([]string, 0)
 	for _, labels := range rblnComponentLabels {
 		keys = append(keys, labelKeys(labels)...)
 	}
-	return keys
+	return append(keys, legacyComponentLabelKeys...)
 }
