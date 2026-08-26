@@ -14,8 +14,12 @@ spec:
   imagePullPolicy: IfNotPresent
   imagePullSecrets:
   - drivercred
+  # An empty nodeSelector owns every NPU node, and the operator already splits
+  # DaemonSets per family/os/kernel on its own. Narrow it only to pin a group
+  # to its own driver version; npu.driver.owner and npu.deploy.driver are
+  # reserved keys and drop the CR from routing entirely.
   # nodeSelector:
-  #   rebellions.ai/npu.deploy.driver: "true"
+  #   rebellions.ai/npu.family: atom   # or rebel100
   # tolerations:
   # - key: node-role.kubernetes.io/control-plane
   #   operator: Exists
