@@ -168,6 +168,24 @@ spec:
         path: devicePlugin.labels
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Format selects the operand's log encoding.
+        displayName: Log Format
+        path: devicePlugin.logging.format
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Level gates which records the operand emits.
+        displayName: Log Level
+        path: devicePlugin.logging.level
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: |-
+          OtlpEndpoint is the OTLP gRPC endpoint (host:port, or a scheme-qualified URL) the
+          device plugin exports allocation traces to. Forwarded to the device plugin container
+          as the OTEL_EXPORTER_OTLP_ENDPOINT environment variable. Empty disables tracing.
+        displayName: OTLP Endpoint
+        path: devicePlugin.otlpEndpoint
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN Device Plugin image
         displayName: Registry
         path: devicePlugin.registry
@@ -263,6 +281,16 @@ spec:
         path: draKubeletPlugin.labels
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Format selects the operand's log encoding.
+        displayName: Log Format
+        path: draKubeletPlugin.logging.format
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Level gates which records the operand emits.
+        displayName: Log Level
+        path: draKubeletPlugin.logging.level
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN DRA kubelet plugin image
         displayName: Registry
         path: draKubeletPlugin.registry
@@ -324,6 +352,16 @@ spec:
       - description: Labels specifies the labels for the DaemonSet pods
         displayName: Labels
         path: metricsExporter.labels
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Format selects the operand's log encoding.
+        displayName: Log Format
+        path: metricsExporter.logging.format
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Level gates which records the operand emits.
+        displayName: Log Level
+        path: metricsExporter.logging.level
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN Metrics Exporter image
@@ -388,6 +426,16 @@ spec:
       - description: Labels specifies the labels for the DaemonSet pods
         displayName: Labels
         path: npuFeatureDiscovery.labels
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Format selects the operand's log encoding.
+        displayName: Log Format
+        path: npuFeatureDiscovery.logging.format
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Level gates which records the operand emits.
+        displayName: Log Level
+        path: npuFeatureDiscovery.logging.level
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN NPU Feature Discovery image
@@ -479,6 +527,16 @@ spec:
       - description: Labels specifies the labels for the DaemonSet pods
         displayName: Labels
         path: sandboxDevicePlugin.labels
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Format selects the operand's log encoding.
+        displayName: Log Format
+        path: sandboxDevicePlugin.logging.format
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Level gates which records the operand emits.
+        displayName: Log Level
+        path: sandboxDevicePlugin.logging.level
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Registry override for the RBLN Sandbox Device Plugin image
