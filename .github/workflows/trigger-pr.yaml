@@ -13,6 +13,7 @@ permissions:
   contents: read
   pull-requests: write
   statuses: write
+  security-events: write # image-scan.yaml uploads SARIF to code scanning
 
 jobs:
   pr-title-validation:
@@ -55,6 +56,12 @@ jobs:
   olm-bundle-check:
     needs: pr-title-validation
     uses: ./.github/workflows/olm-bundle-check.yaml
+  image-scan:
+    needs: [code-check, go-build]
+    uses: ./.github/workflows/image-scan.yaml
+    secrets: inherit
+    with:
+      fail-on-findings: true
   # E2E tests (container / vm-passthrough) and the PR image build moved to the
   # Buildkite PR CI pipeline (.buildkite/pipeline.pr.yml). The Go e2e suite under
   # test/e2e/ is kept and still runnable via `make -C test/e2e e2e-test`.
