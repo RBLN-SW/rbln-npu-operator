@@ -1,5 +1,5 @@
 # Build the manager binary
-ARG GOLANG_VERSION=1.25.7
+ARG GOLANG_VERSION=1.25.13
 
 FROM golang:${GOLANG_VERSION} AS builder
 ARG TARGETOS=linux
@@ -20,7 +20,7 @@ COPY internal/ internal/
 
 RUN make cmds
 
-FROM redhat/ubi9-minimal:9.6
+FROM redhat/ubi9-minimal:9.8
 ARG VERSION
 
 LABEL \

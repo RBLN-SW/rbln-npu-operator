@@ -1,0 +1,249 @@
+name: Container Image Scan
+
+on:
+  workflow_call:
+    inputs:
+      fail-on-findings:
+        description: "Fail the job when fixable HIGH/CRITICAL findings are present"
+        type: boolean
+        required: false
+        default: true
+    outputs:
+      critical:
+        description: "Number of fixable CRITICAL vulnerabilities across all images"
+        value: ${{ jobs.summarize.outputs.critical }}
+      high:
+        description: "Number of fixable HIGH vulnerabilities across all images"
+        value: ${{ jobs.summarize.outputs.high }}
+      secrets:
+        description: "Number of HIGH/CRITICAL secrets baked into the images"
+        value: ${{ jobs.summarize.outputs.secrets }}
+      total:
+        description: "Sum of the counts above"
+        value: ${{ jobs.summarize.outputs.total }}
+
+# Permissions are inherited from the calling workflow on purpose. Declaring
+# `security-events: write` here would make the call fail outright on fork PRs,
+# where the token is read-only; instead the SARIF upload step below is skipped.
+
+jobs:
+  scan:
+    name: Build and scan (${{ matrix.image.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # rbln-npu-operator-validator is not listed: it is built from the same
+        # Dockerfile as the operator image under a different tag, so its content
+        # is byte-identical. The bundle image is FROM scratch (nothing to scan)
+        # and the catalog image is an upstream operator-framework build this
+        # repo can only change by moving OPM_VERSION. See docs/image-security.md.
+        image:
+          - name: operator
+            target: build-image
+            ref: local/rbln-npu-operator
+          - name: vfio-manager
+            target: build-vfio-manager-image
+            ref: local/rbln-vfio-manager
+          - name: node-reboot
+            target: build-node-reboot-image
+            ref: local/rbln-node-reboot
+    env:
+      # Local-only tag. Using the published name here would let Trivy silently
+      # pull and scan the real registry image if the local build were missing,
+      # turning a broken build into a green scan.
+      IMAGE_REF: ${{ matrix.image.ref }}:ci-${{ github.sha }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # Skipped on fork PRs, where secrets are not available; the build then
+      # falls back to anonymous (rate-limited) Docker Hub pulls.
+      - name: Login to Docker Hub for base-image pulls
+        if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      # DOCKER_BUILD_OPTIONS is overridden to --load because the Makefile's
+      # default (--output=type=image,push=false) leaves the result in the buildx
+      # builder cache under the docker-container driver, so it never reaches the
+      # local daemon and `trivy image` cannot find it. Make lets environment
+      # variables win over `?=`, so no Makefile change is needed.
+      - name: Build image
+        env:
+          REGISTRY: local
+          VERSION: ci-${{ github.sha }}
+          VFIO_MANAGER_VERSION: ci-${{ github.sha }}
+          NODE_REBOOT_VERSION: ci-${{ github.sha }}
+          PLATFORM: linux/amd64
+          DOCKER_BUILD_OPTIONS: --load
+        run: make ${{ matrix.image.target }}
+
+      - name: Read Trivy version
+        id: trivy-version
+        run: echo "version=$(grep '^TRIVY_VERSION' versions.mk | cut -d'=' -f2 | tr -d ' ?')" >> "$GITHUB_OUTPUT"
+
+      # Scan once at every severity; the JSON is the single source of truth that
+      # the SARIF upload, the job summary and the gate are all derived from. The
+      # action also puts the trivy binary on PATH for the conversion step below.
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: ${{ steps.trivy-version.outputs.version }}
+          scan-type: image
+          image-ref: ${{ env.IMAGE_REF }}
+          scanners: vuln,secret
+          format: json
+          output: trivy-results-${{ matrix.image.name }}.json
+          trivyignores: .trivyignore.yaml
+
+      - name: Convert results to SARIF
+        run: |
+          trivy convert --format sarif \
+            --output trivy-results-${{ matrix.image.name }}.sarif \
+            trivy-results-${{ matrix.image.name }}.json
+
+      # Fork PRs are not granted `security-events: write`; skip rather than fail
+      # them. The category must be unique per image or each upload would
+      # overwrite the previous image's results.
+      - name: Upload SARIF to code scanning
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results-${{ matrix.image.name }}.sarif
+          category: trivy-${{ matrix.image.name }}
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results-${{ matrix.image.name }}
+          path: |
+            trivy-results-${{ matrix.image.name }}.json
+            trivy-results-${{ matrix.image.name }}.sarif
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # Aggregation lives in its own job because GitHub Actions collapses matrix job
+  # outputs to last-writer-wins: reading counts off the matrix directly would
+  # report whichever leg happened to finish last. This job also gives the gate
+  # exactly one home.
+  summarize:
+    name: Summarize findings
+    needs: scan
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      critical: ${{ steps.summarize.outputs.critical }}
+      high: ${{ steps.summarize.outputs.high }}
+      secrets: ${{ steps.summarize.outputs.secrets }}
+      total: ${{ steps.summarize.outputs.total }}
+    steps:
+      - name: Download scan results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: trivy-results-*
+          merge-multiple: true
+
+      # The gate count and the rendered summary come from one filter, so they
+      # can never disagree. `trivy convert --format table` is not used here
+      # because it has no --ignore-unfixed equivalent.
+      - name: Summarize findings
+        id: summarize
+        env:
+          SCAN_RESULT: ${{ needs.scan.result }}
+        run: |
+          shopt -s nullglob
+          critical=0 high=0 secrets=0
+          : > rows.md
+
+          echo "## Trivy image scan" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+
+          for f in trivy-results-*.json; do
+            image="${f#trivy-results-}"; image="${image%.json}"
+
+            jq '[.Results[]?.Vulnerabilities[]?
+                | select(.Severity == "HIGH" or .Severity == "CRITICAL")
+                | select((.FixedVersion // "") != "")]
+              | unique_by([.VulnerabilityID, .PkgName])
+              | sort_by(if .Severity == "CRITICAL" then 0 else 1 end, .VulnerabilityID)' \
+              "$f" > "fixable-${image}.json"
+            jq '[.Results[]?.Secrets[]?
+              | select(.Severity == "HIGH" or .Severity == "CRITICAL")]' "$f" > "secrets-${image}.json"
+
+            c=$(jq '[.[] | select(.Severity == "CRITICAL")] | length' "fixable-${image}.json")
+            h=$(jq '[.[] | select(.Severity == "HIGH")] | length' "fixable-${image}.json")
+            s=$(jq 'length' "secrets-${image}.json")
+            critical=$((critical + c)); high=$((high + h)); secrets=$((secrets + s))
+
+            echo "| \`${image}\` | ${c} | ${h} | ${s} |" >> rows.md
+
+            {
+              jq -r --arg img "$image" '.[] | "| \($img) | \(.Severity) | [\(.VulnerabilityID)](\(.PrimaryURL // "")) | \(.PkgName) | \(.InstalledVersion) | \(.FixedVersion) |"' "fixable-${image}.json"
+            } >> detail.md
+            jq -r --arg img "$image" '.[] | "| \($img) | \(.RuleID) | \(.Title) |"' "secrets-${image}.json" >> secret-detail.md
+          done
+
+          total=$((critical + high + secrets))
+          {
+            echo "critical=${critical}"
+            echo "high=${high}"
+            echo "secrets=${secrets}"
+            echo "total=${total}"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            if [ "$SCAN_RESULT" != "success" ]; then
+              echo "> [!WARNING]"
+              echo "> The scan job did not fully succeed (\`${SCAN_RESULT}\`); counts below may be incomplete."
+              echo
+            fi
+            echo "| Image | CRITICAL | HIGH | Secrets |"
+            echo "| --- | --- | --- | --- |"
+            cat rows.md
+            echo
+            echo "Fixable **${critical} CRITICAL**, **${high} HIGH**; **${secrets}** secret(s)."
+            echo
+            if [ "$((critical + high))" -gt 0 ]; then
+              echo "| Image | Severity | CVE | Package | Installed | Fixed |"
+              echo "| --- | --- | --- | --- | --- | --- |"
+              cat detail.md
+              echo
+            fi
+            if [ "$secrets" -gt 0 ]; then
+              echo "| Image | Secret | Target |"
+              echo "| --- | --- | --- |"
+              cat secret-detail.md
+              echo
+            fi
+            if [ "$total" -eq 0 ]; then
+              echo "No fixable HIGH/CRITICAL findings."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # A leg that failed to build produces no artifact, so its findings would
+      # silently count as zero. Fail explicitly instead.
+      - name: Fail on incomplete scan
+        if: ${{ inputs.fail-on-findings && needs.scan.result != 'success' }}
+        run: |
+          echo "::error::Image scan did not complete (${{ needs.scan.result }}); results are incomplete."
+          exit 1
+
+      - name: Fail on findings
+        if: ${{ inputs.fail-on-findings && steps.summarize.outputs.total != '0' }}
+        env:
+          CRITICAL: ${{ steps.summarize.outputs.critical }}
+          HIGH: ${{ steps.summarize.outputs.high }}
+          SECRETS: ${{ steps.summarize.outputs.secrets }}
+        run: |
+          echo "::error::Image scan failed: ${CRITICAL} fixable CRITICAL, ${HIGH} fixable HIGH, ${SECRETS} secret(s). See the job summary for details."
+          echo "Fix by upgrading the affected package, or record a justified exception with an expiry date in .trivyignore.yaml."
+          echo "Upgrade order and the Kubernetes compatibility matrix: docs/image-security.md"
+          exit 1
