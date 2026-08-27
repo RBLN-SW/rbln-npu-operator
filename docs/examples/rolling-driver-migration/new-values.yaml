@@ -1,0 +1,38 @@
+# Values for the NEW release (chart >= 0.4.6): per-family CRs replace the
+# default CR. operator.driverImageCheck keeps its default (true) — the hold
+# in docs/rolling-driver-migration.md depends on it.
+driver:
+  enabled: true
+  deployDefault: false
+  image:
+    registry: repo.rebellions.ai
+    repository: rebellions/rbln-driver
+    tag: "3.2.2"
+    pullPolicy: IfNotPresent
+  imagePullSecrets:
+    - drivercred
+  manager:
+    image:
+      registry: docker.io
+      repository: rebellions/rbln-k8s-driver-manager
+      tag: v0.2.2
+      pullPolicy: IfNotPresent
+  smd:
+    image:
+      registry: repo.rebellions.ai
+      repository: rebellions/rbln-smd
+  instances:
+    atom:
+      image:
+        tag: "3.2.2"
+      nodeSelector:
+        rebellions.ai/npu.family: atom
+        rbln-mig/stage: "new"
+    # key "r100", not "rebel100": the rendered name rbln-driver-r100 must
+    # not collide with the existing manual CR rbln-driver-rebel100.
+    r100:
+      image:
+        tag: "3.3.0"
+      nodeSelector:
+        rebellions.ai/npu.family: rebel100
+        rbln-mig/stage: "new"
