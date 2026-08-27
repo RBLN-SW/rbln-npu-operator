@@ -441,6 +441,9 @@ bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metada
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE)
 	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS)
 	$(OPERATOR_SDK) bundle validate ./bundle
+# operator-sdk stamps createdAt on every run (operator-framework/operator-sdk#6285);
+# drop the churn when the timestamp is the only bundle change.
+	@git diff --quiet -I'^    createdAt: ' bundle && git checkout -- bundle || true
 
 .PHONY: build-bundle-image
 build-bundle-image:

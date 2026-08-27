@@ -77,7 +77,7 @@ spec:
           - name: RELATED_IMAGE_RBLN_NPU_FEATURE_DISCOVERY
             value: docker.io/rebellions/rbln-npu-feature-discovery:v0.2.3@sha256:1a6124b0fa8393e6ba47a22e39fc4f27e7c8e7f87fbac9cef0eec9fe4db53c4c
           - name: RELATED_IMAGE_VFIO_MANAGER
-            value: docker.io/rebellions/rbln-vfio-manager:v1.0.0@sha256:f468876573e8ba6d726bc6443314d2ae039b3b341fb6de4623fd40cfc53772b5
+            value: docker.io/rebellions/rbln-vfio-manager:v1.0.1@sha256:6717eac179ff33bccebf936e7aa93560293f2b439655675734c456cb68d77376
           - name: RELATED_IMAGE_RBLN_NPU_OPERATOR_VALIDATOR
             value: docker.io/rebellions/rbln-npu-operator-validator:v0.4.4@sha256:a9a11ff93665337630f42f783bb6fc93502c5076926b4096d5c81a9505c80bfc
           - name: RELATED_IMAGE_RBLN_CONTAINER_TOOLKIT
@@ -87,7 +87,7 @@ spec:
           - name: RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN
             value: docker.io/rebellions/sandbox-device-plugin:v0.1.1@sha256:5504fbc0f61da69c98e6e74de0f6a4feb3771019139a34f3283209a180f1281e
           - name: RELATED_IMAGE_NODE_REBOOT
-            value: docker.io/rebellions/rbln-node-reboot:v1.0.0@sha256:429fb4af61dfdf808bf6da3bc89513ef6934f3a5992ed8826216a52095e67788
+            value: docker.io/rebellions/rbln-node-reboot:v1.0.1@sha256:0d5674b43ccf766da5989251c2a50454791a0231699b853415d612ff7e68f9b6
           - name: RELATED_IMAGE_DRIVER_MANAGER
             value: docker.io/rebellions/rbln-k8s-driver-manager:v0.2.2@sha256:8dafc00eac13a9ac7076f094796e51e1ac538c5cb1de061c1b05fb83350b24af
       serviceAccountName: controller-manager

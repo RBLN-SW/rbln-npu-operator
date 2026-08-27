@@ -109,7 +109,7 @@ driver:
       image:
         registry: docker.io
         image: rebellions/rbln-node-reboot
-        version: v1.0.0
+        version: v1.0.1
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-driver
@@ -235,7 +235,7 @@ vfioManager:
   image:
     registry: docker.io
     repository: rebellions/rbln-vfio-manager
-    tag: v1.0.0
+    tag: v1.0.1
     pullPolicy: IfNotPresent
   driverManager:
     image:
