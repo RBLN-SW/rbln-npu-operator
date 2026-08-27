@@ -1,0 +1,21 @@
+# Manual second RBLNDriver for the rebel100 nodes (pre-0.4.6 charts render
+# only the default CR). Created with kubectl apply; NOT helm-adopted — see
+# the "multiple old CRs" appendix of docs/rolling-driver-migration.md.
+apiVersion: rebellions.ai/v1alpha1
+kind: RBLNDriver
+metadata:
+  name: rbln-driver-rebel100
+spec:
+  registry: repo.rebellions.ai
+  image: rebellions/rbln-driver
+  version: "3.3.0"
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets:
+    - drivercred
+  nodeSelector:
+    rbln-mig/stage: old-r100
+  manager:
+    registry: docker.io
+    image: rebellions/rbln-k8s-driver-manager
+    version: v0.2.1
+    imagePullPolicy: IfNotPresent
