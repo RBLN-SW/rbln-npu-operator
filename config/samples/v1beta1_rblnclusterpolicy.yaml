@@ -35,7 +35,7 @@ spec:
         image:
           registry: docker.io
           image: rebellions/rbln-node-reboot
-          version: v1.0.0
+          version: v1.0.1
   devicePlugin:
     enabled: true
     registry: docker.io
@@ -81,7 +81,7 @@ spec:
     enabled: false
     registry: docker.io
     image: rebellions/rbln-vfio-manager
-    version: v1.0.0
+    version: v1.0.1
     imagePullPolicy: IfNotPresent
     driverManager:
       registry: docker.io

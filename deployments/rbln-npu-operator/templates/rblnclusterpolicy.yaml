@@ -39,7 +39,7 @@ spec:
         image:
           registry: {{ $rebootImage.registry | default "docker.io" | quote }}
           image: {{ $rebootImage.image | default "rebellions/rbln-node-reboot" | quote }}
-          version: {{ $rebootImage.version | default "v1.0.0" | quote }}
+          version: {{ $rebootImage.version | default "v1.0.1" | quote }}
     {{- end }}
   {{- $pd := .Values.podDefaults }}
   {{- if and $pd (or $pd.labels $pd.annotations $pd.tolerations $pd.priorityClassName) }}
