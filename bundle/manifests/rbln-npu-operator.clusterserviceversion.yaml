@@ -78,7 +78,7 @@ metadata:
               "kubeletPluginsDirectoryPath": "/var/lib/kubelet/plugins",
               "kubeletRegistrarDirectoryPath": "/var/lib/kubelet/plugins_registry",
               "registry": "docker.io",
-              "version": "v0.1.3"
+              "version": "v0.1.4"
             },
             "driver": {
               "upgradePolicy": {
@@ -1157,7 +1157,7 @@ spec:
                 - name: RELATED_IMAGE_RBLN_CONTAINER_TOOLKIT
                   value: docker.io/rebellions/rbln-container-toolkit:v0.2.3@sha256:49e1300d034a130a7d2a421c60aa8dd3e878f94520c810c5db69a04ea0bb4e09
                 - name: RELATED_IMAGE_DRA_KUBELET_PLUGIN
-                  value: docker.io/rebellions/k8s-dra-driver-npu:v0.1.3@sha256:d63a91579dc0bf4c332e01884a7669e8d3eacd7db55687db520b3bf7252de785
+                  value: docker.io/rebellions/k8s-dra-driver-npu:v0.1.4@sha256:c039469b6151d8bb1bcd21a32acf91ba7a6a603094105ba7aa16ce123b6c2869
                 - name: RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN
                   value: docker.io/rebellions/sandbox-device-plugin:v0.1.1@sha256:5504fbc0f61da69c98e6e74de0f6a4feb3771019139a34f3283209a180f1281e
                 - name: RELATED_IMAGE_NODE_REBOOT
@@ -1282,7 +1282,7 @@ spec:
     name: rbln-npu-operator-validator
   - image: docker.io/rebellions/rbln-container-toolkit:v0.2.3@sha256:49e1300d034a130a7d2a421c60aa8dd3e878f94520c810c5db69a04ea0bb4e09
     name: rbln-container-toolkit
-  - image: docker.io/rebellions/k8s-dra-driver-npu:v0.1.3@sha256:d63a91579dc0bf4c332e01884a7669e8d3eacd7db55687db520b3bf7252de785
+  - image: docker.io/rebellions/k8s-dra-driver-npu:v0.1.4@sha256:c039469b6151d8bb1bcd21a32acf91ba7a6a603094105ba7aa16ce123b6c2869
     name: dra-kubelet-plugin
   - image: docker.io/rebellions/sandbox-device-plugin:v0.1.1@sha256:5504fbc0f61da69c98e6e74de0f6a4feb3771019139a34f3283209a180f1281e
     name: sandbox-device-plugin
