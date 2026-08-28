@@ -26,12 +26,12 @@ Held nodes are not disturbed.
 
 Terms used below:
 
-- **old CR** — a pre-upgrade `RBLNDriver` (the default install has one,
-  named `rbln-driver`).
-- **family CR** — a `RBLNDriver` rendered from the new chart's
-  `driver.instances` (e.g. `rbln-driver-atom`).
-- **held node** — still runs the old driver; **released node** — flipped to
-  the new one.
+| Term | Meaning |
+| --- | --- |
+| **old CR** | a pre-upgrade `RBLNDriver` (the default install has one, named `rbln-driver`) |
+| **family CR** | a `RBLNDriver` rendered from the new chart's `driver.instances` (e.g. `rbln-driver-atom`) |
+| **held node** | still runs the old driver |
+| **released node** | flipped to the new driver |
 
 The main steps assume the default single-CR install. If you created more
 `RBLNDriver` CRs, also read the [appendix](#appendix--multiple-old-crs).
@@ -46,6 +46,18 @@ The main steps assume the default single-CR install. If you created more
 4. Flip one node's label to `stage=new` — that node alone gets the new
    driver. Repeat per node (Step 4).
 5. Delete the old CR, drop the stage selectors, remove the labels (Step 5).
+
+Nothing happens to a node until *you* release it in step 4:
+
+| After | Old CR / flat DaemonSets | Family CRs | Node impact |
+| --- | --- | --- | --- |
+| Step 1–2 | `Running`, image pinned to the hold path | — | none |
+| Step 3 | `Running`; CR reports `Ready=False` (the hold working) | `Ready`, `DESIRED 0` | none |
+| Step 4, per released node | lose that node | gain that node | released node only: NPU pods evicted, driver reinstalled (1–3 min) |
+| Step 5 | deleted | own every node | none |
+
+A complete end-to-end run with ready-made values files is in the
+[worked example appendix](#appendix--worked-example).
 
 ## Prerequisites
 
@@ -93,8 +105,9 @@ The main steps assume the default single-CR install. If you created more
 
 ## Step 1 — Label the nodes `stage=old`
 
-Label the nodes **first**, then add the selector to the old CR — the
-reverse order deselects unlabeled nodes and deletes their driver pods:
+> [!CAUTION]
+> Label the nodes **first**, then add the selector to the old CR — the
+> reverse order deselects unlabeled nodes and **deletes their driver pods**.
 
 ```bash
 kubectl label nodes -l rebellions.ai/npu.deploy.driver=true rbln-mig/stage=old
@@ -114,8 +127,13 @@ helm upgrade rbln-npu-operator <old-chart-ref> --version <old-version> \
   -n "$NS" -f <old-values.yaml>
 ```
 
+A complete example of these values is
+[`old-values.yaml`](examples/rolling-driver-migration/old-values.yaml).
+
 Running driver pods are not restarted (the DaemonSet updates on delete
-only). Success check: driver pods keep their age, and the DaemonSet's
+only).
+
+**✅ Before moving on** — driver pods keep their age, and the DaemonSet's
 `NODE SELECTOR` column now includes `rbln-mig/stage=old`:
 
 ```bash
@@ -145,8 +163,9 @@ kubectl apply --server-side --force-conflicts \
   -f /tmp/rbln-npu-operator-chart/crds/rebellions.ai_rblndrivers.yaml
 ```
 
-Apply **only** this CRD — applying the RBLNClusterPolicy CRD early starts
-the metrics gap before the upgrade instead of at it.
+> [!WARNING]
+> Apply **only** this CRD — applying the RBLNClusterPolicy CRD early starts
+> the metrics gap before the upgrade instead of at it.
 
 ### 2.3 Pin the old CR's driver image to the hold path
 
@@ -169,7 +188,7 @@ kubectl patch rblndriver rbln-driver --type=merge \
   -p '{"spec":{"smd":{"registry":"<registry>","image":"<repo-prefix>/rbln-smd"}}}'
 ```
 
-Confirm both patches were applied before moving on:
+**✅ Before moving on** — confirm both patches were applied:
 
 ```bash
 kubectl get rblndriver rbln-driver -o jsonpath='{.spec.image}{"  "}{.spec.smd}{"\n"}'
@@ -177,9 +196,10 @@ kubectl get rblndriver rbln-driver -o jsonpath='{.spec.image}{"  "}{.spec.smd}{"
 
 ## Step 3 — Prepare the new values, then upgrade
 
-Write the new values **before** upgrading — running the upgrade with your
-old values file would re-render the default CR and overwrite the image pin
-from step 2.3, releasing every node at once:
+> [!CAUTION]
+> Write the new values **before** upgrading — running the upgrade with your
+> old values file would re-render the default CR and overwrite the image pin
+> from step 2.3, **releasing every node at once**.
 
 ```yaml
 # new-values.yaml — driver block shown; keep the rest of your values as-is
@@ -201,18 +221,20 @@ selectors must never match the same node: a node matching both leaves the
 old CR owning no nodes, and all its DaemonSets are deleted at once. The
 stage label guarantees this cannot happen.
 
-`new-values.yaml` must be your **complete** values file (registry, image
-pull secrets, operand settings, …) with the `driver` block updated as
-above — `helm upgrade` does not reuse the previous release's values, so
-passing this fragment alone would reset every other setting to the chart
-defaults:
+> [!CAUTION]
+> `new-values.yaml` must be your **complete** values file (registry, image
+> pull secrets, operand settings, …) with the `driver` block updated as
+> above — `helm upgrade` does not reuse the previous release's values, so
+> passing this fragment alone would reset every other setting to the chart
+> defaults. Complete example:
+> [`new-values.yaml`](examples/rolling-driver-migration/new-values.yaml).
 
 ```bash
 helm upgrade rbln-npu-operator <new-chart-ref> --version <new-version> \
   -n "$NS" -f new-values.yaml
 ```
 
-Verify the held state before releasing any node:
+**✅ Before moving on** — verify the held state before releasing any node:
 
 ```bash
 kubectl get rblndriver
@@ -220,8 +242,10 @@ kubectl get pods -n "$NS" -l app.kubernetes.io/component=rbln-driver -o wide
 kubectl get nodes -L rebellions.ai/npu.family,rbln-mig/stage
 ```
 
-- The old CR reports `Ready=False`, `reason: DriverImageNotFound`, naming
-  the hold path. **This is the hold working, not a fault.**
+> [!NOTE]
+> The old CR reporting `Ready=False`, `reason: DriverImageNotFound` (naming
+> the hold path) **is the hold working, not a fault.**
+
 - Old driver pods are still `Running` on every node (`UP-TO-DATE 0` on
   their DaemonSet is normal) and NPU resources are still advertised.
 - Family CRs are `ready` with `DESIRED 0` (they own no nodes yet).
@@ -233,8 +257,21 @@ kubectl get nodes -L rebellions.ai/npu.family,rbln-mig/stage
   DaemonSets; expect one brief metrics-exporter restart per node. If an
   smd pod is stuck on a wrong image (step 2.4 ran late), delete the pod.
 
-**Do not reboot held nodes** — a rebooted node would reinstall through the
-hold image and fail. Release it instead.
+> [!WARNING]
+> **The hold lives and dies with the registry answering 404.** The image
+> check re-runs for as long as nodes stay held (roughly every 5 minutes).
+> A re-check that cannot reach the registry (timeout, TLS or DNS failure),
+> or a hold path that stops returning 404 (the repository gets created, or
+> the registry policy changes to 401/403), releases the hold silently: the
+> old DaemonSets are deleted on **every held node at once** — the very
+> outage this procedure prevents. Keep the held window short — upgrade and
+> release all nodes in one working session, not across days. If the hold
+> does release early, recover by releasing the affected nodes (step 4);
+> flipping labels back cannot restore the old driver.
+
+> [!WARNING]
+> **Do not reboot held nodes** — a rebooted node would reinstall through
+> the hold image and fail. Release it instead.
 
 ## Step 4 — Release nodes one at a time
 
@@ -250,7 +287,7 @@ On this node only: the old driver pod terminates, the node moves to its
 family CR, and the new driver pod evicts the node's NPU pods, unloads the
 kernel module and installs the family-scoped driver.
 
-Success check before the next node:
+**✅ Before the next node:**
 
 ```bash
 # the node's driver pod is 1/1 Ready
@@ -267,32 +304,37 @@ removes its now-empty DaemonSets automatically.
 
 ## Step 5 — Finish
 
-1. Delete the old CR (all nodes carry `stage=new`; the old CR shows
-   `DESIRED 0`):
+Delete the old CR (all nodes carry `stage=new`; the old CR shows
+`DESIRED 0`):
 
-   ```bash
-   kubectl delete rblndriver rbln-driver
-   ```
+```bash
+kubectl delete rblndriver rbln-driver
+```
 
-2. Drop the stage key from the family CR selectors
-   (`nodeSelector: {rebellions.ai/npu.family: <family>}`) with a
-   values-only upgrade. Only **then** remove the node labels — removing a
-   label a family CR still selects deletes that node's driver pod:
+Then drop the stage key from the family CR selectors
+(`nodeSelector: {rebellions.ai/npu.family: <family>}`) with a values-only
+upgrade (complete example:
+[`final-values.yaml`](examples/rolling-driver-migration/final-values.yaml)).
 
-   ```bash
-   # final-values.yaml = new-values.yaml with only the stage keys removed
-   helm upgrade rbln-npu-operator <new-chart-ref> --version <new-version> \
-     -n "$NS" -f final-values.yaml
-   kubectl label nodes -l rbln-mig/stage rbln-mig/stage-
-   ```
+> [!CAUTION]
+> Remove the node labels only **after** that upgrade — removing a label a
+> family CR still selects deletes that node's driver pod.
 
-3. Final check — every family CR `Ready`, no flat DaemonSets left:
+```bash
+# final-values.yaml = new-values.yaml with only the stage keys removed
+helm upgrade rbln-npu-operator <new-chart-ref> --version <new-version> \
+  -n "$NS" -f final-values.yaml
+kubectl label nodes -l rbln-mig/stage rbln-mig/stage-
+```
 
-   ```bash
-   kubectl get rblndriver
-   kubectl get ds -n "$NS" -l app.kubernetes.io/component=rbln-driver \
-     -L rebellions.ai/driver-node-pool
-   ```
+**✅ Done when** — every family CR is `Ready` and no flat DaemonSets are
+left:
+
+```bash
+kubectl get rblndriver
+kubectl get ds -n "$NS" -l app.kubernetes.io/component=rbln-driver \
+  -L rebellions.ai/driver-node-pool
+```
 
 ## If something goes wrong
 
@@ -308,8 +350,13 @@ removes its now-empty DaemonSets automatically.
 
 ### Aborting the migration
 
-Run these in order — the order matters. Step 1 relies on helm adopting the
-kept old CR without touching its spec; this was validated with helm v3.17.
+> [!CAUTION]
+> Run these in order — un-pinning the old CR while the **new** operator is
+> still running releases the hold, and the old DaemonSet is replaced on
+> every held node at once.
+
+Step 1 below relies on helm adopting the kept old CR without touching its
+spec; this was validated with helm v3.17.
 
 ```bash
 # 1. Downgrade the operator by upgrading BACK to the old chart and your
