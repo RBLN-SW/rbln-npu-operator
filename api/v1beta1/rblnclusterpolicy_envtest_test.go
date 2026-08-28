@@ -102,6 +102,7 @@ func TestRBLNClusterPolicy_DefaultsApplied(t *testing.T) {
 				"npuFeatureDiscovery": emptyNested,
 				"containerToolkit":    emptyNested,
 				"driver":              emptyNested,
+				"rds":                 emptyNested,
 			},
 		},
 	}
@@ -130,6 +131,9 @@ func TestRBLNClusterPolicy_DefaultsApplied(t *testing.T) {
 	}
 	if !got.Spec.DevicePlugin.Enabled {
 		t.Errorf("DevicePlugin.Enabled default: want true, got false")
+	}
+	if got.Spec.RDS.Enabled {
+		t.Errorf("RDS.Enabled default: want false, got true")
 	}
 }
 

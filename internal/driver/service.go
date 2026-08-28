@@ -55,8 +55,24 @@ func NewDriverService(
 	}
 	s.namespace = namespace
 
+	rdsEnabled := clusterPolicy != nil && clusterPolicy.Spec.RDS.Enabled
+
+	// Flatten the API []PCIDeviceAddress to plain strings; nil when RDS is
+	// disabled, which makes handleRDSBindConfigMap delete the ConfigMap.
+	var rdsDeviceSelection map[string][]string
+	if rdsEnabled {
+		rdsDeviceSelection = make(map[string][]string, len(clusterPolicy.Spec.RDS.DeviceSelection))
+		for _, sel := range clusterPolicy.Spec.RDS.DeviceSelection {
+			bdfs := make([]string, 0, len(sel.TargetBDFs))
+			for _, b := range sel.TargetBDFs {
+				bdfs = append(bdfs, string(b))
+			}
+			rdsDeviceSelection[sel.NodeName] = bdfs
+		}
+	}
+
 	dmp, err := components.NewDriverManagerPatcher(client, apiReader, log, s.namespace, driver, scheme, checker, s.openshiftVersion,
-		ownedNodes)
+		ownedNodes, rdsEnabled, rdsDeviceSelection)
 	if err != nil {
 		return nil, err
 	}
