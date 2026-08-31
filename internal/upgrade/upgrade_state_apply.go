@@ -94,6 +94,13 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 			},
 		},
 		{
+			name:     UpgradeStateSkipped,
+			errorMsg: "Failed to process nodes in 'upgrade-skipped' state",
+			run: func() error {
+				return m.ProcessUpgradeSkippedNodes(ctx, currentState)
+			},
+		},
+		{
 			name:      UpgradeStateUpgradeRequired,
 			errorMsg:  "Failed to process nodes",
 			errorArgs: []any{"state", UpgradeStateUpgradeRequired},

@@ -54,10 +54,24 @@ func (m *mockPodManager) SchedulePodsRestart(_ context.Context, _ []*corev1.Pod)
 type mockCordonManager struct {
 	cordonErr   error
 	uncordonErr error
+
+	cordonedNodes   []string
+	uncordonedNodes []string
 }
 
-func (m *mockCordonManager) Cordon(_ context.Context, _ *corev1.Node) error   { return m.cordonErr }
-func (m *mockCordonManager) Uncordon(_ context.Context, _ *corev1.Node) error { return m.uncordonErr }
+func (m *mockCordonManager) Cordon(_ context.Context, node *corev1.Node) error {
+	if m.cordonErr == nil {
+		m.cordonedNodes = append(m.cordonedNodes, node.Name)
+	}
+	return m.cordonErr
+}
+
+func (m *mockCordonManager) Uncordon(_ context.Context, node *corev1.Node) error {
+	if m.uncordonErr == nil {
+		m.uncordonedNodes = append(m.uncordonedNodes, node.Name)
+	}
+	return m.uncordonErr
+}
 
 // ---------------------------------------------------------------------------
 // Mock: DrainManagerInterface

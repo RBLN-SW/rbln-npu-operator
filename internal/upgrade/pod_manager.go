@@ -301,7 +301,8 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 					for _, err := range errs {
 						log.FromContext(ctx).Error(err, "Error reported by drain helper", "node", node.Name)
 					}
-					m.updateNodeToDrainOrFailed(ctx, node, config.DrainEnabled)
+					m.updateNodeToDrainOrSkipped(ctx, node, config.DrainEnabled,
+						fmt.Sprintf("pod eviction blocked: %v", errors.Join(errs...)))
 					return
 				}
 
@@ -315,7 +316,8 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 				err = drainHelper.DeleteOrEvictPods(podDeleteList.Pods())
 				if err != nil {
 					log.FromContext(ctx).Error(err, "Failed to delete pods on the node", "node", node.Name)
-					m.updateNodeToDrainOrFailed(ctx, node, config.DrainEnabled)
+					m.updateNodeToDrainOrSkipped(ctx, node, config.DrainEnabled,
+						fmt.Sprintf("pod eviction failed: %v", err))
 					return
 				}
 
@@ -336,14 +338,19 @@ func (m *PodManager) nextStateAfterPodDeletion(rebootRequired bool) string {
 	return UpgradeStatePodRestartRequired
 }
 
-func (m *PodManager) updateNodeToDrainOrFailed(ctx context.Context, node corev1.Node, drainEnabled bool) {
-	nextState := UpgradeStateFailed
+func (m *PodManager) updateNodeToDrainOrSkipped(ctx context.Context, node corev1.Node, drainEnabled bool, reason string) {
 	if drainEnabled {
 		log.FromContext(ctx).Info("Pod deletion failed but drain is enabled in spec. Will attempt a node drain",
 			"node", node.Name)
-		nextState = UpgradeStateDrainRequired
+		m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStateDrainRequired)
+		return
 	}
-	m.changeNodeUpgradeStateAsync(ctx, &node, nextState)
+	stateCtx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:contextcheck // intentional short-lived timeout for goroutine state transition
+	defer cancel()
+	if err := markNodeUpgradeSkipped(stateCtx, m.nodeUpgradeStateProvider, &node, reason); err != nil {
+		log.FromContext(ctx).Error(err, "Failed to mark node upgrade skipped; will retry next reconcile",
+			"node", node.Name, "reason", reason)
+	}
 }
 
 func (m *PodManager) SchedulePodsRestart(ctx context.Context, pods []*corev1.Pod) error {
