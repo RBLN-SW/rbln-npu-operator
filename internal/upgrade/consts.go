@@ -30,6 +30,10 @@ const (
 	UpgradeRebootPodNameAnnotationKey = "rebellions.ai/npu-driver-upgrade-reboot-pod-name"
 	// UpgradeRebootPostStartTimeAnnotationKey stores the start time for post-reboot stabilization checks.
 	UpgradeRebootPostStartTimeAnnotationKey = "rebellions.ai/npu-driver-upgrade-reboot-post-start-time"
+	// UpgradeFailureReasonAnnotationKey records why the node was moved to upgrade-failed.
+	UpgradeFailureReasonAnnotationKey = "rebellions.ai/npu-driver-upgrade-failure-reason"
+	// UpgradeFailureStepAnnotationKey records the pipeline state the node failed in.
+	UpgradeFailureStepAnnotationKey = "rebellions.ai/npu-driver-upgrade-failure-step"
 )
 
 // Node upgrade states.
