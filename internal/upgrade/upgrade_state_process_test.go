@@ -3,6 +3,7 @@ package upgrade
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -478,6 +479,73 @@ func TestProcessValidationRequiredNodesContinuesPastNodeError(t *testing.T) {
 	}
 	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateValidationRequired {
 		t.Fatalf("bad node state = %q, want unchanged %q", got, UpgradeStateValidationRequired)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Failure diagnosis recording
+// ---------------------------------------------------------------------------
+
+func TestProcessPodRestartNodesCrashLoopRecordsDiagnosis(t *testing.T) {
+	ns := newNodeUpgradeState("node-1", UpgradeStatePodRestartRequired, "rev1")
+	ns.DriverPod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:         "driver",
+		Ready:        false,
+		RestartCount: MaxPodRestartCount + 1,
+	}}
+	mgr := newTestManager(t)
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStatePodRestartRequired: {ns},
+	})
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false); err != nil {
+		t.Fatalf("ProcessPodRestartNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateFailed {
+		t.Fatalf("state = %q, want %q", got, UpgradeStateFailed)
+	}
+	if reason := updated.Annotations[UpgradeFailureReasonAnnotationKey]; !strings.Contains(reason, "crash-looping") {
+		t.Fatalf("failure reason = %q, want it to mention crash-looping", reason)
+	}
+	if got := updated.Annotations[UpgradeFailureStepAnnotationKey]; got != UpgradeStatePodRestartRequired {
+		t.Fatalf("failure step = %q, want %q", got, UpgradeStatePodRestartRequired)
+	}
+}
+
+func TestProcessRebootRequiredNodesTriggerFailureRecordsDiagnosis(t *testing.T) {
+	mgr := newTestManager(t)
+	mgr.rebootManager = &mockRebootManager{err: fmt.Errorf("reboot pod create rejected")}
+
+	ns := newNodeUpgradeState("node-1", UpgradeStateRebootRequired, "rev1")
+	ns.Node.Status.NodeInfo.BootID = "boot-1"
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateRebootRequired: {ns},
+	})
+	if err := mgr.ProcessRebootRequiredNodes(context.Background(), "test-ns", state,
+		&v1beta1.RebootSpec{Enable: true}); err == nil {
+		t.Fatal("expected the reboot trigger error to be reported")
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateFailed {
+		t.Fatalf("state = %q, want %q", got, UpgradeStateFailed)
+	}
+	if reason := updated.Annotations[UpgradeFailureReasonAnnotationKey]; !strings.Contains(reason, "reboot pod create rejected") {
+		t.Fatalf("failure reason = %q, want it to carry the trigger error", reason)
+	}
+	if got := updated.Annotations[UpgradeFailureStepAnnotationKey]; got != UpgradeStateRebootRequired {
+		t.Fatalf("failure step = %q, want %q", got, UpgradeStateRebootRequired)
 	}
 }
 

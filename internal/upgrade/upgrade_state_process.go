@@ -504,7 +504,8 @@ func (m *ClusterUpgradeStateManagerImpl) processPodRestartNode(
 	}
 	log.FromContext(ctx).Info("Driver pod is failing on node with repeated restarts",
 		"node", nodeState.Node.Name, "pod", nodeState.DriverPod.Name)
-	err = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, UpgradeStateFailed)
+	err = markNodeUpgradeFailed(ctx, m.nodeUpgradeStateProvider, nodeState.Node, UpgradeStatePodRestartRequired,
+		fmt.Sprintf("driver pod %q is crash-looping with repeated restarts", nodeState.DriverPod.Name))
 	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to change node upgrade state for node", "node", nodeState.Node.Name,
 			"state", UpgradeStateFailed)
@@ -532,8 +533,8 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessRebootRequiredNodes(
 		log.FromContext(ctx).Info("RebootSpec is nil but nodes are in reboot-required state; marking as failed")
 		var errs []error
 		for _, nodeState := range nodes {
-			if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(
-				ctx, nodeState.Node, UpgradeStateFailed); err != nil {
+			if err := markNodeUpgradeFailed(ctx, m.nodeUpgradeStateProvider, nodeState.Node, UpgradeStateRebootRequired,
+				"node reached reboot-required state but upgradePolicy.reboot is not configured"); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -633,7 +634,8 @@ func (m *ClusterUpgradeStateManagerImpl) processRebootRequiredNode(
 		Image:           rebootImage,
 	})
 	if err != nil {
-		if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
+		if stateErr := markNodeUpgradeFailed(ctx, m.nodeUpgradeStateProvider, node, UpgradeStateRebootRequired,
+			fmt.Sprintf("reboot trigger failed: %v", err)); stateErr != nil {
 			log.FromContext(ctx).Info("Failed to mark node as failed after reboot trigger error", "error", stateErr,
 				"node", node.Name)
 		}
@@ -689,7 +691,9 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessRebootValidationRequiredNodes(
 					log.FromContext(ctx).Info("Failed to cleanup reboot artifacts", "error", cleanupErr,
 						"node", node.Name)
 				}
-				if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
+				if stateErr := markNodeUpgradeFailed(ctx, m.nodeUpgradeStateProvider, node,
+					UpgradeStateRebootValidationRequired,
+					fmt.Sprintf("corrupted reboot request timestamp %q", requestedAtRaw)); stateErr != nil {
 					log.FromContext(ctx).Info("Failed to mark node as failed; will retry next cycle", "error", stateErr,
 						"node", node.Name)
 				}
@@ -702,7 +706,8 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessRebootValidationRequiredNodes(
 					log.FromContext(ctx).Info("Failed to cleanup reboot artifacts", "error", cleanupErr,
 						"node", node.Name)
 				}
-				if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
+				if stateErr := markNodeUpgradeFailed(ctx, m.nodeUpgradeStateProvider, node,
+					UpgradeStateRebootValidationRequired, timeoutErr.Error()); stateErr != nil {
 					log.FromContext(ctx).Info("Failed to mark node as failed; will retry next cycle", "error", stateErr,
 						"node", node.Name)
 				}
@@ -845,7 +850,8 @@ func (m *ClusterUpgradeStateManagerImpl) handleRebootPostTimeout(
 	if timedOut {
 		timeoutErr := fmt.Errorf("post-reboot stabilization timed out after %d seconds", timeoutSeconds)
 		log.FromContext(ctx).Error(timeoutErr, "Post-reboot stabilization timed out; marking upgrade failed", "node", node.Name)
-		if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
+		if stateErr := markNodeUpgradeFailed(ctx, m.nodeUpgradeStateProvider, node,
+			UpgradeStateRebootPostRequired, timeoutErr.Error()); stateErr != nil {
 			log.FromContext(ctx).Info("Failed to mark node as failed; will retry next cycle", "error", stateErr,
 				"node", node.Name)
 			return false

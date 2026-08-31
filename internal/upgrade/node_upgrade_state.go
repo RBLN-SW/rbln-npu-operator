@@ -102,9 +102,12 @@ func (p *NodeUpgradeStateProvider) recordStateTransitionEvent(node *corev1.Node,
 		recordNodeEvent(p.eventRecorder, node, corev1.EventTypeNormal,
 			consts.RBLNEventReasonDriverUpgradeCompleted, "Driver upgrade completed; node is schedulable")
 	case newState == UpgradeStateFailed && oldState != UpgradeStateFailed:
+		message := fmt.Sprintf("Driver upgrade failed at state %q", logKeyForNodeState(oldState))
+		if reason := node.Annotations[UpgradeFailureReasonAnnotationKey]; reason != "" {
+			message = fmt.Sprintf("%s: %s", message, reason)
+		}
 		recordNodeEvent(p.eventRecorder, node, corev1.EventTypeWarning,
-			consts.RBLNEventReasonDriverUpgradeFailed,
-			fmt.Sprintf("Driver upgrade failed at state %q", logKeyForNodeState(oldState)))
+			consts.RBLNEventReasonDriverUpgradeFailed, message)
 	}
 }
 
@@ -130,6 +133,24 @@ func (p *NodeUpgradeStateProvider) SetNodeUpgradeAnnotation(
 		"annotationKey", key,
 		"annotationValue", value)
 
+	return nil
+}
+
+// SetNodeUpgradeAnnotations applies several annotations in one patch; a nil value removes the key.
+func (p *NodeUpgradeStateProvider) SetNodeUpgradeAnnotations(
+	ctx context.Context, node *corev1.Node, annotations map[string]any,
+) error {
+	log.FromContext(ctx).Info("Updating node upgrade annotations",
+		"node", node.Name,
+		"annotations", annotations)
+
+	err := p.patchNodeAnnotations(ctx, node, annotations)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to patch node upgrade annotations",
+			"node", node.Name,
+			"annotations", annotations)
+		return err
+	}
 	return nil
 }
 
@@ -172,6 +193,30 @@ func (p *NodeUpgradeStateProvider) patchNodeAnnotations(
 
 	patch := client.RawPatch(types.MergePatchType, patchString)
 	return p.K8sClient.Patch(ctx, node, patch)
+}
+
+func truncateReason(reason string) string {
+	const maxReasonLength = 400
+	if len(reason) <= maxReasonLength {
+		return reason
+	}
+	return reason[:maxReasonLength] + "..."
+}
+
+// markNodeUpgradeFailed records the failure diagnosis (best-effort) before the
+// state transition so the failed event can carry the reason.
+func markNodeUpgradeFailed(
+	ctx context.Context, provider *NodeUpgradeStateProvider, node *corev1.Node, failedStep, reason string,
+) error {
+	reason = truncateReason(reason)
+	if err := provider.SetNodeUpgradeAnnotations(ctx, node, map[string]any{
+		UpgradeFailureReasonAnnotationKey: reason,
+		UpgradeFailureStepAnnotationKey:   failedStep,
+	}); err != nil {
+		log.FromContext(ctx).Info("Failed to record upgrade failure diagnosis",
+			"error", err, "node", node.Name, "step", failedStep, "reason", reason)
+	}
+	return provider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed)
 }
 
 // patchNodeLabelsLocked assumes the caller holds the node's mutex.
