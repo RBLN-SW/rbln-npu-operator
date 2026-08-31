@@ -91,6 +91,7 @@ driver:
   upgradePolicy:
     autoUpgrade: false
     maxParallelUpgrades: 1
+    podRestartTimeoutSeconds: 1800
     waitForCompletion:
       timeoutSeconds: 0
       podSelector: ""

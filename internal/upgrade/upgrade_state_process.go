@@ -433,13 +433,14 @@ func (m *ClusterUpgradeStateManagerImpl) updateNodeToUncordonOrDoneState(ctx con
 
 func (m *ClusterUpgradeStateManagerImpl) ProcessPodRestartNodes(
 	ctx context.Context, currentClusterState *ClusterUpgradeState, rebootRequired bool,
+	podRestartTimeoutSeconds int64,
 ) error {
 	log.FromContext(ctx).V(consts.VDebug).Info("ProcessPodRestartNodes")
 
 	var errs []error
 	pods := make([]*corev1.Pod, 0, len(currentClusterState.NodeStates[UpgradeStatePodRestartRequired]))
 	for _, nodeState := range currentClusterState.NodeStates[UpgradeStatePodRestartRequired] {
-		if err := m.processPodRestartNode(ctx, nodeState, rebootRequired, &pods); err != nil {
+		if err := m.processPodRestartNode(ctx, nodeState, rebootRequired, podRestartTimeoutSeconds, &pods); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -451,8 +452,22 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessPodRestartNodes(
 }
 
 func (m *ClusterUpgradeStateManagerImpl) processPodRestartNode(
-	ctx context.Context, nodeState *NodeUpgradeState, rebootRequired bool, pods *[]*corev1.Pod,
+	ctx context.Context, nodeState *NodeUpgradeState, rebootRequired bool,
+	podRestartTimeoutSeconds int64, pods *[]*corev1.Pod,
 ) error {
+	// Signal fast, judge slow: warn on a bad waiting reason immediately, but
+	// only the elapsed timeout judges the node failed.
+	if reason, stuck := driverPodBadWaitingReason(nodeState.DriverPod); stuck {
+		recordNodeEvent(m.eventRecorder, nodeState.Node, corev1.EventTypeWarning,
+			consts.RBLNEventReasonDriverUpgradePodStuck,
+			fmt.Sprintf("Driver pod replacement is not progressing: %s", reason))
+	}
+
+	timedOut, err := m.handlePodRestartTimeout(ctx, nodeState, podRestartTimeoutSeconds)
+	if timedOut || err != nil {
+		return err
+	}
+
 	isPodSynced, isOrphaned, err := m.podInSyncWithDS(ctx, nodeState)
 	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to get daemonset template/pod revision hash")
@@ -476,6 +491,7 @@ func (m *ClusterUpgradeStateManagerImpl) processPodRestartNode(
 		return err
 	}
 	if driverPodInSync {
+		m.clearPodRestartClock(ctx, nodeState.Node)
 		if rebootRequired {
 			err = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node,
 				UpgradeStateRebootRequired)
@@ -505,13 +521,87 @@ func (m *ClusterUpgradeStateManagerImpl) processPodRestartNode(
 	log.FromContext(ctx).Info("Driver pod is failing on node with repeated restarts",
 		"node", nodeState.Node.Name, "pod", nodeState.DriverPod.Name)
 	err = markNodeUpgradeFailed(ctx, m.nodeUpgradeStateProvider, nodeState.Node, UpgradeStatePodRestartRequired,
-		fmt.Sprintf("driver pod %q is crash-looping with repeated restarts", nodeState.DriverPod.Name))
+		fmt.Sprintf("driver pod crash-looping: %s", summarizeDriverPodBlockage(nodeState.DriverPod)))
 	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to change node upgrade state for node", "node", nodeState.Node.Name,
 			"state", UpgradeStateFailed)
 		return err
 	}
+	m.clearPodRestartClock(ctx, nodeState.Node)
 	return nil
+}
+
+func (m *ClusterUpgradeStateManagerImpl) handlePodRestartTimeout(
+	ctx context.Context, nodeState *NodeUpgradeState, timeoutSeconds int64,
+) (bool, error) {
+	if timeoutSeconds <= 0 {
+		return false, nil
+	}
+	node := nodeState.Node
+
+	timedOut, err := checkAnnotationTimeout(ctx, m.nodeUpgradeStateProvider, node,
+		UpgradePodRestartStartTimeAnnotationKey, timeoutSeconds)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to check pod-restart timeout; waiting",
+			"node", node.Name, "annotation", UpgradePodRestartStartTimeAnnotationKey)
+		return false, nil
+	}
+	if !timedOut {
+		return false, nil
+	}
+
+	reason := fmt.Sprintf("pod-restart timeout after %ds: %s",
+		timeoutSeconds, summarizeDriverPodBlockage(nodeState.DriverPod))
+	log.FromContext(ctx).Error(fmt.Errorf("%s", reason),
+		"Driver pod replacement timed out; marking upgrade failed", "node", node.Name)
+	if err := markNodeUpgradeFailed(ctx, m.nodeUpgradeStateProvider, node,
+		UpgradeStatePodRestartRequired, reason); err != nil {
+		return false, err
+	}
+	m.clearPodRestartClock(ctx, node)
+	return true, nil
+}
+
+// clearPodRestartClock removes the entry-time annotation when the node leaves
+// the state, so a later upgrade cannot inherit a stale deadline.
+func (m *ClusterUpgradeStateManagerImpl) clearPodRestartClock(ctx context.Context, node *corev1.Node) {
+	if _, ok := node.Annotations[UpgradePodRestartStartTimeAnnotationKey]; !ok {
+		return
+	}
+	if err := m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node,
+		UpgradePodRestartStartTimeAnnotationKey); err != nil {
+		log.FromContext(ctx).Info("Failed to remove pod-restart start-time annotation",
+			"error", err, "node", node.Name)
+	}
+}
+
+func driverPodBadWaitingReason(pod *corev1.Pod) (string, bool) {
+	if pod == nil {
+		return "", false
+	}
+	statuses := make([]corev1.ContainerStatus, 0,
+		len(pod.Status.InitContainerStatuses)+len(pod.Status.ContainerStatuses))
+	statuses = append(statuses, pod.Status.InitContainerStatuses...)
+	statuses = append(statuses, pod.Status.ContainerStatuses...)
+	for _, status := range statuses {
+		if status.Ready || status.State.Waiting == nil {
+			continue
+		}
+		if _, bad := badContainerWaitingReasons[status.State.Waiting.Reason]; bad {
+			return fmt.Sprintf("container %q: %s", status.Name, status.State.Waiting.Reason), true
+		}
+	}
+	return "", false
+}
+
+func summarizeDriverPodBlockage(pod *corev1.Pod) string {
+	if pod == nil {
+		return "driver pod not found"
+	}
+	if reason, ok := driverPodBadWaitingReason(pod); ok {
+		return fmt.Sprintf("pod %q: %s", pod.Name, reason)
+	}
+	return fmt.Sprintf("pod %q in phase %s", pod.Name, pod.Status.Phase)
 }
 
 func (m *ClusterUpgradeStateManagerImpl) ProcessRebootRequiredNodes(

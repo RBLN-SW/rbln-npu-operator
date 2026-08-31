@@ -135,6 +135,9 @@ driver:
   upgradePolicy:
     autoUpgrade: false
     maxParallelUpgrades: 1
+    # Time budget for the driver pod swap (image pull + module reload). On
+    # expiry the node is marked upgrade-failed. 0 disables the timeout.
+    podRestartTimeoutSeconds: 1800
     waitForCompletion:
       timeoutSeconds: 0
       podSelector: ""

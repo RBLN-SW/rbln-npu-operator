@@ -146,7 +146,8 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 			name:     UpgradeStatePodRestartRequired,
 			errorMsg: "Failed for 'pod-restart-required' state",
 			run: func() error {
-				return m.ProcessPodRestartNodes(ctx, currentState, rebootRequired)
+				return m.ProcessPodRestartNodes(ctx, currentState, rebootRequired,
+					int64(upgradePolicy.PodRestartTimeoutSeconds))
 			},
 		},
 		{

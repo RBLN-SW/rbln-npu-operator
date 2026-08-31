@@ -114,6 +114,7 @@ const (
 	RBLNEventReasonDriverUpgradeCompleted = "DriverUpgradeCompleted"
 	RBLNEventReasonDriverUpgradeFailed    = "DriverUpgradeFailed"
 	RBLNEventReasonDriverUpgradeSkipped   = "DriverUpgradeSkipped"
+	RBLNEventReasonDriverUpgradePodStuck  = "DriverUpgradePodStuck"
 	RBLNEventReasonComponentApplyFailed   = "ComponentApplyFailed"
 	RBLNEventReasonDriverInstallFailed    = "DriverInstallFailed"
 	RBLNEventReasonDriverReady            = "DriverReady"
