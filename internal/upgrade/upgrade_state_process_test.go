@@ -449,6 +449,38 @@ func TestProcessValidationRequiredNodes(t *testing.T) {
 	}
 }
 
+func TestProcessValidationRequiredNodesContinuesPastNodeError(t *testing.T) {
+	vm := &mockValidationManager{done: true, errOn: "node-bad"}
+	mgr := newTestManager(t, withValidationManager(vm), withValidationEnabled())
+
+	bad := newNodeUpgradeState("node-bad", UpgradeStateValidationRequired, "rev1")
+	good := newNodeUpgradeState("node-good", UpgradeStateValidationRequired, "rev1")
+	registerNodes(t, mgr, bad.Node, good.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateValidationRequired: {bad, good},
+	})
+
+	if err := mgr.ProcessValidationRequiredNodes(context.Background(), state); err == nil {
+		t.Fatal("expected the bad node's validation error to be reported")
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-good"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUncordonRequired {
+		t.Fatalf("good node state = %q, want %q (one node's error must not block the rest)",
+			got, UpgradeStateUncordonRequired)
+	}
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-bad"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateValidationRequired {
+		t.Fatalf("bad node state = %q, want unchanged %q", got, UpgradeStateValidationRequired)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ProcessUpgradeFailedNodes
 // ---------------------------------------------------------------------------

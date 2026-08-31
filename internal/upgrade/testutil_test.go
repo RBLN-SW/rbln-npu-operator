@@ -2,6 +2,7 @@ package upgrade
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -77,9 +78,14 @@ func (m *mockDrainManager) ScheduleNodesDrain(_ context.Context, _ *DrainConfigu
 type mockValidationManager struct {
 	done bool
 	err  error
+	// errOn makes Validate fail for that node only.
+	errOn string
 }
 
-func (m *mockValidationManager) Validate(_ context.Context, _ *corev1.Node) (bool, error) {
+func (m *mockValidationManager) Validate(_ context.Context, node *corev1.Node) (bool, error) {
+	if m.errOn != "" && node.Name == m.errOn {
+		return false, fmt.Errorf("validation rejected for %s by test", node.Name)
+	}
 	return m.done, m.err
 }
 
