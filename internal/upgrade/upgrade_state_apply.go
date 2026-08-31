@@ -2,6 +2,7 @@ package upgrade
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -185,12 +186,13 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 		},
 	}
 
+	var errs []error
 	for _, step := range steps {
 		if err := m.runApplyStateStep(ctx, step); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 
 	log.FromContext(ctx).V(consts.VDebug).Info("State Manager, finished processing")
-	return nil
+	return errors.Join(errs...)
 }

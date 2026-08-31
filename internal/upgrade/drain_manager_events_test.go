@@ -98,7 +98,10 @@ func TestScheduleNodesDrainCordonFailure(t *testing.T) {
 	waitDrainFinished(t, m, node.Name)
 
 	expectEvent(t, rec, corev1.EventTypeWarning, consts.RBLNEventReasonNodeDrainFailed, "cordon")
-	expectEvent(t, rec, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeFailed, "")
+	expectNoEvent(t, rec)
+	if got := node.Labels[UpgradeStateLabelKey]; got != UpgradeStateDrainRequired {
+		t.Fatalf("state = %q, want unchanged %q", got, UpgradeStateDrainRequired)
+	}
 }
 
 func TestScheduleNodesDrainDrainFailure(t *testing.T) {

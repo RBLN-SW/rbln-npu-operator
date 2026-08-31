@@ -82,11 +82,11 @@ func (m *DrainManager) ScheduleNodesDrain(ctx context.Context, drainConfig *Drai
 				defer m.drainingNodes.Remove(node.Name)
 				err := drain.RunCordonOrUncordon(drainHelper, node, true)
 				if err != nil {
-					log.FromContext(ctx).Error(err, "Failed to cordon node", "node", node.Name)
+					// The node is already cordoned by the cordon step; this is a transient API error.
+					log.FromContext(ctx).Error(err, "Failed to cordon node; will retry next cycle", "node", node.Name)
 					recordNodeEvent(m.eventRecorder, node, corev1.EventTypeWarning,
 						consts.RBLNEventReasonNodeDrainFailed,
 						fmt.Sprintf("Failed to cordon node: %v", err))
-					m.changeNodeUpgradeStateAsync(ctx, node, UpgradeStateFailed)
 					return
 				}
 				log.FromContext(ctx).Info("Cordoned the node", "node", node.Name)

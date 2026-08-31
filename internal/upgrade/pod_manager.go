@@ -2,6 +2,7 @@ package upgrade
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -181,13 +182,15 @@ func (m *PodManager) ScheduleCheckOnPodCompletion(ctx context.Context, config *P
 	log.FromContext(ctx).Info("Pod Manager, starting checks on pod statuses")
 	var wg sync.WaitGroup
 
+	var errs []error
 	for _, node := range config.Nodes {
 		log.FromContext(ctx).Info("Schedule checks for pod completion", "node", node.Name)
 		podList, err := m.ListPods(ctx, config.WaitForCompletionSpec.PodSelector, node.Name)
 		if err != nil {
 			log.FromContext(ctx).Error(err, "Failed to list pods",
 				"selector", config.WaitForCompletionSpec.PodSelector, "node", node.Name)
-			return err
+			errs = append(errs, err)
+			continue
 		}
 		if len(podList.Items) > 0 {
 			log.FromContext(ctx).Error(err, "Found workload pods",
@@ -223,7 +226,7 @@ func (m *PodManager) ScheduleCheckOnPodCompletion(ctx context.Context, config *P
 		}(*node)
 	}
 	wg.Wait()
-	return nil
+	return errors.Join(errs...)
 }
 
 func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManagerConfig) error {
@@ -349,14 +352,15 @@ func (m *PodManager) SchedulePodsRestart(ctx context.Context, pods []*corev1.Pod
 		log.FromContext(ctx).Info("No pods scheduled to restart")
 		return nil
 	}
+	var errs []error
 	for _, pod := range pods {
 		log.FromContext(ctx).Info("Deleting pod", "pod", pod.Name)
 		deleteOptions := metav1.DeleteOptions{}
 		err := m.k8sInterface.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, deleteOptions)
 		if err != nil {
 			log.FromContext(ctx).Error(err, "Failed to delete pod", "pod", pod.Name)
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
