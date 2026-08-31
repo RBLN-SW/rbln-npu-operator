@@ -36,6 +36,8 @@ const (
 	UpgradeFailureStepAnnotationKey = "rebellions.ai/npu-driver-upgrade-failure-step"
 	// UpgradeSkipReasonAnnotationKey records why the node's upgrade attempt was skipped.
 	UpgradeSkipReasonAnnotationKey = "rebellions.ai/npu-driver-upgrade-skip-reason"
+	// UpgradePodRestartStartTimeAnnotationKey stores the time the node entered pod-restart-required state.
+	UpgradePodRestartStartTimeAnnotationKey = "rebellions.ai/npu-driver-upgrade-pod-restart-start-time"
 )
 
 // Node upgrade states.
@@ -101,6 +103,19 @@ const (
 	// MaxPodRestartCount is the threshold above which a pod is considered crash-looping.
 	MaxPodRestartCount int32 = 10
 )
+
+// badContainerWaitingReasons are container waiting reasons that indicate the
+// driver pod replacement is not making progress.
+var badContainerWaitingReasons = map[string]struct{}{
+	"ImagePullBackOff":           {},
+	"ErrImagePull":               {},
+	"InvalidImageName":           {},
+	"ImageInspectError":          {},
+	"CreateContainerError":       {},
+	"CreateContainerConfigError": {},
+	"RunContainerError":          {},
+	"CrashLoopBackOff":           {},
+}
 
 // Internal constants used across the upgrade package.
 const (

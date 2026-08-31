@@ -9,8 +9,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 
 	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 // ---------------------------------------------------------------------------
@@ -499,7 +501,7 @@ func TestProcessPodRestartNodesCrashLoopRecordsDiagnosis(t *testing.T) {
 	state := newClusterState(map[string][]*NodeUpgradeState{
 		UpgradeStatePodRestartRequired: {ns},
 	})
-	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false); err != nil {
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 0); err != nil {
 		t.Fatalf("ProcessPodRestartNodes: %v", err)
 	}
 
@@ -515,6 +517,135 @@ func TestProcessPodRestartNodesCrashLoopRecordsDiagnosis(t *testing.T) {
 	}
 	if got := updated.Annotations[UpgradeFailureStepAnnotationKey]; got != UpgradeStatePodRestartRequired {
 		t.Fatalf("failure step = %q, want %q", got, UpgradeStatePodRestartRequired)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Pod-restart timeout
+// ---------------------------------------------------------------------------
+
+func newPodRestartNodeState(startedAtUnix, waitingReason string) *NodeUpgradeState {
+	ns := newNodeUpgradeState("node-1", UpgradeStatePodRestartRequired, "rev1")
+	if startedAtUnix != "" {
+		ns.Node.Annotations = map[string]string{UpgradePodRestartStartTimeAnnotationKey: startedAtUnix}
+	}
+	if waitingReason != "" {
+		ns.DriverPod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+			Name:  "driver",
+			Ready: false,
+			State: corev1.ContainerState{
+				Waiting: &corev1.ContainerStateWaiting{Reason: waitingReason},
+			},
+		}}
+	}
+	return ns
+}
+
+func TestProcessPodRestartNodes_TimeoutMarksNodeFailedWithReason(t *testing.T) {
+	ns := newPodRestartNodeState("100", "ImagePullBackOff")
+	mgr := newTestManager(t)
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStatePodRestartRequired: {ns},
+	})
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 60); err != nil {
+		t.Fatalf("ProcessPodRestartNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateFailed {
+		t.Fatalf("state = %q, want %q", got, UpgradeStateFailed)
+	}
+	reason := updated.Annotations[UpgradeFailureReasonAnnotationKey]
+	if !strings.Contains(reason, "pod-restart timeout") || !strings.Contains(reason, "ImagePullBackOff") {
+		t.Fatalf("failure reason = %q, want timeout and waiting reason", reason)
+	}
+	if got := updated.Annotations[UpgradeFailureStepAnnotationKey]; got != UpgradeStatePodRestartRequired {
+		t.Fatalf("failure step = %q, want %q", got, UpgradeStatePodRestartRequired)
+	}
+	if _, ok := updated.Annotations[UpgradePodRestartStartTimeAnnotationKey]; ok {
+		t.Fatal("pod-restart start-time annotation should be cleared after judgement")
+	}
+}
+
+func TestProcessPodRestartNodes_FirstSightStampsClockWithoutJudging(t *testing.T) {
+	ns := newPodRestartNodeState("", "ImagePullBackOff")
+	mgr := newTestManager(t)
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStatePodRestartRequired: {ns},
+	})
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 3600); err != nil {
+		t.Fatalf("ProcessPodRestartNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStatePodRestartRequired {
+		t.Fatalf("state = %q, want unchanged %q", got, UpgradeStatePodRestartRequired)
+	}
+	if _, ok := updated.Annotations[UpgradePodRestartStartTimeAnnotationKey]; !ok {
+		t.Fatal("expected pod-restart start-time annotation to be stamped")
+	}
+}
+
+func TestProcessPodRestartNodes_TimeoutDisabledKeepsWaiting(t *testing.T) {
+	ns := newPodRestartNodeState("100", "ImagePullBackOff")
+	mgr := newTestManager(t)
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStatePodRestartRequired: {ns},
+	})
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 0); err != nil {
+		t.Fatalf("ProcessPodRestartNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStatePodRestartRequired {
+		t.Fatalf("state = %q, want unchanged %q", got, UpgradeStatePodRestartRequired)
+	}
+}
+
+func TestProcessPodRestartNodes_StuckEventEmittedWithoutJudgement(t *testing.T) {
+	ns := newPodRestartNodeState("", "ErrImagePull")
+	recorder := record.NewFakeRecorder(8)
+	mgr := newTestManager(t)
+	mgr.eventRecorder = recorder
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStatePodRestartRequired: {ns},
+	})
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 3600); err != nil {
+		t.Fatalf("ProcessPodRestartNodes: %v", err)
+	}
+
+	select {
+	case ev := <-recorder.Events:
+		if !strings.Contains(ev, consts.RBLNEventReasonDriverUpgradePodStuck) || !strings.Contains(ev, "ErrImagePull") {
+			t.Fatalf("unexpected event %q", ev)
+		}
+	default:
+		t.Fatal("expected DriverUpgradePodStuck warning event")
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got == UpgradeStateFailed {
+		t.Fatal("early signal must not judge the node failed")
 	}
 }
 
