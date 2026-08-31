@@ -3,6 +3,7 @@ package upgrade
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -122,7 +123,13 @@ func TestScheduleNodesDrainDrainFailure(t *testing.T) {
 	waitDrainFinished(t, m, node.Name)
 
 	expectEvent(t, rec, corev1.EventTypeWarning, consts.RBLNEventReasonNodeDrainFailed, "drain")
-	expectEvent(t, rec, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeFailed, "")
+	expectEvent(t, rec, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeSkipped, "old driver")
+	if got := node.Labels[UpgradeStateLabelKey]; got != UpgradeStateSkipped {
+		t.Fatalf("state = %q, want %q", got, UpgradeStateSkipped)
+	}
+	if reason := node.Annotations[UpgradeSkipReasonAnnotationKey]; !strings.Contains(reason, "drain failed") {
+		t.Fatalf("skip reason = %q, want it to mention the drain failure", reason)
+	}
 }
 
 func TestScheduleNodesDrainDisabled(t *testing.T) {

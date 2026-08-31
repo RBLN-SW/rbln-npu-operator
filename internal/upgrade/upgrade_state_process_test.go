@@ -550,6 +550,67 @@ func TestProcessRebootRequiredNodesTriggerFailureRecordsDiagnosis(t *testing.T) 
 }
 
 // ---------------------------------------------------------------------------
+// ProcessUpgradeSkippedNodes
+// ---------------------------------------------------------------------------
+
+func TestProcessUpgradeSkippedNodesUncordons(t *testing.T) {
+	cm := &mockCordonManager{}
+	mgr := newTestManager(t, withCordonManager(cm))
+
+	ns := newNodeUpgradeState("node-1", UpgradeStateSkipped, "rev0")
+	ns.Node.Spec.Unschedulable = true
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateSkipped: {ns},
+	})
+	if err := mgr.ProcessUpgradeSkippedNodes(context.Background(), state); err != nil {
+		t.Fatalf("ProcessUpgradeSkippedNodes: %v", err)
+	}
+
+	if len(cm.uncordonedNodes) != 1 || cm.uncordonedNodes[0] != "node-1" {
+		t.Fatalf("uncordoned nodes = %v, want [node-1]", cm.uncordonedNodes)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateSkipped {
+		t.Fatalf("state = %q, want %q (skipped is terminal for now)", got, UpgradeStateSkipped)
+	}
+}
+
+func TestProcessUpgradeSkippedNodesKeepsCordonExceptions(t *testing.T) {
+	tests := map[string]map[string]string{
+		"initially unschedulable node": {UpgradeInitialStateAnnotationKey: trueString},
+		"requestor-mode node":          {UpgradeRequestorModeAnnotationKey: trueString},
+	}
+
+	for name, annotations := range tests {
+		t.Run(name, func(t *testing.T) {
+			cm := &mockCordonManager{}
+			mgr := newTestManager(t, withCordonManager(cm))
+
+			ns := newNodeUpgradeState("node-1", UpgradeStateSkipped, "rev0")
+			ns.Node.Spec.Unschedulable = true
+			ns.Node.Annotations = annotations
+			registerNodes(t, mgr, ns.Node)
+
+			state := newClusterState(map[string][]*NodeUpgradeState{
+				UpgradeStateSkipped: {ns},
+			})
+			if err := mgr.ProcessUpgradeSkippedNodes(context.Background(), state); err != nil {
+				t.Fatalf("ProcessUpgradeSkippedNodes: %v", err)
+			}
+			if len(cm.uncordonedNodes) != 0 {
+				t.Fatalf("uncordoned nodes = %v, want none", cm.uncordonedNodes)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // ProcessUpgradeFailedNodes
 // ---------------------------------------------------------------------------
 

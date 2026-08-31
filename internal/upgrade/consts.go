@@ -34,6 +34,8 @@ const (
 	UpgradeFailureReasonAnnotationKey = "rebellions.ai/npu-driver-upgrade-failure-reason"
 	// UpgradeFailureStepAnnotationKey records the pipeline state the node failed in.
 	UpgradeFailureStepAnnotationKey = "rebellions.ai/npu-driver-upgrade-failure-step"
+	// UpgradeSkipReasonAnnotationKey records why the node's upgrade attempt was skipped.
+	UpgradeSkipReasonAnnotationKey = "rebellions.ai/npu-driver-upgrade-skip-reason"
 )
 
 // Node upgrade states.
@@ -66,6 +68,9 @@ const (
 	UpgradeStateDone = "upgrade-done"
 	// UpgradeStateFailed means the upgrade failed.
 	UpgradeStateFailed = "upgrade-failed"
+	// UpgradeStateSkipped means the attempt could not empty the node before the driver
+	// pod swap; the old driver is intact, so the node is uncordoned back into service.
+	UpgradeStateSkipped = "upgrade-skipped"
 )
 
 // managedUpgradeStates is the canonical ordered list of states used by metrics/logging and state accounting.
@@ -77,6 +82,7 @@ var managedUpgradeStates = []string{
 	UpgradeStateWaitForJobsRequired,
 	UpgradeStatePodDeletionRequired,
 	UpgradeStateFailed,
+	UpgradeStateSkipped,
 	UpgradeStateDrainRequired,
 	UpgradeStatePodRestartRequired,
 	UpgradeStateRebootRequired,

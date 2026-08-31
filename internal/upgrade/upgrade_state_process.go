@@ -1105,6 +1105,31 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessUpgradeFailedNodes(
 	return nil
 }
 
+func (m *ClusterUpgradeStateManagerImpl) ProcessUpgradeSkippedNodes(
+	ctx context.Context, currentClusterState *ClusterUpgradeState,
+) error {
+	log.FromContext(ctx).V(consts.VDebug).Info("ProcessUpgradeSkippedNodes")
+
+	var errs []error
+	for _, nodeState := range currentClusterState.NodeStates[UpgradeStateSkipped] {
+		node := nodeState.Node
+		// The old driver is intact, so the node returns to service on it.
+		_, wasInitiallyUnschedulable := node.Annotations[UpgradeInitialStateAnnotationKey]
+		if !IsNodeUnschedulable(node) || wasInitiallyUnschedulable || IsNodeInRequestorMode(node) {
+			continue
+		}
+		if err := m.cordonManager.Uncordon(ctx, node); err != nil {
+			log.FromContext(ctx).Error(err, "Failed to uncordon skipped node", "node", node.Name)
+			errs = append(errs, err)
+			continue
+		}
+		node.Spec.Unschedulable = false
+		log.FromContext(ctx).Info("Uncordoned skipped node; back in service on the old driver",
+			"node", node.Name)
+	}
+	return errors.Join(errs...)
+}
+
 func (m *ClusterUpgradeStateManagerImpl) ProcessValidationRequiredNodes(
 	ctx context.Context, currentClusterState *ClusterUpgradeState,
 ) error {

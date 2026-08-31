@@ -91,7 +91,7 @@ func (p *NodeUpgradeStateProvider) ChangeNodeUpgradeState(
 }
 
 // recordStateTransitionEvent emits only the contract transitions (upgrade
-// started/completed/failed); everything else — including the initial
+// started/completed/failed/skipped); everything else — including the initial
 // unknown→done bootstrap — stays silent.
 func (p *NodeUpgradeStateProvider) recordStateTransitionEvent(node *corev1.Node, oldState, newState string) {
 	switch {
@@ -108,6 +108,15 @@ func (p *NodeUpgradeStateProvider) recordStateTransitionEvent(node *corev1.Node,
 		}
 		recordNodeEvent(p.eventRecorder, node, corev1.EventTypeWarning,
 			consts.RBLNEventReasonDriverUpgradeFailed, message)
+	// Warning, not Normal: the attempt did not complete.
+	case newState == UpgradeStateSkipped && oldState != UpgradeStateSkipped:
+		message := fmt.Sprintf("Driver upgrade skipped at state %q; node returns to service on the old driver",
+			logKeyForNodeState(oldState))
+		if reason := node.Annotations[UpgradeSkipReasonAnnotationKey]; reason != "" {
+			message = fmt.Sprintf("%s: %s", message, reason)
+		}
+		recordNodeEvent(p.eventRecorder, node, corev1.EventTypeWarning,
+			consts.RBLNEventReasonDriverUpgradeSkipped, message)
 	}
 }
 
@@ -217,6 +226,19 @@ func markNodeUpgradeFailed(
 			"error", err, "node", node.Name, "step", failedStep, "reason", reason)
 	}
 	return provider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed)
+}
+
+// markNodeUpgradeSkipped records the skip reason (best-effort) before the
+// state transition so the skipped event can carry it.
+func markNodeUpgradeSkipped(
+	ctx context.Context, provider *NodeUpgradeStateProvider, node *corev1.Node, reason string,
+) error {
+	reason = truncateReason(reason)
+	if err := provider.SetNodeUpgradeAnnotation(ctx, node, UpgradeSkipReasonAnnotationKey, reason); err != nil {
+		log.FromContext(ctx).Info("Failed to record upgrade skip reason",
+			"error", err, "node", node.Name, "reason", reason)
+	}
+	return provider.ChangeNodeUpgradeState(ctx, node, UpgradeStateSkipped)
 }
 
 // patchNodeLabelsLocked assumes the caller holds the node's mutex.

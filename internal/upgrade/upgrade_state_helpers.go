@@ -28,6 +28,7 @@ var inProgressUpgradeStates = func() map[string]struct{} {
 		UpgradeStateUnknown:         {},
 		UpgradeStateDone:            {},
 		UpgradeStateUpgradeRequired: {},
+		UpgradeStateSkipped:         {},
 	}
 	states := make(map[string]struct{})
 	for _, s := range managedUpgradeStates {
