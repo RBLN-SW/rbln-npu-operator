@@ -38,6 +38,12 @@ const (
 	UpgradeSkipReasonAnnotationKey = "rebellions.ai/npu-driver-upgrade-skip-reason"
 	// UpgradePodRestartStartTimeAnnotationKey stores the time the node entered pod-restart-required state.
 	UpgradePodRestartStartTimeAnnotationKey = "rebellions.ai/npu-driver-upgrade-pod-restart-start-time"
+	// UpgradeAttemptedRevisionAnnotationKey records the driver DaemonSet revision of the attempt that parked the node.
+	UpgradeAttemptedRevisionAnnotationKey = "rebellions.ai/npu-driver-upgrade-attempted-revision"
+	// UpgradeSkipCountAnnotationKey counts how many rollout attempts skipped this node.
+	UpgradeSkipCountAnnotationKey = "rebellions.ai/npu-driver-upgrade-skip-count"
+	// UpgradeLastSkippedAtAnnotationKey records when the node was last skipped (RFC3339).
+	UpgradeLastSkippedAtAnnotationKey = "rebellions.ai/npu-driver-upgrade-last-skipped-at"
 )
 
 // Node upgrade states.
