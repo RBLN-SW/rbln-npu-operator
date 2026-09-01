@@ -93,11 +93,20 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 				return m.ProcessDoneNodes(ctx, currentState)
 			},
 		},
+		// Skipped and failed run before upgrade-required so a woken node frees
+		// its slot within the same cycle's census.
 		{
 			name:     UpgradeStateSkipped,
 			errorMsg: "Failed to process nodes in 'upgrade-skipped' state",
 			run: func() error {
 				return m.ProcessUpgradeSkippedNodes(ctx, currentState)
+			},
+		},
+		{
+			name:     UpgradeStateFailed,
+			errorMsg: "Failed to process nodes in 'upgrade-failed' state",
+			run: func() error {
+				return m.ProcessUpgradeFailedNodes(ctx, currentState)
 			},
 		},
 		{
@@ -169,13 +178,6 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 			errorMsg: "Failed for 'reboot-post-required' state",
 			run: func() error {
 				return m.ProcessRebootPostRequiredNodes(ctx, namespace, currentState, rebootConfig)
-			},
-		},
-		{
-			name:     UpgradeStateFailed,
-			errorMsg: "Failed to process nodes in 'upgrade-failed' state",
-			run: func() error {
-				return m.ProcessUpgradeFailedNodes(ctx, currentState)
 			},
 		},
 		{

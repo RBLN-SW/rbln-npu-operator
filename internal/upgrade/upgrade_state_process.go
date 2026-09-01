@@ -121,6 +121,11 @@ func (m *ClusterUpgradeStateManagerImpl) transitionDoneOrUnknownNodeToUpgradeReq
 		}
 	}
 
+	// A fresh upgrade must not inherit the previous attempt's judgement artifacts.
+	if err := m.clearParkedBookkeeping(ctx, nodeState.Node); err != nil {
+		return err
+	}
+
 	err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, UpgradeStateUpgradeRequired)
 	if err != nil {
 		log.FromContext(ctx).Error(err, "Failed to change node upgrade state", "state", UpgradeStateUpgradeRequired, "node", nodeState.Node)
@@ -1155,43 +1160,128 @@ func (m *ClusterUpgradeStateManagerImpl) isDriverPodFailing(pod *corev1.Pod) boo
 	return false
 }
 
+func (m *ClusterUpgradeStateManagerImpl) currentDSRevisionHash(
+	ctx context.Context, nodeState *NodeUpgradeState,
+) (string, error) {
+	if nodeState.IsOrphanedPod() {
+		return "", nil
+	}
+	return m.podManager.GetDaemonsetControllerRevisionHash(ctx, nodeState.DriverDaemonSet)
+}
+
+// clearParkedBookkeeping drops the attempt's judgement artifacts; skip-count
+// and last-skipped-at are cross-attempt history and are kept.
+func (m *ClusterUpgradeStateManagerImpl) clearParkedBookkeeping(ctx context.Context, node *corev1.Node) error {
+	remove := map[string]any{}
+	for _, key := range []string{
+		UpgradeFailureReasonAnnotationKey,
+		UpgradeFailureStepAnnotationKey,
+		UpgradeSkipReasonAnnotationKey,
+		UpgradeAttemptedRevisionAnnotationKey,
+		UpgradePodRestartStartTimeAnnotationKey,
+	} {
+		if _, ok := node.Annotations[key]; ok {
+			remove[key] = nil
+		}
+	}
+	if len(remove) == 0 {
+		return nil
+	}
+	return m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotations(ctx, node, remove)
+}
+
+// wakeParkedNode leaves the upgrade-requested annotation in place for
+// ProcessUpgradeRequiredNodes to consume — one instruction, one attempt.
+func (m *ClusterUpgradeStateManagerImpl) wakeParkedNode(
+	ctx context.Context, node *corev1.Node, cause string,
+) error {
+	if err := m.clearParkedBookkeeping(ctx, node); err != nil {
+		return err
+	}
+	if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateUpgradeRequired); err != nil {
+		return err
+	}
+	log.FromContext(ctx).Info("Parked node returned to the upgrade queue",
+		"node", node.Name, "cause", cause)
+	return nil
+}
+
+// newRevisionPushed stamps the current revision on first sight, so the node
+// never wakes on the very revision it was parked under.
+func (m *ClusterUpgradeStateManagerImpl) newRevisionPushed(
+	ctx context.Context, nodeState *NodeUpgradeState,
+) (bool, error) {
+	currentRevision, err := m.currentDSRevisionHash(ctx, nodeState)
+	if err != nil {
+		return false, err
+	}
+	if currentRevision == "" {
+		// Orphaned pod: only the upgrade-requested annotation can wake this node.
+		return false, nil
+	}
+
+	node := nodeState.Node
+	recorded := node.Annotations[UpgradeAttemptedRevisionAnnotationKey]
+	if recorded == "" {
+		if err := m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(ctx, node,
+			UpgradeAttemptedRevisionAnnotationKey, currentRevision); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	return recorded != currentRevision, nil
+}
+
 func (m *ClusterUpgradeStateManagerImpl) ProcessUpgradeFailedNodes(
 	ctx context.Context, currentClusterState *ClusterUpgradeState,
 ) error {
 	log.FromContext(ctx).V(consts.VDebug).Info("ProcessUpgradeFailedNodes")
 
+	var errs []error
 	for _, nodeState := range currentClusterState.NodeStates[UpgradeStateFailed] {
+		if err := m.processUpgradeFailedNode(ctx, nodeState); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// Self-heal is allowed only for pod-restart failures: the replacement pod
+// becoming in-sync and Ready is recovery evidence there, while for reboot and
+// validation failures a Ready pod is only the entry condition.
+func (m *ClusterUpgradeStateManagerImpl) processUpgradeFailedNode(
+	ctx context.Context, nodeState *NodeUpgradeState,
+) error {
+	node := nodeState.Node
+
+	if node.Annotations[UpgradeFailureStepAnnotationKey] == UpgradeStatePodRestartRequired {
 		driverPodInSync, err := m.isDriverPodInSync(ctx, nodeState)
 		if err != nil {
-			log.FromContext(ctx).Error(err, "Failed to check if driver pod on the node is in sync", "node", nodeState.Node.Name)
+			log.FromContext(ctx).Error(err, "Failed to check if driver pod on the node is in sync", "node", node.Name)
 			return err
 		}
 		if driverPodInSync {
-			newUpgradeState := UpgradeStateUncordonRequired
-			annotationKey := UpgradeInitialStateAnnotationKey
-			if _, ok := nodeState.Node.Annotations[annotationKey]; ok {
-				log.FromContext(ctx).Info("Node was Unschedulable at beginning of upgrade, skipping uncordon",
-					"node", nodeState.Node.Name)
-				newUpgradeState = UpgradeStateDone
-			}
-
-			err = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, newUpgradeState)
-			if err != nil {
-				log.FromContext(ctx).Error(err, "Failed to change node upgrade state", "state", newUpgradeState)
+			log.FromContext(ctx).Info("Driver pod recovered after pod-restart failure; resuming upgrade",
+				"node", node.Name)
+			if err := m.clearParkedBookkeeping(ctx, node); err != nil {
 				return err
 			}
-
-			if newUpgradeState == UpgradeStateDone {
-				log.FromContext(ctx).V(consts.VDebug).Info("Removing node upgrade annotation",
-					"node", nodeState.Node.Name, "annotation", annotationKey)
-				err = m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, nodeState.Node, annotationKey)
-				if err != nil {
-					return err
-				}
-			}
+			return m.updateNodeToUncordonOrDoneState(ctx, nodeState)
 		}
 	}
 
+	if m.IsUpgradeRequested(node) {
+		return m.wakeParkedNode(ctx, node, "upgrade requested by operator")
+	}
+
+	pushed, err := m.newRevisionPushed(ctx, nodeState)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to compare driver revision for failed node", "node", node.Name)
+		return err
+	}
+	if pushed {
+		return m.wakeParkedNode(ctx, node, "new driver revision pushed")
+	}
 	return nil
 }
 
@@ -1202,22 +1292,66 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessUpgradeSkippedNodes(
 
 	var errs []error
 	for _, nodeState := range currentClusterState.NodeStates[UpgradeStateSkipped] {
-		node := nodeState.Node
-		// The old driver is intact, so the node returns to service on it.
-		_, wasInitiallyUnschedulable := node.Annotations[UpgradeInitialStateAnnotationKey]
-		if !IsNodeUnschedulable(node) || wasInitiallyUnschedulable || IsNodeInRequestorMode(node) {
-			continue
+		if err := m.processUpgradeSkippedNode(ctx, nodeState); err != nil {
+			errs = append(errs, err)
 		}
+	}
+	return errors.Join(errs...)
+}
+
+func (m *ClusterUpgradeStateManagerImpl) processUpgradeSkippedNode(
+	ctx context.Context, nodeState *NodeUpgradeState,
+) error {
+	node := nodeState.Node
+
+	// The old driver is intact, so the node returns to service on it.
+	_, wasInitiallyUnschedulable := node.Annotations[UpgradeInitialStateAnnotationKey]
+	if IsNodeUnschedulable(node) && !wasInitiallyUnschedulable && !IsNodeInRequestorMode(node) {
 		if err := m.cordonManager.Uncordon(ctx, node); err != nil {
 			log.FromContext(ctx).Error(err, "Failed to uncordon skipped node", "node", node.Name)
-			errs = append(errs, err)
-			continue
+			return err
 		}
 		node.Spec.Unschedulable = false
 		log.FromContext(ctx).Info("Uncordoned skipped node; back in service on the old driver",
 			"node", node.Name)
 	}
-	return errors.Join(errs...)
+
+	// The attempt revision doubles as the stamped marker, so a partly failed
+	// patch is retried next cycle.
+	if node.Annotations[UpgradeAttemptedRevisionAnnotationKey] == "" {
+		currentRevision, err := m.currentDSRevisionHash(ctx, nodeState)
+		if err != nil {
+			log.FromContext(ctx).Error(err, "Failed to resolve driver revision for skipped node", "node", node.Name)
+			return err
+		}
+		if currentRevision != "" {
+			skipCount := 1
+			if previous, parseErr := strconv.Atoi(node.Annotations[UpgradeSkipCountAnnotationKey]); parseErr == nil {
+				skipCount = previous + 1
+			}
+			if err := m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotations(ctx, node, map[string]any{
+				UpgradeAttemptedRevisionAnnotationKey: currentRevision,
+				UpgradeSkipCountAnnotationKey:         strconv.Itoa(skipCount),
+				UpgradeLastSkippedAtAnnotationKey:     time.Now().UTC().Format(time.RFC3339),
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
+	if m.IsUpgradeRequested(node) {
+		return m.wakeParkedNode(ctx, node, "upgrade requested by operator")
+	}
+
+	pushed, err := m.newRevisionPushed(ctx, nodeState)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to compare driver revision for skipped node", "node", node.Name)
+		return err
+	}
+	if pushed {
+		return m.wakeParkedNode(ctx, node, "new driver revision pushed")
+	}
+	return nil
 }
 
 func (m *ClusterUpgradeStateManagerImpl) ProcessValidationRequiredNodes(
