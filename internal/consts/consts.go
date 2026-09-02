@@ -105,6 +105,35 @@ const (
 	RBLNConditionReasonImageNotFound           = "DriverImageNotFound"
 )
 
+// Condition types owned by the driver upgrade controller on RBLNClusterPolicy.
+const (
+	// RBLNConditionTypeDriverUpgradeInProgress is True while any node is
+	// pending or moving through the upgrade pipeline.
+	RBLNConditionTypeDriverUpgradeInProgress = "DriverUpgradeInProgress"
+	// RBLNConditionTypeUpgradeDegraded is True while any node is upgrade-failed;
+	// each failed node holds an upgrade slot, reducing rollout parallelism.
+	RBLNConditionTypeUpgradeDegraded = "UpgradeDegraded"
+	// RBLNConditionTypeUpgradeIncomplete is True when the rollout has finished
+	// but skipped nodes remain on the old driver.
+	RBLNConditionTypeUpgradeIncomplete = "UpgradeIncomplete"
+	// RBLNConditionTypeUpgradeStalled is True when nodes are in progress but
+	// no state transition has happened for an extended period.
+	RBLNConditionTypeUpgradeStalled = "UpgradeStalled"
+)
+
+// Condition reasons for the driver upgrade conditions.
+const (
+	RBLNConditionReasonUpgradeInProgress   = "UpgradeInProgress"
+	RBLNConditionReasonNoUpgradeInProgress = "NoUpgradeInProgress"
+	RBLNConditionReasonFailedNodes         = "FailedNodes"
+	RBLNConditionReasonNoFailedNodes       = "NoFailedNodes"
+	RBLNConditionReasonNodesSkipped        = "NodesSkipped"
+	RBLNConditionReasonNoSkippedNodes      = "NoSkippedNodes"
+	RBLNConditionReasonRolloutInProgress   = "RolloutInProgress"
+	RBLNConditionReasonNoRecentTransition  = "NoRecentTransition"
+	RBLNConditionReasonProgressing         = "Progressing"
+)
+
 // Event reasons — observability contract, keep stable. A reason string means
 // one thing across both CRs.
 const (

@@ -24,6 +24,12 @@ spec:
     - jsonPath: .status.workloads[?(@.type=='vm-passthrough')].state
       name: VM-Passthrough
       type: string
+    - jsonPath: .status.driverUpgrade.progress
+      name: Upgrade
+      type: string
+    - jsonPath: .status.driverUpgrade.state
+      name: Upgrade-State
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -8910,6 +8916,71 @@ spec:
                   - type
                   type: object
                 type: array
+              driverUpgrade:
+                description: DriverUpgrade summarizes the driver upgrade rollout across
+                  managed nodes.
+                properties:
+                  done:
+                    description: Done is the number of nodes whose upgrade is complete.
+                    format: int32
+                    type: integer
+                  failed:
+                    description: |-
+                      Failed is the number of nodes parked in upgrade-failed. Each failed node
+                      holds an upgrade slot — see the UpgradeDegraded condition.
+                    format: int32
+                    type: integer
+                  inProgress:
+                    description: |-
+                      InProgress is the number of nodes currently moving through the upgrade
+                      pipeline (excluding skipped and failed nodes).
+                    format: int32
+                    type: integer
+                  lastTransitionTime:
+                    description: |-
+                      LastTransitionTime is when the per-state node counts last changed; a
+                      long-unchanged value while nodes are in progress indicates a stalled
+                      rollout (surfaced via the UpgradeStalled condition).
+                    format: date-time
+                    type: string
+                  pending:
+                    description: Pending is the number of nodes waiting for an upgrade
+                      slot.
+                    format: int32
+                    type: integer
+                  progress:
+                    description: |-
+                      Progress is a human-readable summary used by printcolumns, e.g.
+                      "38/40 (2 skipped)". Skipped nodes are never folded into the done count.
+                    type: string
+                  skipped:
+                    description: |-
+                      Skipped is the number of nodes this rollout could not empty before the
+                      driver swap; they were returned to service on the old driver and never
+                      count into Done — see the UpgradeIncomplete condition.
+                    format: int32
+                    type: integer
+                  state:
+                    description: State is the rollout-level disposition.
+                    enum:
+                    - InProgress
+                    - Degraded
+                    - PartiallyComplete
+                    - Complete
+                    type: string
+                  total:
+                    description: Total is the number of nodes managed by the driver
+                      upgrade flow.
+                    format: int32
+                    type: integer
+                required:
+                - done
+                - failed
+                - inProgress
+                - pending
+                - skipped
+                - total
+                type: object
               namespace:
                 description: Namespace is the namespace where the operator manages
                   its operands.
