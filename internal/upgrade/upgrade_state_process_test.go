@@ -211,6 +211,35 @@ func TestProcessUpgradeRequiredNodes_CountsInProgressFromNodeLabels(t *testing.T
 	}
 }
 
+func TestProcessUpgradeRequiredNodes_CordonedNodeRespectsCap(t *testing.T) {
+	mgr := newTestManager(t)
+
+	inProgress := newNodeUpgradeState("node-in-progress", UpgradeStatePodRestartRequired, "rev1")
+	cordoned := newNodeUpgradeState("node-cordoned", UpgradeStateUpgradeRequired, "rev1")
+	cordoned.Node.Spec.Unschedulable = true
+
+	registerNodes(t, mgr, inProgress.Node, cordoned.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateUpgradeRequired: {cordoned},
+	})
+
+	policy := &v1beta1.DriverUpgradePolicySpec{MaxParallelUpgrades: 1}
+
+	if err := mgr.ProcessUpgradeRequiredNodes(context.Background(), state, policy); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-cordoned"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUpgradeRequired {
+		t.Fatalf("cordoned node state = %q, want %q (a cordon must not bypass maxParallelUpgrades)",
+			got, UpgradeStateUpgradeRequired)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ProcessCordonRequiredNodes
 // ---------------------------------------------------------------------------

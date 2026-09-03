@@ -199,15 +199,14 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessUpgradeRequiredNodes(
 		}
 
 		if upgradesAvailable <= 0 {
-			// Already cordoned nodes are allowed to continue to avoid stalling upgrades that have already progressed.
-			if IsNodeUnschedulable(nodeState.Node) {
-				log.FromContext(ctx).Info("Node is already cordoned, progressing for driver upgrade",
-					"node", nodeState.Node.Name)
-			} else {
-				log.FromContext(ctx).Info("Node upgrade limit reached, pausing further upgrades",
-					"node", nodeState.Node.Name)
-				continue
-			}
+			// maxParallelUpgrades bounds every admission, cordoned nodes included.
+			// A cordon says nothing about whether the node is idle (operators
+			// cordon nodes to pin NPU workloads), and a node parked in
+			// upgrade-failed keeps its cordon, so exempting cordoned nodes let a
+			// retried failure push the rollout past the cap.
+			log.FromContext(ctx).Info("Node upgrade limit reached, pausing further upgrades",
+				"node", nodeState.Node.Name)
+			continue
 		}
 
 		err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, UpgradeStateCordonRequired)
