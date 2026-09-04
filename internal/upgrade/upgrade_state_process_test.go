@@ -742,35 +742,6 @@ func TestProcessUpgradeSkippedNodesUncordons(t *testing.T) {
 	if got := updated.Annotations[UpgradeAttemptedRevisionAnnotationKey]; got != "rev1" {
 		t.Fatalf("attempted revision = %q, want %q", got, "rev1")
 	}
-	if got := updated.Annotations[UpgradeSkipCountAnnotationKey]; got != "1" {
-		t.Fatalf("skip count = %q, want %q", got, "1")
-	}
-	if updated.Annotations[UpgradeLastSkippedAtAnnotationKey] == "" {
-		t.Fatal("expected last-skipped-at annotation to be stamped")
-	}
-}
-
-func TestProcessUpgradeSkippedNodes_SecondSkipIncrementsCount(t *testing.T) {
-	mgr := newTestManager(t)
-
-	ns := newNodeUpgradeState("node-1", UpgradeStateSkipped, "rev1")
-	ns.Node.Annotations = map[string]string{UpgradeSkipCountAnnotationKey: "2"}
-	registerNodes(t, mgr, ns.Node)
-
-	state := newClusterState(map[string][]*NodeUpgradeState{
-		UpgradeStateSkipped: {ns},
-	})
-	if err := mgr.ProcessUpgradeSkippedNodes(context.Background(), state); err != nil {
-		t.Fatalf("ProcessUpgradeSkippedNodes: %v", err)
-	}
-
-	var updated corev1.Node
-	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
-		t.Fatalf("get node: %v", err)
-	}
-	if got := updated.Annotations[UpgradeSkipCountAnnotationKey]; got != "3" {
-		t.Fatalf("skip count = %q, want %q", got, "3")
-	}
 }
 
 func TestProcessUpgradeSkippedNodes_WakesOnOperatorRequest(t *testing.T) {
@@ -781,7 +752,6 @@ func TestProcessUpgradeSkippedNodes_WakesOnOperatorRequest(t *testing.T) {
 		UpgradeRequestedAnnotationKey:         trueString,
 		UpgradeSkipReasonAnnotationKey:        "node drain failed",
 		UpgradeAttemptedRevisionAnnotationKey: "rev1",
-		UpgradeSkipCountAnnotationKey:         "1",
 	}
 	registerNodes(t, mgr, ns.Node)
 
@@ -804,9 +774,6 @@ func TestProcessUpgradeSkippedNodes_WakesOnOperatorRequest(t *testing.T) {
 	}
 	if _, ok := updated.Annotations[UpgradeAttemptedRevisionAnnotationKey]; ok {
 		t.Fatal("attempted revision should be cleared on wake")
-	}
-	if got := updated.Annotations[UpgradeSkipCountAnnotationKey]; got != "1" {
-		t.Fatalf("skip count = %q, want retained %q", got, "1")
 	}
 	if got := updated.Annotations[UpgradeRequestedAnnotationKey]; got != trueString {
 		t.Fatalf("upgrade-requested annotation = %q, want %q", got, trueString)
