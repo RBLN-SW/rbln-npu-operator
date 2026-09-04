@@ -6,15 +6,13 @@
 # and forces the question back onto the table.
 #
 # See docs/image-security.md before adding an entry.
+#
+# Example:
+#
+# vulnerabilities:
+#   - id: CVE-2026-00000
+#     statement: >-
+#       Why this is not actionable in this repo, and what would unblock it.
+#     expired_at: 2026-12-31
 
-vulnerabilities:
-  - id: CVE-2025-15558
-    statement: >-
-      github.com/docker/cli is pinned at v25.0.1+incompatible by
-      helm.sh/helm/v3 v3.15.4 and cannot be bumped in isolation. The fix is a
-      Helm upgrade, which pulls a newer k8s.io/client-go minor into a tree
-      deliberately held at k8s.io v0.35.1 with controller-runtime v0.22.4, so
-      it is a scoped upgrade project rather than a dependency bump. The
-      operator never invokes the docker CLI; helm is used programmatically for
-      chart rendering only.
-    expired_at: 2026-11-30
+vulnerabilities: []
