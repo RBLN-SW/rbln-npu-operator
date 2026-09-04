@@ -1168,8 +1168,7 @@ func (m *ClusterUpgradeStateManagerImpl) currentDSRevisionHash(
 	return m.podManager.GetDaemonsetControllerRevisionHash(ctx, nodeState.DriverDaemonSet)
 }
 
-// clearParkedBookkeeping drops the attempt's judgement artifacts; skip-count
-// and last-skipped-at are cross-attempt history and are kept.
+// clearParkedBookkeeping drops the attempt's judgement artifacts.
 func (m *ClusterUpgradeStateManagerImpl) clearParkedBookkeeping(ctx context.Context, node *corev1.Node) error {
 	remove := map[string]any{}
 	for _, key := range []string{
@@ -1315,8 +1314,8 @@ func (m *ClusterUpgradeStateManagerImpl) processUpgradeSkippedNode(
 			"node", node.Name)
 	}
 
-	// The attempt revision doubles as the stamped marker, so a partly failed
-	// patch is retried next cycle.
+	// Stamp the attempt revision on first sight so the node never wakes on
+	// the very revision it was parked under.
 	if node.Annotations[UpgradeAttemptedRevisionAnnotationKey] == "" {
 		currentRevision, err := m.currentDSRevisionHash(ctx, nodeState)
 		if err != nil {
@@ -1324,15 +1323,8 @@ func (m *ClusterUpgradeStateManagerImpl) processUpgradeSkippedNode(
 			return err
 		}
 		if currentRevision != "" {
-			skipCount := 1
-			if previous, parseErr := strconv.Atoi(node.Annotations[UpgradeSkipCountAnnotationKey]); parseErr == nil {
-				skipCount = previous + 1
-			}
-			if err := m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotations(ctx, node, map[string]any{
-				UpgradeAttemptedRevisionAnnotationKey: currentRevision,
-				UpgradeSkipCountAnnotationKey:         strconv.Itoa(skipCount),
-				UpgradeLastSkippedAtAnnotationKey:     time.Now().UTC().Format(time.RFC3339),
-			}); err != nil {
+			if err := m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(ctx, node,
+				UpgradeAttemptedRevisionAnnotationKey, currentRevision); err != nil {
 				return err
 			}
 		}
