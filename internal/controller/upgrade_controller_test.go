@@ -240,6 +240,60 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
 		})
+
+		It("publishes the driver upgrade status block and conditions", func() {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			policy := &rblnv1beta1.RBLNClusterPolicy{}
+			Expect(k8sClient.Get(ctx, nn, policy)).To(Succeed())
+			Expect(policy.Status.DriverUpgrade).NotTo(BeNil())
+			Expect(policy.Status.DriverUpgrade.Progress).NotTo(BeEmpty())
+			for _, conditionType := range upgradeConditionTypes {
+				Expect(findCondition(policy.Status.Conditions, conditionType)).NotTo(BeNil(),
+					"expected condition %s to be published", conditionType)
+			}
+		})
+	})
+
+	Context("When auto-upgrade is turned off after a rollout", func() {
+		var (
+			reconciler *UpgradeReconciler
+			nn         types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			reconciler = newTestUpgradeReconciler(&mockStateManager{})
+
+			nn = createClusterPolicyFixture(ctx, newUpgradeClusterPolicyFixture("clear-status-policy", &rblnv1beta1.DriverUpgradePolicySpec{
+				AutoUpgrade: true,
+			}))
+			markClusterPolicyState(ctx, nn, consts.RBLNStateReady)
+
+			By("publishing the status once while auto-upgrade is on")
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("disabling auto-upgrade")
+			policy := &rblnv1beta1.RBLNClusterPolicy{}
+			Expect(k8sClient.Get(ctx, nn, policy)).To(Succeed())
+			policy.Spec.Driver.UpgradePolicy.AutoUpgrade = false
+			Expect(k8sClient.Update(ctx, policy)).To(Succeed())
+			markClusterPolicyState(ctx, nn, consts.RBLNStateReady)
+		})
+
+		It("clears the upgrade-owned status block and conditions", func() {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			policy := &rblnv1beta1.RBLNClusterPolicy{}
+			Expect(k8sClient.Get(ctx, nn, policy)).To(Succeed())
+			Expect(policy.Status.DriverUpgrade).To(BeNil())
+			for _, conditionType := range upgradeConditionTypes {
+				Expect(findCondition(policy.Status.Conditions, conditionType)).To(BeNil(),
+					"expected condition %s to be removed", conditionType)
+			}
+		})
 	})
 
 	Context("When the policy status is not decided yet", func() {

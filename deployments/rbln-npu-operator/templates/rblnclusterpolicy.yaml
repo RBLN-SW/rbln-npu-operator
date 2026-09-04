@@ -17,6 +17,7 @@ spec:
     upgradePolicy:
       autoUpgrade: {{ .autoUpgrade | default false }}
       maxParallelUpgrades: {{ .maxParallelUpgrades | default 1 }}
+      podRestartTimeoutSeconds: {{ .podRestartTimeoutSeconds | default 1800 }}
       waitForCompletion:
         timeoutSeconds: {{ $waitForCompletion.timeoutSeconds | default 0 }}
         {{- if $waitForCompletion.podSelector }}

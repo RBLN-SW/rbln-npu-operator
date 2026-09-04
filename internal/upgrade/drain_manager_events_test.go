@@ -3,6 +3,7 @@ package upgrade
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,7 +99,10 @@ func TestScheduleNodesDrainCordonFailure(t *testing.T) {
 	waitDrainFinished(t, m, node.Name)
 
 	expectEvent(t, rec, corev1.EventTypeWarning, consts.RBLNEventReasonNodeDrainFailed, "cordon")
-	expectEvent(t, rec, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeFailed, "")
+	expectNoEvent(t, rec)
+	if got := node.Labels[UpgradeStateLabelKey]; got != UpgradeStateDrainRequired {
+		t.Fatalf("state = %q, want unchanged %q", got, UpgradeStateDrainRequired)
+	}
 }
 
 func TestScheduleNodesDrainDrainFailure(t *testing.T) {
@@ -119,7 +123,13 @@ func TestScheduleNodesDrainDrainFailure(t *testing.T) {
 	waitDrainFinished(t, m, node.Name)
 
 	expectEvent(t, rec, corev1.EventTypeWarning, consts.RBLNEventReasonNodeDrainFailed, "drain")
-	expectEvent(t, rec, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeFailed, "")
+	expectEvent(t, rec, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeSkipped, "old driver")
+	if got := node.Labels[UpgradeStateLabelKey]; got != UpgradeStateSkipped {
+		t.Fatalf("state = %q, want %q", got, UpgradeStateSkipped)
+	}
+	if reason := node.Annotations[UpgradeSkipReasonAnnotationKey]; !strings.Contains(reason, "drain failed") {
+		t.Fatalf("skip reason = %q, want it to mention the drain failure", reason)
+	}
 }
 
 func TestScheduleNodesDrainDisabled(t *testing.T) {

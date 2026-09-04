@@ -3,13 +3,16 @@ package upgrade
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 
 	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 // ---------------------------------------------------------------------------
@@ -204,6 +207,35 @@ func TestProcessUpgradeRequiredNodes_CountsInProgressFromNodeLabels(t *testing.T
 	}
 	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUpgradeRequired {
 		t.Fatalf("queued node state = %q, want %q (cap of 2 already full, must not admit)",
+			got, UpgradeStateUpgradeRequired)
+	}
+}
+
+func TestProcessUpgradeRequiredNodes_CordonedNodeRespectsCap(t *testing.T) {
+	mgr := newTestManager(t)
+
+	inProgress := newNodeUpgradeState("node-in-progress", UpgradeStatePodRestartRequired, "rev1")
+	cordoned := newNodeUpgradeState("node-cordoned", UpgradeStateUpgradeRequired, "rev1")
+	cordoned.Node.Spec.Unschedulable = true
+
+	registerNodes(t, mgr, inProgress.Node, cordoned.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateUpgradeRequired: {cordoned},
+	})
+
+	policy := &v1beta1.DriverUpgradePolicySpec{MaxParallelUpgrades: 1}
+
+	if err := mgr.ProcessUpgradeRequiredNodes(context.Background(), state, policy); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-cordoned"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUpgradeRequired {
+		t.Fatalf("cordoned node state = %q, want %q (a cordon must not bypass maxParallelUpgrades)",
 			got, UpgradeStateUpgradeRequired)
 	}
 }
@@ -449,6 +481,423 @@ func TestProcessValidationRequiredNodes(t *testing.T) {
 	}
 }
 
+func TestProcessValidationRequiredNodesContinuesPastNodeError(t *testing.T) {
+	vm := &mockValidationManager{done: true, errOn: "node-bad"}
+	mgr := newTestManager(t, withValidationManager(vm), withValidationEnabled())
+
+	bad := newNodeUpgradeState("node-bad", UpgradeStateValidationRequired, "rev1")
+	good := newNodeUpgradeState("node-good", UpgradeStateValidationRequired, "rev1")
+	registerNodes(t, mgr, bad.Node, good.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateValidationRequired: {bad, good},
+	})
+
+	if err := mgr.ProcessValidationRequiredNodes(context.Background(), state); err == nil {
+		t.Fatal("expected the bad node's validation error to be reported")
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-good"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUncordonRequired {
+		t.Fatalf("good node state = %q, want %q (one node's error must not block the rest)",
+			got, UpgradeStateUncordonRequired)
+	}
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-bad"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateValidationRequired {
+		t.Fatalf("bad node state = %q, want unchanged %q", got, UpgradeStateValidationRequired)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Failure diagnosis recording
+// ---------------------------------------------------------------------------
+
+func TestProcessPodRestartNodesCrashLoopRecordsDiagnosis(t *testing.T) {
+	ns := newNodeUpgradeState("node-1", UpgradeStatePodRestartRequired, "rev1")
+	ns.DriverPod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:         "driver",
+		Ready:        false,
+		RestartCount: MaxPodRestartCount + 1,
+	}}
+	mgr := newTestManager(t)
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStatePodRestartRequired: {ns},
+	})
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 0); err != nil {
+		t.Fatalf("ProcessPodRestartNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateFailed {
+		t.Fatalf("state = %q, want %q", got, UpgradeStateFailed)
+	}
+	if reason := updated.Annotations[UpgradeFailureReasonAnnotationKey]; !strings.Contains(reason, "crash-looping") {
+		t.Fatalf("failure reason = %q, want it to mention crash-looping", reason)
+	}
+	if got := updated.Annotations[UpgradeFailureStepAnnotationKey]; got != UpgradeStatePodRestartRequired {
+		t.Fatalf("failure step = %q, want %q", got, UpgradeStatePodRestartRequired)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Pod-restart timeout
+// ---------------------------------------------------------------------------
+
+func newPodRestartNodeState(startedAtUnix, waitingReason string) *NodeUpgradeState {
+	ns := newNodeUpgradeState("node-1", UpgradeStatePodRestartRequired, "rev1")
+	if startedAtUnix != "" {
+		ns.Node.Annotations = map[string]string{UpgradePodRestartStartTimeAnnotationKey: startedAtUnix}
+	}
+	if waitingReason != "" {
+		ns.DriverPod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+			Name:  "driver",
+			Ready: false,
+			State: corev1.ContainerState{
+				Waiting: &corev1.ContainerStateWaiting{Reason: waitingReason},
+			},
+		}}
+	}
+	return ns
+}
+
+func TestProcessPodRestartNodes_TimeoutMarksNodeFailedWithReason(t *testing.T) {
+	ns := newPodRestartNodeState("100", "ImagePullBackOff")
+	mgr := newTestManager(t)
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStatePodRestartRequired: {ns},
+	})
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 60); err != nil {
+		t.Fatalf("ProcessPodRestartNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateFailed {
+		t.Fatalf("state = %q, want %q", got, UpgradeStateFailed)
+	}
+	reason := updated.Annotations[UpgradeFailureReasonAnnotationKey]
+	if !strings.Contains(reason, "pod-restart timeout") || !strings.Contains(reason, "ImagePullBackOff") {
+		t.Fatalf("failure reason = %q, want timeout and waiting reason", reason)
+	}
+	if got := updated.Annotations[UpgradeFailureStepAnnotationKey]; got != UpgradeStatePodRestartRequired {
+		t.Fatalf("failure step = %q, want %q", got, UpgradeStatePodRestartRequired)
+	}
+	if _, ok := updated.Annotations[UpgradePodRestartStartTimeAnnotationKey]; ok {
+		t.Fatal("pod-restart start-time annotation should be cleared after judgement")
+	}
+}
+
+func TestProcessPodRestartNodes_FirstSightStampsClockWithoutJudging(t *testing.T) {
+	ns := newPodRestartNodeState("", "ImagePullBackOff")
+	mgr := newTestManager(t)
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStatePodRestartRequired: {ns},
+	})
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 3600); err != nil {
+		t.Fatalf("ProcessPodRestartNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStatePodRestartRequired {
+		t.Fatalf("state = %q, want unchanged %q", got, UpgradeStatePodRestartRequired)
+	}
+	if _, ok := updated.Annotations[UpgradePodRestartStartTimeAnnotationKey]; !ok {
+		t.Fatal("expected pod-restart start-time annotation to be stamped")
+	}
+}
+
+func TestProcessPodRestartNodes_TimeoutDisabledKeepsWaiting(t *testing.T) {
+	ns := newPodRestartNodeState("100", "ImagePullBackOff")
+	mgr := newTestManager(t)
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStatePodRestartRequired: {ns},
+	})
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 0); err != nil {
+		t.Fatalf("ProcessPodRestartNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStatePodRestartRequired {
+		t.Fatalf("state = %q, want unchanged %q", got, UpgradeStatePodRestartRequired)
+	}
+}
+
+func TestProcessPodRestartNodes_StuckEventEmittedWithoutJudgement(t *testing.T) {
+	ns := newPodRestartNodeState("", "ErrImagePull")
+	recorder := record.NewFakeRecorder(8)
+	mgr := newTestManager(t)
+	mgr.eventRecorder = recorder
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStatePodRestartRequired: {ns},
+	})
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 3600); err != nil {
+		t.Fatalf("ProcessPodRestartNodes: %v", err)
+	}
+
+	select {
+	case ev := <-recorder.Events:
+		if !strings.Contains(ev, consts.RBLNEventReasonDriverUpgradePodStuck) || !strings.Contains(ev, "ErrImagePull") {
+			t.Fatalf("unexpected event %q", ev)
+		}
+	default:
+		t.Fatal("expected DriverUpgradePodStuck warning event")
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got == UpgradeStateFailed {
+		t.Fatal("early signal must not judge the node failed")
+	}
+}
+
+func TestProcessRebootRequiredNodesTriggerFailureRecordsDiagnosis(t *testing.T) {
+	mgr := newTestManager(t)
+	mgr.rebootManager = &mockRebootManager{err: fmt.Errorf("reboot pod create rejected")}
+
+	ns := newNodeUpgradeState("node-1", UpgradeStateRebootRequired, "rev1")
+	ns.Node.Status.NodeInfo.BootID = "boot-1"
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateRebootRequired: {ns},
+	})
+	if err := mgr.ProcessRebootRequiredNodes(context.Background(), "test-ns", state,
+		&v1beta1.RebootSpec{Enable: true}); err == nil {
+		t.Fatal("expected the reboot trigger error to be reported")
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateFailed {
+		t.Fatalf("state = %q, want %q", got, UpgradeStateFailed)
+	}
+	if reason := updated.Annotations[UpgradeFailureReasonAnnotationKey]; !strings.Contains(reason, "reboot pod create rejected") {
+		t.Fatalf("failure reason = %q, want it to carry the trigger error", reason)
+	}
+	if got := updated.Annotations[UpgradeFailureStepAnnotationKey]; got != UpgradeStateRebootRequired {
+		t.Fatalf("failure step = %q, want %q", got, UpgradeStateRebootRequired)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ProcessUpgradeSkippedNodes
+// ---------------------------------------------------------------------------
+
+func TestProcessUpgradeSkippedNodesUncordons(t *testing.T) {
+	cm := &mockCordonManager{}
+	mgr := newTestManager(t, withCordonManager(cm))
+
+	ns := newNodeUpgradeState("node-1", UpgradeStateSkipped, "rev0")
+	ns.Node.Spec.Unschedulable = true
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateSkipped: {ns},
+	})
+	if err := mgr.ProcessUpgradeSkippedNodes(context.Background(), state); err != nil {
+		t.Fatalf("ProcessUpgradeSkippedNodes: %v", err)
+	}
+
+	if len(cm.uncordonedNodes) != 1 || cm.uncordonedNodes[0] != "node-1" {
+		t.Fatalf("uncordoned nodes = %v, want [node-1]", cm.uncordonedNodes)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateSkipped {
+		t.Fatalf("state = %q, want %q (no wake condition present)", got, UpgradeStateSkipped)
+	}
+	if got := updated.Annotations[UpgradeAttemptedRevisionAnnotationKey]; got != "rev1" {
+		t.Fatalf("attempted revision = %q, want %q", got, "rev1")
+	}
+}
+
+func TestProcessUpgradeSkippedNodes_WakesOnOperatorRequest(t *testing.T) {
+	mgr := newTestManager(t)
+
+	ns := newNodeUpgradeState("node-1", UpgradeStateSkipped, "rev1")
+	ns.Node.Annotations = map[string]string{
+		UpgradeRequestedAnnotationKey:         trueString,
+		UpgradeSkipReasonAnnotationKey:        "node drain failed",
+		UpgradeAttemptedRevisionAnnotationKey: "rev1",
+	}
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateSkipped: {ns},
+	})
+	if err := mgr.ProcessUpgradeSkippedNodes(context.Background(), state); err != nil {
+		t.Fatalf("ProcessUpgradeSkippedNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUpgradeRequired {
+		t.Fatalf("node state = %q, want %q", got, UpgradeStateUpgradeRequired)
+	}
+	if _, ok := updated.Annotations[UpgradeSkipReasonAnnotationKey]; ok {
+		t.Fatal("skip reason should be cleared on wake")
+	}
+	if _, ok := updated.Annotations[UpgradeAttemptedRevisionAnnotationKey]; ok {
+		t.Fatal("attempted revision should be cleared on wake")
+	}
+	if got := updated.Annotations[UpgradeRequestedAnnotationKey]; got != trueString {
+		t.Fatalf("upgrade-requested annotation = %q, want %q", got, trueString)
+	}
+}
+
+func TestProcessUpgradeSkippedNodes_WakesOnNewRevision(t *testing.T) {
+	pm := &mockPodManager{podRevisionHash: "rev0", dsRevisionHash: "rev1"}
+	mgr := newTestManager(t, withPodManager(pm))
+
+	ns := newNodeUpgradeState("node-1", UpgradeStateSkipped, "rev0")
+	ns.Node.Annotations = map[string]string{UpgradeAttemptedRevisionAnnotationKey: "rev0"}
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateSkipped: {ns},
+	})
+	if err := mgr.ProcessUpgradeSkippedNodes(context.Background(), state); err != nil {
+		t.Fatalf("ProcessUpgradeSkippedNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUpgradeRequired {
+		t.Fatalf("node state = %q, want %q (new revision is a fresh attempt)", got, UpgradeStateUpgradeRequired)
+	}
+}
+
+func TestProcessUpgradeSkippedNodes_SameRevisionDoesNotWake(t *testing.T) {
+	pm := &mockPodManager{podRevisionHash: "rev0", dsRevisionHash: "rev1"}
+	mgr := newTestManager(t, withPodManager(pm))
+
+	ns := newNodeUpgradeState("node-1", UpgradeStateSkipped, "rev0")
+	ns.Node.Annotations = map[string]string{UpgradeAttemptedRevisionAnnotationKey: "rev1"}
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateSkipped: {ns},
+	})
+	if err := mgr.ProcessUpgradeSkippedNodes(context.Background(), state); err != nil {
+		t.Fatalf("ProcessUpgradeSkippedNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateSkipped {
+		t.Fatalf("node state = %q, want %q (no auto-retry within the same revision)", got, UpgradeStateSkipped)
+	}
+}
+
+func TestTransitionToUpgradeRequiredClearsJudgementArtifacts(t *testing.T) {
+	pm := &mockPodManager{podRevisionHash: "rev0", dsRevisionHash: "rev1"}
+	mgr := newTestManager(t, withPodManager(pm))
+
+	ns := newNodeUpgradeState("node-1", UpgradeStateDone, "rev0")
+	ns.Node.Annotations = map[string]string{
+		UpgradePodRestartStartTimeAnnotationKey: "100",
+		UpgradeFailureReasonAnnotationKey:       "stale reason",
+		UpgradeFailureStepAnnotationKey:         UpgradeStateRebootRequired,
+		UpgradeSkipReasonAnnotationKey:          "stale skip reason",
+		UpgradeAttemptedRevisionAnnotationKey:   "rev0",
+	}
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateDone: {ns},
+	})
+	if err := mgr.ProcessDoneNodes(context.Background(), state); err != nil {
+		t.Fatalf("ProcessDoneNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUpgradeRequired {
+		t.Fatalf("node state = %q, want %q", got, UpgradeStateUpgradeRequired)
+	}
+	for _, key := range []string{
+		UpgradePodRestartStartTimeAnnotationKey,
+		UpgradeFailureReasonAnnotationKey,
+		UpgradeFailureStepAnnotationKey,
+		UpgradeSkipReasonAnnotationKey,
+		UpgradeAttemptedRevisionAnnotationKey,
+	} {
+		if _, ok := updated.Annotations[key]; ok {
+			t.Fatalf("annotation %q should be cleared when a fresh upgrade starts", key)
+		}
+	}
+}
+
+func TestProcessUpgradeSkippedNodesKeepsCordonExceptions(t *testing.T) {
+	tests := map[string]map[string]string{
+		"initially unschedulable node": {UpgradeInitialStateAnnotationKey: trueString},
+		"requestor-mode node":          {UpgradeRequestorModeAnnotationKey: trueString},
+	}
+
+	for name, annotations := range tests {
+		t.Run(name, func(t *testing.T) {
+			cm := &mockCordonManager{}
+			mgr := newTestManager(t, withCordonManager(cm))
+
+			ns := newNodeUpgradeState("node-1", UpgradeStateSkipped, "rev0")
+			ns.Node.Spec.Unschedulable = true
+			ns.Node.Annotations = annotations
+			registerNodes(t, mgr, ns.Node)
+
+			state := newClusterState(map[string][]*NodeUpgradeState{
+				UpgradeStateSkipped: {ns},
+			})
+			if err := mgr.ProcessUpgradeSkippedNodes(context.Background(), state); err != nil {
+				t.Fatalf("ProcessUpgradeSkippedNodes: %v", err)
+			}
+			if len(cm.uncordonedNodes) != 0 {
+				t.Fatalf("uncordoned nodes = %v, want none", cm.uncordonedNodes)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ProcessUpgradeFailedNodes
 // ---------------------------------------------------------------------------
@@ -462,27 +911,82 @@ func TestProcessUpgradeFailedNodes(t *testing.T) {
 		annotations map[string]string
 		wantState   string
 	}{
-		"pod in sync transitions to UncordonRequired": {
-			podRevHash: "rev1",
-			dsRevHash:  "rev1",
-			podPhase:   corev1.PodRunning,
-			podReady:   true,
-			wantState:  UpgradeStateUncordonRequired,
-		},
-		"pod in sync with initial state annotation transitions to Done": {
+		"pod-restart failure self-heals to UncordonRequired when pod is in sync": {
 			podRevHash: "rev1",
 			dsRevHash:  "rev1",
 			podPhase:   corev1.PodRunning,
 			podReady:   true,
 			annotations: map[string]string{
+				UpgradeFailureStepAnnotationKey:   UpgradeStatePodRestartRequired,
+				UpgradeFailureReasonAnnotationKey: "driver pod crash-looping",
+			},
+			wantState: UpgradeStateUncordonRequired,
+		},
+		"pod-restart failure with initial state annotation self-heals to Done": {
+			podRevHash: "rev1",
+			dsRevHash:  "rev1",
+			podPhase:   corev1.PodRunning,
+			podReady:   true,
+			annotations: map[string]string{
+				UpgradeFailureStepAnnotationKey:  UpgradeStatePodRestartRequired,
 				UpgradeInitialStateAnnotationKey: trueString,
 			},
 			wantState: UpgradeStateDone,
 		},
-		"pod not in sync stays in Failed": {
+		"pod-restart failure with pod not ready stays in Failed": {
 			podRevHash: "rev1",
-			dsRevHash:  "rev2",
+			dsRevHash:  "rev1",
+			annotations: map[string]string{
+				UpgradeFailureStepAnnotationKey: UpgradeStatePodRestartRequired,
+			},
+			wantState: UpgradeStateFailed,
+		},
+		"reboot failure never self-heals even with pod in sync and Ready": {
+			podRevHash: "rev1",
+			dsRevHash:  "rev1",
+			podPhase:   corev1.PodRunning,
+			podReady:   true,
+			annotations: map[string]string{
+				UpgradeFailureStepAnnotationKey:   UpgradeStateRebootValidationRequired,
+				UpgradeFailureReasonAnnotationKey: "reboot validation timed out after 600 seconds",
+			},
+			wantState: UpgradeStateFailed,
+		},
+		"failure without a recorded step never self-heals": {
+			podRevHash: "rev1",
+			dsRevHash:  "rev1",
+			podPhase:   corev1.PodRunning,
+			podReady:   true,
 			wantState:  UpgradeStateFailed,
+		},
+		"upgrade-requested annotation wakes the node to UpgradeRequired": {
+			podRevHash: "rev1",
+			dsRevHash:  "rev1",
+			annotations: map[string]string{
+				UpgradeRequestedAnnotationKey:         trueString,
+				UpgradeFailureStepAnnotationKey:       UpgradeStateRebootRequired,
+				UpgradeFailureReasonAnnotationKey:     "reboot trigger failed",
+				UpgradeAttemptedRevisionAnnotationKey: "rev1",
+			},
+			wantState: UpgradeStateUpgradeRequired,
+		},
+		"new driver revision wakes the node to UpgradeRequired": {
+			podRevHash: "rev0",
+			dsRevHash:  "rev1",
+			annotations: map[string]string{
+				UpgradeFailureStepAnnotationKey:       UpgradeStateValidationRequired,
+				UpgradeAttemptedRevisionAnnotationKey: "rev0",
+			},
+			wantState: UpgradeStateUpgradeRequired,
+		},
+		"same revision without operator request stays in Failed": {
+			podRevHash: "rev0",
+			dsRevHash:  "rev1",
+			annotations: map[string]string{
+				UpgradeFailureStepAnnotationKey:       UpgradeStateValidationRequired,
+				UpgradeAttemptedRevisionAnnotationKey: "rev1",
+			},
+			wantState: UpgradeStateFailed,
 		},
 	}
 
@@ -521,7 +1025,48 @@ func TestProcessUpgradeFailedNodes(t *testing.T) {
 			if got := updated.Labels[UpgradeStateLabelKey]; got != tc.wantState {
 				t.Fatalf("node state = %q, want %q", got, tc.wantState)
 			}
+
+			if tc.wantState != UpgradeStateFailed {
+				for _, key := range []string{
+					UpgradeFailureReasonAnnotationKey,
+					UpgradeFailureStepAnnotationKey,
+					UpgradeAttemptedRevisionAnnotationKey,
+				} {
+					if _, ok := updated.Annotations[key]; ok {
+						t.Fatalf("annotation %q should be cleared when leaving upgrade-failed", key)
+					}
+				}
+			}
 		})
+	}
+}
+
+func TestProcessUpgradeFailedNodes_StampsAttemptedRevisionOnFirstSight(t *testing.T) {
+	pm := &mockPodManager{podRevisionHash: "rev0", dsRevisionHash: "rev1"}
+	mgr := newTestManager(t, withPodManager(pm))
+
+	ns := newNodeUpgradeState("node-1", UpgradeStateFailed, "rev0")
+	ns.Node.Annotations = map[string]string{
+		UpgradeFailureStepAnnotationKey: UpgradeStateRebootRequired,
+	}
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateFailed: {ns},
+	})
+	if err := mgr.ProcessUpgradeFailedNodes(context.Background(), state); err != nil {
+		t.Fatalf("ProcessUpgradeFailedNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Annotations[UpgradeAttemptedRevisionAnnotationKey]; got != "rev1" {
+		t.Fatalf("attempted revision = %q, want %q", got, "rev1")
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateFailed {
+		t.Fatalf("node state = %q, want %q", got, UpgradeStateFailed)
 	}
 }
 

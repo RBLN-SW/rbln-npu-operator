@@ -7,6 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -51,9 +52,11 @@ func TestChangeNodeUpgradeStateEventTable(t *testing.T) {
 		{"started", UpgradeStateUpgradeRequired, UpgradeStateCordonRequired, corev1.EventTypeNormal, consts.RBLNEventReasonDriverUpgradeStarted},
 		{"completed from in-progress", UpgradeStateUncordonRequired, UpgradeStateDone, corev1.EventTypeNormal, consts.RBLNEventReasonDriverUpgradeCompleted},
 		{"failed from drain", UpgradeStateDrainRequired, UpgradeStateFailed, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeFailed},
+		{"skipped from drain", UpgradeStateDrainRequired, UpgradeStateSkipped, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeSkipped},
 		{"initial unknown to done", "", UpgradeStateDone, "", ""},
 		{"uncontracted transition", UpgradeStateWaitForJobsRequired, UpgradeStateDrainRequired, "", ""},
 		{"failed recovery counts as completed", UpgradeStateFailed, UpgradeStateDone, corev1.EventTypeNormal, consts.RBLNEventReasonDriverUpgradeCompleted},
+		{"skipped to done stays silent", UpgradeStateSkipped, UpgradeStateDone, "", ""},
 	}
 
 	for _, tc := range tests {
@@ -74,6 +77,33 @@ func TestChangeNodeUpgradeStateEventTable(t *testing.T) {
 			expectEvent(t, rec, tc.wantType, tc.wantReason, "")
 		})
 	}
+}
+
+func TestMarkNodeUpgradeFailedRecordsDiagnosisAndEvent(t *testing.T) {
+	p, rec := newEventTestProvider(t, interceptor.Funcs{})
+	node := createStateNode(t, p, UpgradeStateRebootRequired)
+
+	err := markNodeUpgradeFailed(context.Background(), p, node,
+		UpgradeStateRebootRequired, "reboot trigger failed: pod create rejected")
+	if err != nil {
+		t.Fatalf("markNodeUpgradeFailed: %v", err)
+	}
+
+	updated := &corev1.Node{}
+	if err := p.K8sClient.Get(context.Background(), types.NamespacedName{Name: node.Name}, updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateFailed {
+		t.Fatalf("state = %q, want %q", got, UpgradeStateFailed)
+	}
+	if got := updated.Annotations[UpgradeFailureReasonAnnotationKey]; got != "reboot trigger failed: pod create rejected" {
+		t.Fatalf("failure reason = %q", got)
+	}
+	if got := updated.Annotations[UpgradeFailureStepAnnotationKey]; got != UpgradeStateRebootRequired {
+		t.Fatalf("failure step = %q, want %q", got, UpgradeStateRebootRequired)
+	}
+	expectEvent(t, rec, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeFailed,
+		"reboot trigger failed: pod create rejected")
 }
 
 func TestChangeNodeUpgradeStateSameStateIsNoOp(t *testing.T) {

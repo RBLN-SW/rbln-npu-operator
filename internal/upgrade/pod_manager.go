@@ -2,6 +2,7 @@ package upgrade
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -181,13 +182,15 @@ func (m *PodManager) ScheduleCheckOnPodCompletion(ctx context.Context, config *P
 	log.FromContext(ctx).Info("Pod Manager, starting checks on pod statuses")
 	var wg sync.WaitGroup
 
+	var errs []error
 	for _, node := range config.Nodes {
 		log.FromContext(ctx).Info("Schedule checks for pod completion", "node", node.Name)
 		podList, err := m.ListPods(ctx, config.WaitForCompletionSpec.PodSelector, node.Name)
 		if err != nil {
 			log.FromContext(ctx).Error(err, "Failed to list pods",
 				"selector", config.WaitForCompletionSpec.PodSelector, "node", node.Name)
-			return err
+			errs = append(errs, err)
+			continue
 		}
 		if len(podList.Items) > 0 {
 			log.FromContext(ctx).Error(err, "Found workload pods",
@@ -223,7 +226,7 @@ func (m *PodManager) ScheduleCheckOnPodCompletion(ctx context.Context, config *P
 		}(*node)
 	}
 	wg.Wait()
-	return nil
+	return errors.Join(errs...)
 }
 
 func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManagerConfig) error {
@@ -298,7 +301,8 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 					for _, err := range errs {
 						log.FromContext(ctx).Error(err, "Error reported by drain helper", "node", node.Name)
 					}
-					m.updateNodeToDrainOrFailed(ctx, node, config.DrainEnabled)
+					m.updateNodeToDrainOrSkipped(ctx, node, config.DrainEnabled,
+						fmt.Sprintf("pod eviction blocked: %v", errors.Join(errs...)))
 					return
 				}
 
@@ -312,7 +316,8 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 				err = drainHelper.DeleteOrEvictPods(podDeleteList.Pods())
 				if err != nil {
 					log.FromContext(ctx).Error(err, "Failed to delete pods on the node", "node", node.Name)
-					m.updateNodeToDrainOrFailed(ctx, node, config.DrainEnabled)
+					m.updateNodeToDrainOrSkipped(ctx, node, config.DrainEnabled,
+						fmt.Sprintf("pod eviction failed: %v", err))
 					return
 				}
 
@@ -333,14 +338,19 @@ func (m *PodManager) nextStateAfterPodDeletion(rebootRequired bool) string {
 	return UpgradeStatePodRestartRequired
 }
 
-func (m *PodManager) updateNodeToDrainOrFailed(ctx context.Context, node corev1.Node, drainEnabled bool) {
-	nextState := UpgradeStateFailed
+func (m *PodManager) updateNodeToDrainOrSkipped(ctx context.Context, node corev1.Node, drainEnabled bool, reason string) {
 	if drainEnabled {
 		log.FromContext(ctx).Info("Pod deletion failed but drain is enabled in spec. Will attempt a node drain",
 			"node", node.Name)
-		nextState = UpgradeStateDrainRequired
+		m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStateDrainRequired)
+		return
 	}
-	m.changeNodeUpgradeStateAsync(ctx, &node, nextState)
+	stateCtx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:contextcheck // intentional short-lived timeout for goroutine state transition
+	defer cancel()
+	if err := markNodeUpgradeSkipped(stateCtx, m.nodeUpgradeStateProvider, &node, reason); err != nil {
+		log.FromContext(ctx).Error(err, "Failed to mark node upgrade skipped; will retry next reconcile",
+			"node", node.Name, "reason", reason)
+	}
 }
 
 func (m *PodManager) SchedulePodsRestart(ctx context.Context, pods []*corev1.Pod) error {
@@ -349,14 +359,15 @@ func (m *PodManager) SchedulePodsRestart(ctx context.Context, pods []*corev1.Pod
 		log.FromContext(ctx).Info("No pods scheduled to restart")
 		return nil
 	}
+	var errs []error
 	for _, pod := range pods {
 		log.FromContext(ctx).Info("Deleting pod", "pod", pod.Name)
 		deleteOptions := metav1.DeleteOptions{}
 		err := m.k8sInterface.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, deleteOptions)
 		if err != nil {
 			log.FromContext(ctx).Error(err, "Failed to delete pod", "pod", pod.Name)
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }

@@ -82,22 +82,22 @@ func (m *DrainManager) ScheduleNodesDrain(ctx context.Context, drainConfig *Drai
 				defer m.drainingNodes.Remove(node.Name)
 				err := drain.RunCordonOrUncordon(drainHelper, node, true)
 				if err != nil {
-					log.FromContext(ctx).Error(err, "Failed to cordon node", "node", node.Name)
+					// The node is already cordoned by the cordon step; this is a transient API error.
+					log.FromContext(ctx).Error(err, "Failed to cordon node; will retry next cycle", "node", node.Name)
 					recordNodeEvent(m.eventRecorder, node, corev1.EventTypeWarning,
 						consts.RBLNEventReasonNodeDrainFailed,
 						fmt.Sprintf("Failed to cordon node: %v", err))
-					m.changeNodeUpgradeStateAsync(ctx, node, UpgradeStateFailed)
 					return
 				}
 				log.FromContext(ctx).Info("Cordoned the node", "node", node.Name)
 
 				err = drain.RunNodeDrain(drainHelper, node.Name)
 				if err != nil {
-					log.FromContext(ctx).Error(err, "Failed to drain node", "node", node.Name)
+					log.FromContext(ctx).Error(err, "Failed to drain node; skipping its upgrade", "node", node.Name)
 					recordNodeEvent(m.eventRecorder, node, corev1.EventTypeWarning,
 						consts.RBLNEventReasonNodeDrainFailed,
 						fmt.Sprintf("Failed to drain node: %v", err))
-					m.changeNodeUpgradeStateAsync(ctx, node, UpgradeStateFailed)
+					m.markNodeUpgradeSkippedAsync(ctx, node, fmt.Sprintf("node drain failed: %v", err))
 					return
 				}
 				log.FromContext(ctx).Info("Drained the node", "node", node.Name)
@@ -124,6 +124,15 @@ func (m *DrainManager) changeNodeUpgradeStateAsync(ctx context.Context, node *co
 	if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(stateCtx, node, state); err != nil {
 		log.FromContext(ctx).Error(err, "Failed to transition node state in goroutine; will retry next reconcile",
 			"node", node.Name, "targetState", state)
+	}
+}
+
+func (m *DrainManager) markNodeUpgradeSkippedAsync(ctx context.Context, node *corev1.Node, reason string) {
+	stateCtx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:contextcheck // intentional short-lived timeout for goroutine state transition
+	defer cancel()
+	if err := markNodeUpgradeSkipped(stateCtx, m.nodeUpgradeStateProvider, node, reason); err != nil {
+		log.FromContext(ctx).Error(err, "Failed to mark node upgrade skipped; will retry next reconcile",
+			"node", node.Name, "reason", reason)
 	}
 }
 

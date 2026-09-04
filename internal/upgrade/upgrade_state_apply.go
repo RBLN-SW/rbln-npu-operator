@@ -2,6 +2,7 @@ package upgrade
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -92,6 +93,22 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 				return m.ProcessDoneNodes(ctx, currentState)
 			},
 		},
+		// Skipped and failed run before upgrade-required so a woken node frees
+		// its slot within the same cycle's census.
+		{
+			name:     UpgradeStateSkipped,
+			errorMsg: "Failed to process nodes in 'upgrade-skipped' state",
+			run: func() error {
+				return m.ProcessUpgradeSkippedNodes(ctx, currentState)
+			},
+		},
+		{
+			name:     UpgradeStateFailed,
+			errorMsg: "Failed to process nodes in 'upgrade-failed' state",
+			run: func() error {
+				return m.ProcessUpgradeFailedNodes(ctx, currentState)
+			},
+		},
 		{
 			name:      UpgradeStateUpgradeRequired,
 			errorMsg:  "Failed to process nodes",
@@ -138,7 +155,8 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 			name:     UpgradeStatePodRestartRequired,
 			errorMsg: "Failed for 'pod-restart-required' state",
 			run: func() error {
-				return m.ProcessPodRestartNodes(ctx, currentState, rebootRequired)
+				return m.ProcessPodRestartNodes(ctx, currentState, rebootRequired,
+					int64(upgradePolicy.PodRestartTimeoutSeconds))
 			},
 		},
 		{
@@ -163,13 +181,6 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 			},
 		},
 		{
-			name:     UpgradeStateFailed,
-			errorMsg: "Failed to process nodes in 'upgrade-failed' state",
-			run: func() error {
-				return m.ProcessUpgradeFailedNodes(ctx, currentState)
-			},
-		},
-		{
 			name:     UpgradeStateValidationRequired,
 			errorMsg: "Failed to validate driver upgrade",
 			run: func() error {
@@ -185,12 +196,13 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 		},
 	}
 
+	var errs []error
 	for _, step := range steps {
 		if err := m.runApplyStateStep(ctx, step); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 
 	log.FromContext(ctx).V(consts.VDebug).Info("State Manager, finished processing")
-	return nil
+	return errors.Join(errs...)
 }
