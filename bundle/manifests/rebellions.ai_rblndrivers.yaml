@@ -352,7 +352,7 @@ spec:
                   alongside the driver. Its image tag always equals Version.
                 properties:
                   image:
-                    default: rebellions/rbln-daemon
+                    default: rebellions/rbln-smd
                     description: Image represents the rbln-smd image name
                     pattern: '[a-zA-Z0-9\-]+'
                     type: string

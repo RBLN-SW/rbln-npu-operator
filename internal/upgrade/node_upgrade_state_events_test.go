@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -25,7 +24,7 @@ func newEventTestProvider(t *testing.T, funcs interceptor.Funcs) (*NodeUpgradeSt
 	}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(funcs).Build()
 	rec := record.NewFakeRecorder(16)
-	return NewNodeUpgradeStateProvider(k8sClient, logr.Discard(), rec), rec
+	return NewNodeUpgradeStateProvider(k8sClient, rec), rec
 }
 
 func createStateNode(t *testing.T, p *NodeUpgradeStateProvider, state string) *corev1.Node {
@@ -120,7 +119,7 @@ func TestChangeNodeUpgradeStateEventObjectIsNode(t *testing.T) {
 		t.Fatalf("add corev1 scheme: %v", err)
 	}
 	spy := &spyRecorder{}
-	p := NewNodeUpgradeStateProvider(fake.NewClientBuilder().WithScheme(scheme).Build(), logr.Discard(), spy)
+	p := NewNodeUpgradeStateProvider(fake.NewClientBuilder().WithScheme(scheme).Build(), spy)
 	node := createStateNode(t, p, UpgradeStateUpgradeRequired)
 
 	if err := p.ChangeNodeUpgradeState(context.Background(), node, UpgradeStateCordonRequired); err != nil {
@@ -146,7 +145,7 @@ func TestChangeNodeUpgradeStateNilRecorder(t *testing.T) {
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add corev1 scheme: %v", err)
 	}
-	p := NewNodeUpgradeStateProvider(fake.NewClientBuilder().WithScheme(scheme).Build(), logr.Discard(), nil)
+	p := NewNodeUpgradeStateProvider(fake.NewClientBuilder().WithScheme(scheme).Build(), nil)
 	node := createStateNode(t, p, UpgradeStateUpgradeRequired)
 
 	if err := p.ChangeNodeUpgradeState(context.Background(), node, UpgradeStateCordonRequired); err != nil {

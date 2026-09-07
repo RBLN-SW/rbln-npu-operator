@@ -48,6 +48,18 @@ func TestDevicePluginPatch(t *testing.T) {
 		t.Fatalf("container-mode device-plugin must not override args, got %v", mainContainer.Args)
 	}
 
+	// NODE_NAME feeds the plugin's k8s.node.name span attribute, so it must be
+	// injected unconditionally. APIVersion must be explicit: the kube-apiserver
+	// defaults it to "v1" on persist, so omitting it triggers a perpetual
+	// reconcile/patch loop (operator submits "", server stores "v1", diff, repeat).
+	fr := envFieldRef(mainContainer.Env, "NODE_NAME")
+	if fr == nil {
+		t.Fatalf("NODE_NAME env var missing or has no FieldRef")
+	}
+	if fr.APIVersion != "v1" || fr.FieldPath != "spec.nodeName" {
+		t.Fatalf("NODE_NAME FieldRef = %+v, want {APIVersion: v1, FieldPath: spec.nodeName}", fr)
+	}
+
 	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(ds.Spec.Template.Spec.InitContainers))
 	}
@@ -140,6 +152,49 @@ func TestDevicePluginPatch_UseGenericResourceName(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Fatalf("USE_GENERIC_RESOURCE_NAME = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDevicePluginPatch_OtlpEndpoint(t *testing.T) {
+	tests := map[string]struct {
+		endpoint string
+		want     string
+		wantSet  bool
+	}{
+		"set":   {endpoint: "otel-collector:4317", want: "otel-collector:4317", wantSet: true},
+		"unset": {endpoint: "", want: "", wantSet: false},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			scheme := newTestScheme(t)
+			c := newFakeClient(t, scheme)
+			ctx := context.Background()
+
+			owner := newTestOwner()
+			owner.Spec.DevicePlugin = rblnv1beta1.RBLNDevicePluginSpec{
+				Enabled:      true,
+				Registry:     "docker.io",
+				Image:        "rebellions/k8s-device-plugin",
+				Version:      "latest",
+				OtlpEndpoint: tc.endpoint,
+			}
+
+			p := NewDevicePluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
+			if err := p.Patch(ctx, owner); err != nil {
+				t.Fatalf("Patch() error: %v", err)
+			}
+
+			dsName := consts.RBLNBaseName + "-" + consts.RBLNDevicePluginName
+			ds := assertDaemonSetBasics(t, c, dsName, owner.Name)
+			got, ok := envVarValue(ds.Spec.Template.Spec.Containers[0].Env, "OTEL_EXPORTER_OTLP_ENDPOINT")
+			if ok != tc.wantSet {
+				t.Fatalf("OTEL_EXPORTER_OTLP_ENDPOINT present = %v, want %v", ok, tc.wantSet)
+			}
+			if got != tc.want {
+				t.Fatalf("OTEL_EXPORTER_OTLP_ENDPOINT = %q, want %q", got, tc.want)
 			}
 		})
 	}

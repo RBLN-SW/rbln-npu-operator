@@ -20,6 +20,11 @@ crds:
     imagePullSecrets: []
     tolerations: []
     resources: {}
+    # crd-apply hook Job logging. The hook runs pre-install, before the
+    # operator exists, so cluster-level logging configuration cannot reach it.
+    logging:
+      level: info        # error|warning|info|debug
+      format: json       # json|text
 
 # RDS (Rebellions Direct Storage): NPU direct NVMe access. When enabled, the
 # operator deploys a dedicated driver pool (RBLN_RDS_BINDING=enabled) onto nodes
@@ -64,6 +69,17 @@ operator:
     requests:
       cpu: 50m
       memory: 128Mi
+  logging:
+    # zap gate for the operator manager's own logs. Redirected client-go/klog
+    # records surface at V(0) only; raising their verbosity needs a klog -v
+    # container arg AND this level raised to match.
+    # NOTE: invalid values crash the operator at startup (unlike
+    # crds.upgrade.logging, which falls back).
+    # error|info|debug|panic or an integer N>0 (logr V<=N)
+    level: info
+    encoder: json      # json|console
+    timeEncoding: rfc3339nano  # epoch|millis|nanos|iso8601|rfc3339|rfc3339nano
+    develMode: false  # true = zap development behavior: DPanic panics + full Kubernetes-object dumps in log values; encoder/level are unaffected — set them explicitly above
   # Operator self-metrics. HTTPS + authn/authz — scrapers need a SA token
   # bound to the -metrics-reader ClusterRole.
   metrics:
@@ -151,7 +167,7 @@ driver:
       image:
         registry: docker.io
         image: rebellions/rbln-node-reboot
-        version: v1.0.0
+        version: v1.0.1
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-driver
@@ -196,7 +212,7 @@ driver:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.2.1
+      tag: v0.2.2
       pullPolicy: IfNotPresent
   #  imagePullSecrets:
   #  - my-registry-secret
@@ -205,7 +221,7 @@ driver:
   smd:
     image:
       registry: repo.rebellions.ai
-      repository: rebellions/rbln-daemon
+      repository: rebellions/rbln-smd
   # Additional RBLNDriver instances for per-node-group driver versions.
   # Each key becomes a CR named rbln-driver-<key>. Fields not set on an
   # instance inherit from the driver block above (maps deep-merge; LISTS such
@@ -230,11 +246,19 @@ devicePlugin:
   image:
     registry: docker.io
     repository: rebellions/k8s-device-plugin
-    tag: v0.4.2
+    tag: v0.4.3
     pullPolicy: IfNotPresent
   # Advertise the generic resource name (rebellions.ai/npu) in addition to product-specific ones.
   # the controller forwards it to the device plugin container as USE_GENERIC_RESOURCE_NAME.
   useGenericResourceName: true
+  # OTLP gRPC endpoint (host:port, or a scheme-qualified URL) for device-plugin allocation traces.
+  # The controller forwards it to the container as OTEL_EXPORTER_OTLP_ENDPOINT; empty disables tracing.
+  otlpEndpoint: ""
+  # Operand log gate. Unset (the default) leaves the image's own info/json in
+  # place; the controller renders an env var only for the keys you set here.
+  # logging:
+  #   level: debug     # error|warning|warn|info|debug
+  #   format: text     # json|text
 
 # NPU DRA kubelet plugin configuration
 draKubeletPlugin:
@@ -242,12 +266,16 @@ draKubeletPlugin:
   image:
     registry: docker.io
     repository: rebellions/k8s-dra-driver-npu
-    tag: v0.1.2
+    tag: v0.1.4
     pullPolicy: IfNotPresent
   driverName: npu.rebellions.ai
   kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
   kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
   healthcheckPort: 51515
+  # See devicePlugin.logging.
+  # logging:
+  #   level: debug
+  #   format: text
 
 # NPU Metrics Exporter configuration
 metricsExporter:
@@ -255,8 +283,12 @@ metricsExporter:
   image:
     registry: docker.io
     repository: rebellions/rbln-metrics-exporter
-    tag: v0.3.2
+    tag: v0.3.4
     pullPolicy: IfNotPresent
+  # See devicePlugin.logging.
+  # logging:
+  #   level: debug
+  #   format: text
 
 # NPU Feature Discovery configuration
 npuFeatureDiscovery:
@@ -264,8 +296,12 @@ npuFeatureDiscovery:
   image:
     registry: docker.io
     repository: rebellions/rbln-npu-feature-discovery
-    tag: v0.2.2
+    tag: v0.2.3
     pullPolicy: IfNotPresent
+  # See devicePlugin.logging.
+  # logging:
+  #   level: debug
+  #   format: text
 
 # Container Toolkit configuration
 containerToolkit:
@@ -289,8 +325,12 @@ sandboxDevicePlugin:
   image:
     registry: docker.io
     repository: rebellions/sandbox-device-plugin
-    tag: v0.1.0
+    tag: v0.1.1
     pullPolicy: IfNotPresent
+  # See devicePlugin.logging.
+  # logging:
+  #   level: debug
+  #   format: text
 
   # Per-model: empty RBLN_PT_ALIAS → one resource per (model, function),
   # e.g. rebellions.ai/RBLN-CA22_PF. KubeVirt permittedHostDevices must
@@ -302,13 +342,13 @@ vfioManager:
   image:
     registry: docker.io
     repository: rebellions/rbln-vfio-manager
-    tag: v1.0.0
+    tag: v1.0.1
     pullPolicy: IfNotPresent
   driverManager:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.2.1
+      tag: v0.2.2
       pullPolicy: IfNotPresent
     env: []
 

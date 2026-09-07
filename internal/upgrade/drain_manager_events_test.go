@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,8 +36,8 @@ func newDrainTestManager(t *testing.T, node *corev1.Node, reactors ...func(*k8sf
 		r(clientset)
 	}
 	rec := record.NewFakeRecorder(16)
-	provider := NewNodeUpgradeStateProvider(builder.Build(), logr.Discard(), rec)
-	return NewDrainManager(clientset, provider, logr.Discard(), rec), rec
+	provider := NewNodeUpgradeStateProvider(builder.Build(), rec)
+	return NewDrainManager(clientset, provider, rec), rec
 }
 
 func drainNode() *corev1.Node {

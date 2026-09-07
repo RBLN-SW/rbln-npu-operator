@@ -52,7 +52,7 @@ func validateToolkit(ctx context.Context, cfg *toolkitConfig, rt toolkitRuntime)
 
 	for {
 		if err := rt.checkReady(ctx); err != nil {
-			slog.Info("toolkit is not ready", "err", err, "sleepSeconds", cfg.sleepIntervalSeconds)
+			slog.Info("Toolkit is not ready", "error", err, "sleepSeconds", cfg.sleepIntervalSeconds)
 			rt.sleep(time.Duration(cfg.sleepIntervalSeconds) * time.Second)
 			continue
 		}

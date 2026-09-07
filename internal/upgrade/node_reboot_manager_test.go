@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -24,7 +23,7 @@ func TestPodRebootManagerTrigger(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	mgr := &PodRebootManager{k8sClient: k8sClient, log: logr.Discard(), rebootImage: "default:v1"}
+	mgr := &PodRebootManager{k8sClient: k8sClient, rebootImage: "default:v1"}
 
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1"}}
 	req := RebootTriggerRequest{
@@ -71,7 +70,7 @@ func TestPodRebootManagerDeleteRebootPod(t *testing.T) {
 	t.Run("deletes existing pod", func(t *testing.T) {
 		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "rbln-reboot-1", Namespace: "rbln-system"}}
 		k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
-		mgr := &PodRebootManager{k8sClient: k8sClient, log: logr.Discard()}
+		mgr := &PodRebootManager{k8sClient: k8sClient}
 
 		err := mgr.DeleteRebootPod(context.Background(), "rbln-system", "rbln-reboot-1")
 		if err != nil {
@@ -81,7 +80,7 @@ func TestPodRebootManagerDeleteRebootPod(t *testing.T) {
 
 	t.Run("not found is idempotent", func(t *testing.T) {
 		k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-		mgr := &PodRebootManager{k8sClient: k8sClient, log: logr.Discard()}
+		mgr := &PodRebootManager{k8sClient: k8sClient}
 
 		err := mgr.DeleteRebootPod(context.Background(), "rbln-system", "nonexistent")
 		if err != nil {
@@ -91,7 +90,7 @@ func TestPodRebootManagerDeleteRebootPod(t *testing.T) {
 
 	t.Run("empty namespace is no-op", func(t *testing.T) {
 		k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-		mgr := &PodRebootManager{k8sClient: k8sClient, log: logr.Discard()}
+		mgr := &PodRebootManager{k8sClient: k8sClient}
 
 		err := mgr.DeleteRebootPod(context.Background(), "", "pod-1")
 		if err != nil {

@@ -22,8 +22,8 @@ func validateHostDriver() error {
 		"--", "env", "TMPDIR=/tmp", hostSmiBinary, "--version")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		slog.Info("rbln-smi execution failed, host driver not detected",
-			"err", err, "output", strings.TrimSpace(string(out)))
+		slog.Info("RBLN-SMI execution failed, host driver not detected",
+			"error", err, "output", strings.TrimSpace(string(out)))
 		return fmt.Errorf("host driver not detected via %s: %w", hostSmiBinary, err)
 	}
 

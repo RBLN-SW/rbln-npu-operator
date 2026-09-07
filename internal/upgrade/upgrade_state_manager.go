@@ -76,18 +76,18 @@ func NewClusterUpgradeStateManager(
 		return &ClusterUpgradeStateManagerImpl{}, fmt.Errorf("error creating k8s interface: %v", err)
 	}
 
-	nodeUpgradeStateProvider := NewNodeUpgradeStateProvider(k8sClient, log, eventRecorder)
+	nodeUpgradeStateProvider := NewNodeUpgradeStateProvider(k8sClient, eventRecorder)
 	manager := &ClusterUpgradeStateManagerImpl{
 		log:                      log,
 		k8sClient:                k8sClient,
 		k8sInterface:             k8sInterface,
-		drainManager:             NewDrainManager(k8sInterface, nodeUpgradeStateProvider, log, eventRecorder),
-		rebootManager:            NewPodRebootManager(k8sClient, log),
-		podManager:               NewPodManager(k8sInterface, nodeUpgradeStateProvider, log, nil),
-		cordonManager:            NewCordonManager(k8sInterface, log),
+		drainManager:             NewDrainManager(k8sInterface, nodeUpgradeStateProvider, eventRecorder),
+		rebootManager:            NewPodRebootManager(k8sClient),
+		podManager:               NewPodManager(k8sInterface, nodeUpgradeStateProvider, nil),
+		cordonManager:            NewCordonManager(k8sInterface),
 		nodeUpgradeStateProvider: nodeUpgradeStateProvider,
-		validationManager:        NewValidationManager(k8sInterface, log, nodeUpgradeStateProvider, ""),
-		safeDriverLoadManager:    NewSafeDriverLoadManager(nodeUpgradeStateProvider, log),
+		validationManager:        NewValidationManager(k8sInterface, nodeUpgradeStateProvider, ""),
+		safeDriverLoadManager:    NewSafeDriverLoadManager(nodeUpgradeStateProvider),
 	}
 	return manager, nil
 }
@@ -97,7 +97,7 @@ func (m *ClusterUpgradeStateManagerImpl) WithPodDeletionEnabled(filter PodDeleti
 		m.log.Info("Cannot enable PodDeletion state as PodDeletionFilter is nil")
 		return m
 	}
-	m.podManager = NewPodManager(m.k8sInterface, m.nodeUpgradeStateProvider, m.log, filter)
+	m.podManager = NewPodManager(m.k8sInterface, m.nodeUpgradeStateProvider, filter)
 	m.podDeletionStateEnabled = true
 	return m
 }
@@ -107,8 +107,7 @@ func (m *ClusterUpgradeStateManagerImpl) WithValidationEnabled(podSelector strin
 		m.log.Info("Cannot enable Validation state as podSelector is empty")
 		return m
 	}
-	m.validationManager = NewValidationManager(m.k8sInterface, m.log, m.nodeUpgradeStateProvider,
-		podSelector)
+	m.validationManager = NewValidationManager(m.k8sInterface, m.nodeUpgradeStateProvider, podSelector)
 	m.validationStateEnabled = true
 	return m
 }

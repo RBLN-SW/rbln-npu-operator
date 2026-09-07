@@ -29,10 +29,6 @@ func NewUpdater(c client.Client) *Updater {
 
 // ----------------------------- RBLNClusterPolicy ----------------------------
 
-func (u *Updater) SetPolicyReady(ctx context.Context, policy *rblnv1beta1.RBLNClusterPolicy, reason, message string) error {
-	return u.patchPolicy(ctx, policy, consts.RBLNStateReady, metav1.ConditionTrue, reason, message)
-}
-
 func (u *Updater) SetPolicyNotReady(ctx context.Context, policy *rblnv1beta1.RBLNClusterPolicy, reason, message string) error {
 	return u.patchPolicy(ctx, policy, consts.RBLNStateNotReady, metav1.ConditionFalse, reason, message)
 }

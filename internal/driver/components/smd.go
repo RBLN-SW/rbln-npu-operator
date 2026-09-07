@@ -80,8 +80,8 @@ func (h *SmdPatcher) Patch(ctx context.Context, owner *rebellionsaiv1alpha1.RBLN
 		// emptied; rendering here would fall back to :latest and break the
 		// driver/smd version alignment this component exists for. Keep
 		// whatever is running.
-		h.log.V(consts.LogLevelDebug).Info("driver version is empty; keeping the existing rbln-smd DaemonSet as-is",
-			"instance", h.instanceName)
+		h.log.V(consts.VDebug).Info("Driver version is empty; keeping the existing rbln-smd DaemonSet as-is",
+			"driver", h.instanceName)
 		return nil
 	}
 
@@ -136,17 +136,17 @@ func (h *SmdPatcher) smdLabels() map[string]string {
 }
 
 // smdNodeSelector pins smd pods to this instance's driver nodes. The owner
-// label alone scopes the instance; npu.deploy.rbln-daemon is additionally
+// label alone scopes the instance; npu.deploy.rbln-smd is additionally
 // required because it is the eviction handle k8s-driver-manager flips to
 // paused-for-driver-upgrade on every driver pod start, which (with OnDelete)
 // is what rolls this pod onto the current template in step with the driver.
 // The key name is that binary's hardcoded contract — do not rename it here
-// alone.
+// alone, and note that a driver-manager predating the rename never flips it.
 func (h *SmdPatcher) smdNodeSelector() map[string]string {
 	return map[string]string{
-		driverManagerDeployLabelKey:         "true",
-		consts.RBLNDriverOwnerLabelKey:      h.instanceName,
-		consts.RBLNDeployRBLNDaemonLabelKey: "true",
+		driverManagerDeployLabelKey:    "true",
+		consts.RBLNDriverOwnerLabelKey: h.instanceName,
+		consts.RBLNDeploySmdLabelKey:   "true",
 	}
 }
 
@@ -191,10 +191,13 @@ func (h *SmdPatcher) handleDaemonSet(ctx context.Context, owner *rebellionsaiv1a
 func (h *SmdPatcher) buildPodSpec(version string) *corev1.PodSpec {
 	initContainer := h.buildDriverReadyInitContainer()
 
+	// No command override: every rbln-smd image ships an ENTRYPOINT pointing at
+	// its own binary, so leaving it unset keeps the operator out of the way when
+	// that path moves (it did once already: /opt/rebellions/bin/rbln_daemon →
+	// /usr/bin/rbln-smd) instead of requiring a lockstep operator release.
 	smdContainer := k8sutil.NewContainerBuilder().
 		WithName(h.name).
 		WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Smd.Registry, h.desiredSpec.Smd.Image), version, h.desiredSpec.ImagePullPolicy).
-		WithCommands([]string{smdCommand}).
 		WithResources(corev1.ResourceRequirements{}, "250m", "40Mi").
 		WithPorts([]corev1.ContainerPort{
 			{

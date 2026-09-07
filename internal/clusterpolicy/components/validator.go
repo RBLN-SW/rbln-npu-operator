@@ -84,7 +84,7 @@ func (h *validatorPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClu
 }
 
 func (h *validatorPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "Validator")
+	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "Validator")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}

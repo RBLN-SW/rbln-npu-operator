@@ -1,12 +1,16 @@
 package consts
 
-// log level
-const (
-	LogLevelError = iota - 2
-	LogLevelWarning
-	LogLevelInfo
-	LogLevelDebug
-)
+// Verbosity levels for logr call sites. Severity is expressed by the method
+// (Error vs Info), never by V: V(0) carries state changes and warnings,
+// VDebug per-reconcile detail. Messages start with a capital letter, carry
+// no trailing period, and never embed a severity prefix such as "WARNING:".
+//
+// An error value always travels under the key "error" -- the key zapr forces
+// on Error() records, and therefore the only one that can also serve the
+// handled transients logged at Info. Severity is the level's job, not the
+// key's: a second key would only mean every "what failed" query has to match
+// both or silently miss half the records.
+const VDebug = 1
 
 // NFD label keys
 const (
@@ -30,10 +34,18 @@ const (
 	RBLNDeploySkipLabelKey   = "rebellions.ai/npu.deploy.skip"
 	RBLNDeployDriverLabelKey = "rebellions.ai/npu.deploy.driver"
 
-	// RBLNDeployRBLNDaemonLabelKey gates rbln-smd pods, and is the eviction
-	// handle k8s-driver-manager flips to paused-for-driver-upgrade on every
-	// driver pod start to bounce that node's smd pod. The key is hardcoded in
-	// that binary — never rename it without a lockstep driver-manager release.
+	// RBLNDeploySmdLabelKey gates rbln-smd pods, and is the eviction handle
+	// k8s-driver-manager flips to paused-for-driver-upgrade on every driver pod
+	// start to bounce that node's smd pod. The key is hardcoded in that binary,
+	// so a driver-manager older than the release that introduced it never flips
+	// this label and leaves the node's smd pod stranded on a stale image. That
+	// is why the two ship as a version pair — see the chart's
+	// driver.manager.image.tag.
+	RBLNDeploySmdLabelKey = "rebellions.ai/npu.deploy.rbln-smd"
+
+	// RBLNDeployRBLNDaemonLabelKey is the pre-rename spelling of
+	// RBLNDeploySmdLabelKey. Nothing selects on it; it exists only so upgraded
+	// nodes get it swept off instead of carrying a dead label forever.
 	RBLNDeployRBLNDaemonLabelKey = "rebellions.ai/npu.deploy.rbln-daemon"
 
 	NFDLabelPrefix = "feature.node.kubernetes.io/"

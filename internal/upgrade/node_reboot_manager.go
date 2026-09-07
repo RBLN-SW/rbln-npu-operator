@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type RebootTriggerRequest struct {
@@ -27,10 +27,9 @@ type RebootManager interface {
 type PodRebootManager struct {
 	k8sClient   ctrlclient.Client
 	rebootImage string
-	log         logr.Logger
 }
 
-func NewPodRebootManager(k8sClient ctrlclient.Client, log logr.Logger) *PodRebootManager {
+func NewPodRebootManager(k8sClient ctrlclient.Client) *PodRebootManager {
 	image := os.Getenv("RBLN_NODE_REBOOT_IMAGE")
 	if image == "" {
 		image = "docker.io/rebellions/rbln-node-reboot:latest"
@@ -38,7 +37,6 @@ func NewPodRebootManager(k8sClient ctrlclient.Client, log logr.Logger) *PodReboo
 	return &PodRebootManager{
 		k8sClient:   k8sClient,
 		rebootImage: image,
-		log:         log,
 	}
 }
 
@@ -84,7 +82,7 @@ func (m *PodRebootManager) Trigger(
 		},
 	}
 
-	m.log.Info(
+	log.FromContext(ctx).Info(
 		"Triggering reboot via node-bound pod",
 		"node", node.Name,
 		"namespace", req.Namespace,
@@ -96,7 +94,7 @@ func (m *PodRebootManager) Trigger(
 
 	err := m.k8sClient.Create(ctx, pod)
 	if apierrors.IsAlreadyExists(err) {
-		m.log.Info("Reboot pod already exists, treating as already-triggered", "namespace", req.Namespace, "pod", req.PodName)
+		log.FromContext(ctx).Info("Reboot pod already exists, treating as already-triggered", "namespace", req.Namespace, "pod", req.PodName)
 		return nil
 	}
 	if err != nil {

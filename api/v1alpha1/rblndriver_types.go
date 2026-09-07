@@ -248,7 +248,7 @@ type SmdSpec struct {
 
 	// Image represents the rbln-smd image name
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:=rebellions/rbln-daemon
+	// +kubebuilder:default:=rebellions/rbln-smd
 	// +kubebuilder:validation:Pattern=[a-zA-Z0-9\-]+
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Smd Image",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Image string `json:"image,omitempty"`

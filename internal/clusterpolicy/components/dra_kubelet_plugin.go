@@ -32,6 +32,9 @@ const (
 	draExtendedResource  = "rebellions.ai/npu"
 	// KEP-5304 metadata directory consumed by KubeVirt's virt-launcher.
 	draKubeVirtMetadataPath = "/var/run/kubernetes.io/dra-device-attributes"
+	// Named for the rbln-k8s-dra-driver repo, not this component.
+	draLogLevelEnv  = "RBLN_DRA_DRIVER_LOG_LEVEL"
+	draLogFormatEnv = "RBLN_DRA_DRIVER_LOG_FORMAT"
 )
 
 type draKubeletPluginPatcher struct {
@@ -81,7 +84,7 @@ func (h *draKubeletPluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.
 }
 
 func (h *draKubeletPluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.V(consts.LogLevelDebug).Info("Cleaning up disabled component", "component", "DRA kubelet plugin")
+	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "DRA kubelet plugin")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
@@ -260,6 +263,7 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 			}},
 		},
 	}
+	env = mergeEnvVars(env, loggingEnvVars(h.desiredSpec.Logging, draLogLevelEnv, draLogFormatEnv))
 
 	var livenessProbe *corev1.Probe
 	if h.desiredSpec.HealthcheckPort > 0 {

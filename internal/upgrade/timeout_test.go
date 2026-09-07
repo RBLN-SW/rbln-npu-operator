@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -20,7 +19,7 @@ func newTestNodeUpgradeStateProvider(t *testing.T) *NodeUpgradeStateProvider {
 		t.Fatalf("add scheme: %v", err)
 	}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	return NewNodeUpgradeStateProvider(k8sClient, logr.Discard(), nil)
+	return NewNodeUpgradeStateProvider(k8sClient, nil)
 }
 
 func newTestNode(name string, annotations map[string]string) *corev1.Node {

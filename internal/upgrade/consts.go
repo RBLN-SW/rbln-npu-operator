@@ -96,8 +96,6 @@ const (
 const (
 	// nodeNameFieldSelectorFmt is used in metav1.ListOptions to filter resources by node name.
 	nodeNameFieldSelectorFmt = "spec.nodeName=%s"
-	// nullString avoids duplicated null literal usage.
-	nullString = "null"
 	// trueString avoids duplicated true literal usage.
 	trueString = "true"
 )

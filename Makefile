@@ -253,8 +253,12 @@ verify-deps:
 	@git diff --exit-code -- vendor
 	@echo "Go vendor completed."
 
+.PHONY: verify-versions
+verify-versions: ## Check that version pins which must move together agree.
+	@./hack/verify-versions.sh
+
 .PHONY: code-check
-code-check: vet fmt lint verify-deps verify-manifests-sync
+code-check: vet fmt lint verify-deps verify-manifests-sync verify-versions
 
 .PHONY: pre-commit-install
 pre-commit-install: # Install pre-commit hooks.
@@ -335,6 +339,23 @@ build-node-reboot-image: ## Build the RBLN node reboot image.
 		--tag $(NODE_REBOOT_IMAGE) \
 		--build-arg VERSION="$(NODE_REBOOT_VERSION)" \
 		--file $(CURDIR)/images/node-reboot/Dockerfile $(CURDIR)
+
+TRIVY ?= trivy
+TRIVY_IMAGES ?= $(IMAGE) $(VFIO_MANAGER_IMAGE) $(NODE_REBOOT_IMAGE)
+
+# Same severity, scanner set, --ignore-unfixed behaviour and ignore file as
+# .github/workflows/image-scan.yaml, so a CI failure reproduces locally.
+.PHONY: scan-images
+scan-images: build-image build-vfio-manager-image build-node-reboot-image ## Build and scan shipped images for fixable HIGH/CRITICAL vulnerabilities and secrets.
+	@command -v $(TRIVY) >/dev/null || { \
+		echo "trivy not found: https://trivy.dev/latest/getting-started/installation/"; \
+		exit 1; \
+	}
+	@for img in $(TRIVY_IMAGES); do \
+		echo "==> $$img"; \
+		$(TRIVY) image --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed \
+			--ignorefile $(CURDIR)/.trivyignore.yaml --exit-code 1 "$$img" || exit 1; \
+	done
 
 ##@ Helm Chart
 
@@ -420,6 +441,9 @@ bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metada
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE)
 	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS)
 	$(OPERATOR_SDK) bundle validate ./bundle
+# operator-sdk stamps createdAt on every run (operator-framework/operator-sdk#6285);
+# drop the churn when the timestamp is the only bundle change.
+	@git diff --quiet -I'^    createdAt: ' bundle && git checkout -- bundle || true
 
 .PHONY: build-bundle-image
 build-bundle-image:

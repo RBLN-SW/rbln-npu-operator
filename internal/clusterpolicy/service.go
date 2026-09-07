@@ -133,7 +133,7 @@ func (s *ClusterPolicyService) AssembleStatus(
 		}
 
 		if report.State != rblnv1beta1.ComponentStateReady {
-			s.log.V(consts.LogLevelDebug).Info("component not ready",
+			s.log.V(consts.VDebug).Info("Component not ready",
 				"component", c.ComponentName(),
 				"workload", wlType,
 				"message", report.Message,

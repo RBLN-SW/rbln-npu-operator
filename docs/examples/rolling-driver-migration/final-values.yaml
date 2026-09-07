@@ -1,0 +1,34 @@
+# Final values for Step 5 of docs/rolling-driver-migration.md: identical to
+# new-values.yaml with only the rbln-mig/stage selector keys removed. Apply
+# this BEFORE removing the node labels.
+driver:
+  enabled: true
+  deployDefault: false
+  image:
+    registry: repo.rebellions.ai
+    repository: rebellions/rbln-driver
+    tag: "3.2.2"
+    pullPolicy: IfNotPresent
+  imagePullSecrets:
+    - drivercred
+  manager:
+    image:
+      registry: docker.io
+      repository: rebellions/rbln-k8s-driver-manager
+      tag: v0.2.2
+      pullPolicy: IfNotPresent
+  smd:
+    image:
+      registry: repo.rebellions.ai
+      repository: rebellions/rbln-smd
+  instances:
+    atom:
+      image:
+        tag: "3.2.2"
+      nodeSelector:
+        rebellions.ai/npu.family: atom
+    r100:
+      image:
+        tag: "3.3.0"
+      nodeSelector:
+        rebellions.ai/npu.family: rebel100

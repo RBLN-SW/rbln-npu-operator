@@ -1,0 +1,23 @@
+# Values for the OLD release (chart <= 0.4.5) after Step 1 of
+# docs/rolling-driver-migration.md: the default CR selects its nodes
+# through the per-node stage label.
+driver:
+  enabled: true
+  image:
+    registry: repo.rebellions.ai
+    repository: rebellions/rbln-driver
+    tag: "3.2.2"
+    pullPolicy: IfNotPresent
+  imagePullSecrets:
+    - drivercred
+  nodeSelector:
+    rbln-mig/stage: old-atom
+rblnDaemon:
+  enabled: true
+  image:
+    registry: repo.rebellions.ai
+    repository: rebellions/rbln-daemon
+    tag: "3.2.2"
+    pullPolicy: IfNotPresent
+  imagePullSecrets:
+    - drivercred

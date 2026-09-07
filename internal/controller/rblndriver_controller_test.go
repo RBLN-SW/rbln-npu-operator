@@ -782,7 +782,7 @@ func newTestDriverReconciler(openShiftVersion string) *RBLNDriverReconciler {
 		Conditions: conditions.NewUpdater(k8sClient),
 		// Mirrors SetupWithManager, which tests bypass by calling Reconcile
 		// directly; Reconcile assumes the resolver is always present.
-		ownerResolver: driver.NewOwnerResolver(k8sClient, logf.Log),
+		ownerResolver: driver.NewOwnerResolver(k8sClient),
 		imageChecker:  &fakeImageChecker{},
 	}
 	if openShiftVersion != "" {

@@ -55,7 +55,6 @@ const (
 
 	smdName              = "rbln-smd"
 	smdDaemonSetSuffix   = "smd"
-	smdCommand           = "/opt/rebellions/bin/rbln_daemon"
 	smdPortName          = "rbln-smd"
 	smdPort              = 50051
 	smdInitContainerName = "driver-validation"

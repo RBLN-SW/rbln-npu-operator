@@ -34,6 +34,18 @@ type RBLNDevicePluginSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Use Generic Resource Name",xDescriptors="urn:alm:descriptor:com.tectonic.ui:booleanSwitch"
 	UseGenericResourceName bool `json:"useGenericResourceName"`
 
+	// OtlpEndpoint is the OTLP gRPC endpoint (host:port, or a scheme-qualified URL) the
+	// device plugin exports allocation traces to. Forwarded to the device plugin container
+	// as the OTEL_EXPORTER_OTLP_ENDPOINT environment variable. Empty disables tracing.
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="OTLP Endpoint",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
+	OtlpEndpoint string `json:"otlpEndpoint,omitempty"`
+
+	// Logging gates the device plugin's own log stream, forwarded to the
+	// container as RBLN_DEVICE_PLUGIN_LOG_LEVEL / _LOG_FORMAT.
+	// +kubebuilder:validation:Optional
+	Logging *LoggingSpec `json:"logging,omitempty"`
+
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
@@ -64,6 +76,11 @@ type RBLNSandboxDevicePluginSpec struct {
 	// +kubebuilder:default:="latest"
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Version",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
 	Version string `json:"version,omitempty"`
+
+	// Logging gates the sandbox device plugin's own log stream, forwarded to
+	// the container as RBLN_SANDBOX_DEVICE_PLUGIN_LOG_LEVEL / _LOG_FORMAT.
+	// +kubebuilder:validation:Optional
+	Logging *LoggingSpec `json:"logging,omitempty"`
 
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional

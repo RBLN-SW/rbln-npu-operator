@@ -51,7 +51,7 @@ func TestIsPodRunningOrPending(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			pod := corev1.Pod{Status: corev1.PodStatus{Phase: tc.phase}}
-			if got := pm.IsPodRunningOrPending(pod); got != tc.want {
+			if got := pm.IsPodRunningOrPending(t.Context(), pod); got != tc.want {
 				t.Fatalf("IsPodRunningOrPending(%s) = %t, want %t", tc.phase, got, tc.want)
 			}
 		})
