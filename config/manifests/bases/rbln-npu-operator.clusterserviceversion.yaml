@@ -486,6 +486,20 @@ spec:
         path: podDefaults.tolerations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
+      - description: RDS enables Rebellions Direct Storage (NPU direct NVMe access)
+          on nodes
+        displayName: RDS
+        path: rds
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced
+      - description: |-
+          Enabled provisions a dedicated driver pool that binds RDS on nodes
+          labeled rebellions.ai/rds.present=true. Binding formats the node's spare
+          NVMe, so only explicitly-labeled nodes are targeted.
+        displayName: Enable RDS binding
+        path: rds.enabled
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
       - description: SandboxDevicePlugin component spec
         displayName: Sandbox Device Plugin
         path: sandboxDevicePlugin
