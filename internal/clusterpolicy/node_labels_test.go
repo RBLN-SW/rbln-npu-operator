@@ -156,7 +156,7 @@ func TestReconcileNodes(t *testing.T) {
 					map[string]string{consts.RBLNPresentLabelKey: labelValueTrue},
 					rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
 				),
-				absentLabels: labelKeys(rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough]),
+				absentLabels: labelKeysNotIn(rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough], rblnComponentLabels[consts.RBLNWorkloadConfigContainer]),
 			},
 		},
 		"removes deploy labels and excludes skipped nodes from the deployable count": {
@@ -214,7 +214,7 @@ func TestReconcileNodes(t *testing.T) {
 					map[string]string{consts.RBLNPresentLabelKey: labelValueTrue},
 					rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough],
 				),
-				absentLabels: labelKeys(rblnComponentLabels[consts.RBLNWorkloadConfigContainer]),
+				absentLabels: labelKeysNotIn(rblnComponentLabels[consts.RBLNWorkloadConfigContainer], rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough]),
 			},
 		},
 		"applies VMPassthrough workload labels when the node workload label is valid": {
@@ -231,7 +231,7 @@ func TestReconcileNodes(t *testing.T) {
 					map[string]string{consts.RBLNPresentLabelKey: labelValueTrue},
 					rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough],
 				),
-				absentLabels: labelKeys(rblnComponentLabels[consts.RBLNWorkloadConfigContainer]),
+				absentLabels: labelKeysNotIn(rblnComponentLabels[consts.RBLNWorkloadConfigContainer], rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough]),
 			},
 		},
 		"excludes rbln-smd on pre-installed driver nodes": {
@@ -252,7 +252,7 @@ func TestReconcileNodes(t *testing.T) {
 				},
 				absentLabels: append(
 					[]string{consts.RBLNDeploySmdLabelKey},
-					labelKeys(rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough])...,
+					labelKeysNotIn(rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough], rblnComponentLabels[consts.RBLNWorkloadConfigContainer])...,
 				),
 			},
 		},
@@ -345,7 +345,7 @@ func TestReconcileNodes(t *testing.T) {
 					map[string]string{consts.RBLNPresentLabelKey: labelValueTrue},
 					rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
 				),
-				absentLabels: labelKeys(rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough]),
+				absentLabels: labelKeysNotIn(rblnComponentLabels[consts.RBLNWorkloadConfigVMPassthrough], rblnComponentLabels[consts.RBLNWorkloadConfigContainer]),
 			},
 		},
 	}
@@ -458,6 +458,19 @@ func labelKeys(labels map[string]string) []string {
 	keys := make([]string, 0, len(labels))
 	for key := range labels {
 		keys = append(keys, key)
+	}
+	return keys
+}
+
+// The container and vm-passthrough component maps are not disjoint
+// (dra-kubelet-plugin serves both), so "the other workload's labels must be
+// absent" assertions have to skip the shared keys.
+func labelKeysNotIn(labels, exclude map[string]string) []string {
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		if _, shared := exclude[key]; !shared {
+			keys = append(keys, key)
+		}
 	}
 	return keys
 }
