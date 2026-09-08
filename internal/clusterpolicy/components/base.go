@@ -162,6 +162,45 @@ func buildRBLNBindingValidationInitContainer(validatorSpec rblnv1beta1.Validator
 		Build()
 }
 
+// buildDRAReadyInitContainer gates the DRA kubelet plugin on the node being
+// able to serve it. The plugin exits when rbln-smi or the RBLN CDI spec is
+// missing, so started too early it crash-loops through the driver install
+// and, if rbln-smi answers before the kernel module is loaded, it can even come
+// up "healthy" with an empty ResourceSlice that only a restart would fix.
+//
+// One DaemonSet serves both node kinds, so the gate is a disjunction rather
+// than the toolkit-validation wait the other container components use (that
+// would deadlock vm-passthrough nodes, where no validator or toolkit runs):
+//
+//   - container node: <validations>/toolkit-ready exists, which the validator
+//     writes only after driver-ready and the toolkit's CDI spec;
+//   - vm-passthrough node: every Rebellions NPU is bound to vfio-pci.
+//
+// On any given node only one branch can ever become true, so the init needs
+// no node-type lookup. It mounts /sys read-only for the vfio probe; the plugin
+// container itself deliberately does not mount /sys (see buildDRAContainer).
+func buildDRAReadyInitContainer(validatorSpec rblnv1beta1.ValidatorSpec) *corev1.Container {
+	return k8sutil.NewContainerBuilder().
+		WithName("dra-ready").
+		WithImage(k8sutil.ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, validatorSpec.ImagePullPolicy).
+		WithCommands([]string{"rbln-validator"}).
+		WithArgs([]string{"dra-ready"}).
+		WithSecurityContext(&corev1.SecurityContext{
+			Privileged: ptr(true),
+			RunAsUser:  ptr(int64(0)),
+		}).
+		WithVolumeMounts([]corev1.VolumeMount{
+			{
+				Name:      consts.ValidationsVolumeName,
+				MountPath: consts.ValidationsMountPath,
+				// toolkit-ready is written after this container starts.
+				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
+			},
+			{Name: "host-sys", MountPath: "/sys", ReadOnly: true},
+		}).
+		Build()
+}
+
 // ---------------------------------------------------------------------------
 // Shared reconcile helpers
 // ---------------------------------------------------------------------------
