@@ -135,6 +135,8 @@ func TestPatchComponents(t *testing.T) {
 func TestAssembleStatus(t *testing.T) {
 	containerReady := components.ReadinessReport{State: rblnv1beta1.ComponentStateReady, Desired: 1, Ready: 1}
 	containerNotReady := components.ReadinessReport{State: rblnv1beta1.ComponentStateNotReady, Desired: 1, Ready: 0, Message: "not ready"}
+	allReady := components.ReadinessReport{State: rblnv1beta1.ComponentStateReady, Desired: 2, Ready: 2}
+	allNotReady := components.ReadinessReport{State: rblnv1beta1.ComponentStateNotReady, Desired: 3, Ready: 2, Message: "2 of 3 pods are Ready"}
 
 	tests := map[string]struct {
 		reason         string
@@ -213,6 +215,54 @@ func TestAssembleStatus(t *testing.T) {
 			wantWorkloads: []rblnv1beta1.RBLNWorkloadStatus{
 				{Type: consts.RBLNWorkloadConfigContainer, NodeCount: 1, ComponentCount: 0, ReadyCount: 0, State: rblnv1beta1.WorkloadStateUncovered, Message: "1 container node(s) labeled but no enabled components configured"},
 				{Type: consts.RBLNWorkloadConfigVMPassthrough, NodeCount: 0, ComponentCount: 1, ReadyCount: 1, State: rblnv1beta1.WorkloadStateEmpty, Message: "1 component(s) configured but no vm-passthrough nodes present"},
+			},
+		},
+		"all-type component not ready → container workload progressing": {
+			reason: "an all-type component (DRA kubelet plugin) must feed the workload rollup, not only status.components",
+			patchers: []*fakePatcher{
+				{name: "container-toolkit", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigContainer, enabled: true, report: containerReady},
+				{name: "dra-kubelet-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigAll, enabled: true, report: allNotReady},
+			},
+			census: NodeCensus{TotalNPU: 3, ContainerNodes: 3, VMPassthroughNodes: 0},
+			wantComponents: []rblnv1beta1.RBLNComponentStatus{
+				{Name: "container-toolkit", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigContainer, State: rblnv1beta1.ComponentStateReady, Desired: 1, Ready: 1},
+				{Name: "dra-kubelet-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigAll, State: rblnv1beta1.ComponentStateNotReady, Desired: 3, Ready: 2, Message: "2 of 3 pods are Ready"},
+			},
+			wantWorkloads: []rblnv1beta1.RBLNWorkloadStatus{
+				{Type: consts.RBLNWorkloadConfigContainer, NodeCount: 3, ComponentCount: 2, ReadyCount: 1, State: rblnv1beta1.WorkloadStateProgressing, Message: "1/2 components ready on 3 container node(s)"},
+				{Type: consts.RBLNWorkloadConfigVMPassthrough, NodeCount: 0, ComponentCount: 0, ReadyCount: 0, State: rblnv1beta1.WorkloadStateEmpty},
+			},
+		},
+		"all-type component ready counts toward every workload that has nodes": {
+			reason: "with both node kinds present the all-type component is part of both rollups",
+			patchers: []*fakePatcher{
+				{name: "device-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigContainer, enabled: true, report: containerReady},
+				{name: "vfio-manager", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigVMPassthrough, enabled: true, report: containerReady},
+				{name: "dra-kubelet-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigAll, enabled: true, report: allReady},
+			},
+			census: NodeCensus{TotalNPU: 2, ContainerNodes: 1, VMPassthroughNodes: 1},
+			wantComponents: []rblnv1beta1.RBLNComponentStatus{
+				{Name: "device-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigContainer, State: rblnv1beta1.ComponentStateReady, Desired: 1, Ready: 1},
+				{Name: "vfio-manager", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigVMPassthrough, State: rblnv1beta1.ComponentStateReady, Desired: 1, Ready: 1},
+				{Name: "dra-kubelet-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigAll, State: rblnv1beta1.ComponentStateReady, Desired: 2, Ready: 2},
+			},
+			wantWorkloads: []rblnv1beta1.RBLNWorkloadStatus{
+				{Type: consts.RBLNWorkloadConfigContainer, NodeCount: 1, ComponentCount: 2, ReadyCount: 2, State: rblnv1beta1.WorkloadStateReady},
+				{Type: consts.RBLNWorkloadConfigVMPassthrough, NodeCount: 1, ComponentCount: 2, ReadyCount: 2, State: rblnv1beta1.WorkloadStateReady},
+			},
+		},
+		"all-type component with no NPU nodes feeds no workload": {
+			reason: "no nodes means nothing to cover; the component is reported but both workloads stay empty",
+			patchers: []*fakePatcher{
+				{name: "dra-kubelet-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigAll, enabled: true, report: components.ReadinessReport{State: rblnv1beta1.ComponentStateReady}},
+			},
+			census: NodeCensus{},
+			wantComponents: []rblnv1beta1.RBLNComponentStatus{
+				{Name: "dra-kubelet-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigAll, State: rblnv1beta1.ComponentStateReady},
+			},
+			wantWorkloads: []rblnv1beta1.RBLNWorkloadStatus{
+				{Type: consts.RBLNWorkloadConfigContainer, NodeCount: 0, ComponentCount: 0, ReadyCount: 0, State: rblnv1beta1.WorkloadStateEmpty},
+				{Type: consts.RBLNWorkloadConfigVMPassthrough, NodeCount: 0, ComponentCount: 0, ReadyCount: 0, State: rblnv1beta1.WorkloadStateEmpty},
 			},
 		},
 	}
