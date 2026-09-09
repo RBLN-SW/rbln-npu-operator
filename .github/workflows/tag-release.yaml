@@ -11,7 +11,9 @@ name: tag-release
 # The tag push is what starts release.yaml; this workflow publishes nothing.
 # hack/release/tag-release.sh refuses to tag when HEAD already carries an rc
 # tag, when the version already went GA, or (for ga) when HEAD is not the
-# newest rc's commit.
+# newest rc's commit or that commit's rc-validation status is not success
+# (enforced once the repository variable RC_VALIDATION_ENFORCE is "true").
+# Reading the status needs the App permission "Commit statuses: read".
 
 on:
   workflow_dispatch:
@@ -75,6 +77,9 @@ jobs:
           token: ${{ steps.app.outputs.token }}
 
       - name: Tag
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          RC_VALIDATION_ENFORCE: ${{ vars.RC_VALIDATION_ENFORCE }}
         run: |
           git config user.name "rbln-release-bot[bot]"
           git config user.email "rbln-release-bot[bot]@users.noreply.github.com"

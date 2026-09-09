@@ -7,8 +7,8 @@
 # pipeline sees a valid graph on the first try. Without a checkout path the
 # upstream repo is cloned sparsely (public, no credentials needed).
 #
-# For every OCP minor in OCP_RANGE (default: the bundle annotation) and every
-# channel the release workflow appends to (stable, fast, candidate):
+# For every OCP minor in OCP_RANGE (default: the value in versions.mk) and
+# every channel the release workflow appends to (stable, fast, candidate):
 #   - the version directory must not exist yet (merged versions are immutable)
 #   - the new entry must not already be in the channel
 #   - the new version must sort above the current channel head, otherwise the
@@ -32,9 +32,9 @@ command -v yq >/dev/null || fail "yq is required"
 pkg=rbln-npu-operator
 new="$pkg.v$version"
 upstream=${CERTIFIED_OPERATORS_UPSTREAM:-https://github.com/redhat-openshift-ecosystem/certified-operators.git}
-range=${OCP_RANGE:-$(yq '.annotations."com.redhat.openshift.versions" // ""' bundle/metadata/annotations.yaml 2>/dev/null || true)}
+range=${OCP_RANGE:-$(grep '^OCP_RANGE' versions.mk 2>/dev/null | cut -d'=' -f2 | tr -d ' ?')}
 [[ $range =~ ^v4\.([0-9]+)-v4\.([0-9]+)$ ]] ||
-	fail "OCP_RANGE must look like v4.16-v4.22 (got '${range:-<empty>}'). release.yaml sets it; locally run with OCP_RANGE=v4.16-v4.22."
+	fail "OCP_RANGE must look like v4.16-v4.22 (got '${range:-<empty>}'). It is read from versions.mk; override with OCP_RANGE=v4.16-v4.22."
 lo=${BASH_REMATCH[1]}
 hi=${BASH_REMATCH[2]}
 

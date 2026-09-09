@@ -23,3 +23,9 @@ CONTROLLER_TOOLS_VERSION ?= v0.20.1
 ENVTEST_K8S_VERSION ?= 1.34.1
 
 ENVTEST_VERSION ?= release-0.22
+
+# OpenShift minors the OLM bundle claims (com.redhat.openshift.versions) and the
+# certified-operators catalog templates the release graph check walks. Single
+# source: release.yaml patches it into the bundle annotation at rc and GA, and
+# hack/release/olm-graph-check.sh reads it when OCP_RANGE is not in the env.
+OCP_RANGE ?= v4.16-v4.22

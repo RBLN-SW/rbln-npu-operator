@@ -116,7 +116,7 @@ if [ "$changed" -gt "$SIZE_LIMIT" ]; then
 	marker='<!-- release-policy:size -->'
 	if [ -n "${GH_TOKEN:-}" ] && ! gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --jq '.[].body' 2>/dev/null | grep -q "$marker"; then
 		gh pr comment "$PR_NUMBER" --body "$marker
-**release-policy**: this PR changes $changed lines outside generated paths (advisory limit $SIZE_LIMIT). Large backports raise the soak risk; make sure this is a fix, not a feature riding along." || true
+**release-policy**: this PR changes $changed lines outside generated paths (advisory limit $SIZE_LIMIT). Large backports raise the risk of a late regression; make sure this is a fix, not a feature riding along." || true
 	fi
 else
 	pass "size: $changed changed lines outside generated paths"

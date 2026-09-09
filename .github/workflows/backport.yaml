@@ -58,11 +58,18 @@ jobs:
           github_token: ${{ steps.app.outputs.token }}
           label_pattern: '^backport (release-[0-9]+\.[0-9]+\.[0-9]+)$'
           pull_title: '${pull_title}'
+          # The trailer is repeated in the PR body so it survives the squash
+          # merge whichever commit-message default the repository uses: with
+          # "commit message" it comes from the cherry-picked commit, with "title
+          # and description" from this body. release-notes.sh needs it on the
+          # release-branch commit to tell a backport from a new change.
           pull_description: |-
             Backport of #${pull_number} to `${target_branch}`.
 
             Created by the backport workflow from the merged main commit; the
             cherry-pick trailer is the provenance the release-policy check verifies.
+
+            (cherry picked from commit ${{ github.event.pull_request.merge_commit_sha }})
           add_author_as_assignee: true
           add_team_reviewers: ${{ vars.RELEASE_TEAM || 'npu-release-managers' }}
           copy_labels_pattern: '^(release-blocker|tag-rc)$'

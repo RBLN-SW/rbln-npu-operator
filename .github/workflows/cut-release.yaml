@@ -1,7 +1,11 @@
 name: cut-release
 
-# Cut release-X.Y.Z from main and tag vX.Y.Z-rc1. Run by a release manager from
-# the Actions tab (or `gh workflow run cut-release.yaml -f version=0.7.0`).
+# Cut a release branch and tag vX.Y.Z-rc1. Run by a release manager from the
+# Actions tab (or `gh workflow run cut-release.yaml -f kind=minor`). The kind
+# decides the number and the starting point (hack/release/cut-release.sh):
+#   minor  release-X.(Y+1).0 from main        everything merged since the last GA
+#   patch  release-X.Y.(Z+1) from the GA tag  fixes only, backported afterwards
+#   major  release-(X+1).0.0 from main        an explicit decision
 # The tag push starts the rc path of release.yaml; this workflow builds nothing.
 #
 # The branch and tag are pushed with the release GitHub App's token, which is
@@ -11,12 +15,14 @@ name: cut-release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version to cut, X.Y.Z (e.g. 0.7.0). The release manager decides which position bumps."
+      kind:
+        description: "minor = next feature release from main; patch = fixes-only release from the newest GA; major = explicit major bump from main"
         required: true
-        type: string
-      sha:
-        description: "Commit to cut from. Empty = main HEAD."
+        type: choice
+        options: [minor, patch, major]
+        default: minor
+      version:
+        description: "Override the computed version (X.Y.Z). Leave empty in normal use."
         required: false
         default: ""
         type: string
@@ -30,7 +36,7 @@ concurrency:
 
 jobs:
   cut:
-    name: cut release-${{ inputs.version }}
+    name: cut ${{ inputs.kind }} ${{ inputs.version }}
     runs-on: ubuntu-latest
     steps:
       - name: Mint release App token
@@ -60,21 +66,28 @@ jobs:
           token: ${{ steps.app.outputs.token }}
 
       - name: Cut branch, tag rc1, create backport label
+        id: cut
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          KIND: ${{ inputs.kind }}
+          VERSION_OVERRIDE: ${{ inputs.version }}
         run: |
           git config user.name "rbln-release-bot[bot]"
           git config user.email "rbln-release-bot[bot]@users.noreply.github.com"
-          hack/release/cut-release.sh "${{ inputs.version }}" "${{ inputs.sha || 'origin/main' }}"
+          args=("$KIND")
+          [ -n "$VERSION_OVERRIDE" ] && args+=(--version "$VERSION_OVERRIDE")
+          hack/release/cut-release.sh "${args[@]}"
 
       - name: Notify Slack
         if: always()
         env:
           SLACK_OAUTH_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
           SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
+          BRANCH: ${{ steps.cut.outputs.branch }}
+          TAG: ${{ steps.cut.outputs.tag }}
         run: |
           if [ "${{ job.status }}" = "success" ]; then
-            hack/release/slack-notify.sh ":scissors: release-${{ inputs.version }} cut by ${{ github.actor }} — v${{ inputs.version }}-rc1 is publishing. Backport label: \`backport release-${{ inputs.version }}\`"
+            hack/release/slack-notify.sh ":scissors: $BRANCH cut (${{ inputs.kind }}) by ${{ github.actor }} — $TAG is publishing. Backport label: \`backport $BRANCH\`"
           else
-            hack/release/slack-notify.sh ":x: cut-release ${{ inputs.version }} failed (${{ github.actor }})"
+            hack/release/slack-notify.sh ":x: cut-release ${{ inputs.kind }} ${{ inputs.version }} failed (${{ github.actor }})"
           fi

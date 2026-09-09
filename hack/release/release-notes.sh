@@ -4,12 +4,14 @@
 #   hack/release/release-notes.sh <tag> [<previous GA tag>] [<output file>]
 #
 # The range is <previous GA>..<tag>. Because release branches carry
-# cherry-picks of main commits, the raw log would list a fix twice; two kinds
+# cherry-picks of main commits, the raw log could list a fix twice; two kinds
 # of commits are dropped:
-#   - commits in the range that carry a "(cherry picked from commit <sha>)"
-#     trailer: their origin on main is in the range and is listed instead
-#   - main commits whose sha appears as such a trailer in the previous GA's
-#     own backports: that fix already shipped in the previous release
+#   - a backport (a commit with a "(cherry picked from commit <sha>)" trailer)
+#     whose origin is itself in the range: the origin is listed instead. On a
+#     patch branch the origin is NOT in the range (main is not an ancestor past
+#     the cut), so the backport stays and is the only record of the fix.
+#   - a main commit whose sha appears as a trailer in the previous GA's own
+#     backports: that fix already shipped in the previous release.
 # Commits are grouped by Conventional Commit type, as before, and a table of
 # the component images pinned by the chart is appended.
 
@@ -37,11 +39,16 @@ else
 	shipped=""
 fi
 
+in_range=$(git rev-list --no-merges "$range")
 commits=$(mktemp)
 trap 'rm -f "$commits"' EXIT
-for c in $(git rev-list --no-merges "$range"); do
-	body=$(git log -1 --format=%B "$c")
-	grep -q '^(cherry picked from commit ' <<<"$body" && continue # a backport; its origin is listed
+for c in $in_range; do
+	origins=$(git log -1 --format=%B "$c" | sed -n 's/^(cherry picked from commit \([0-9a-f]\{40\}\))$/\1/p')
+	listed_via_origin=0
+	for o in $origins; do
+		grep -qx -- "$o" <<<"$in_range" && listed_via_origin=1
+	done
+	[ "$listed_via_origin" = 1 ] && continue                      # a backport whose origin is listed
 	grep -qx -- "$c" <<<"$shipped" && continue                    # already shipped via the previous GA
 	git log -1 --format="%s ([%h](https://github.com/$repo/commit/%H))" "$c" |
 		sed -E "s|\(#([0-9]+)\)|([#\1](https://github.com/$repo/pull/\1))|g" >>"$commits"

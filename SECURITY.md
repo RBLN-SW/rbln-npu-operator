@@ -2,11 +2,11 @@
 
 ## Supported versions
 
-Only the **latest GA release** of rbln-npu-operator is supported. Every
-release is cut from `main`, so a fix for any earlier version ships as the next
-release: either the next monthly release or, for a blocker, a hotfix release
-(`X.Y.Z+1`) cut from `main` and soaked briefly. Older releases do not receive
-patches; upgrade to the latest release to obtain fixes.
+Only the **newest GA release** of rbln-npu-operator is supported. Fixes land
+on `main` first and ship either in the next minor release (cut from `main`)
+or, for a blocker, in a patch release (`X.Y.Z+1`) cut from the newest GA and
+carrying fixes only. Older releases do not receive patches; upgrade to the
+newest release to obtain fixes.
 
 The release process, including how a fix reaches a release, is described in
 [docs/release-process.md](docs/release-process.md).
