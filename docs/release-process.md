@@ -89,8 +89,9 @@ Do these once, in this order. Everything here is idempotent.
    | variable | `RELEASE_APP_ID` | the App ID |
    | secret | `RELEASE_APP_PRIVATE_KEY` | contents of the App's `.pem` |
    | variable | `RELEASE_TEAM` | `npu-release-managers` (optional, this is the default) |
-   | secret | `BUILDKITE_API_TOKEN` | token with `read_builds` + `write_builds` for the test-infra matrix pipeline |
-   | variable | `BUILDKITE_ORG`, `BUILDKITE_VALIDATE_PIPELINE` | Buildkite org and the slug of the `npu-operator-test-infra` matrix pipeline (the validation trigger is skipped with a notice when unset) |
+   | secret | `BUILDKITE_API_TOKEN` | API token with `read_builds` + `write_builds` for the test-infra matrix pipeline (on obedients, the same token other repos keep as `OBEDIENTS_API_TOKEN`; prefer a bot account) |
+   | variable | `BUILDKITE_API_URL` | REST base URL. The matrix runs on obedients, the in-house Buildkite-compatible CI: `https://obedients-api.k8s.rebellions.in/v2`. Default is `https://api.buildkite.com/v2` |
+   | variable | `BUILDKITE_ORG`, `BUILDKITE_VALIDATE_PIPELINE` | organization slug (obedients: `main`) and the slug of the `npu-operator-test-infra` matrix pipeline (the validation trigger is skipped with a notice when unset) |
    | variable | `BUILDKITE_VALIDATE_BRANCH` | test-infra branch that holds the pipeline (optional, default `dev`) |
    | variable | `RC_VALIDATION_SENTINEL_REF` | optional sentinel ref to pin for rc validations |
    | variable | `RC_VALIDATION_ENFORCE` | `true` to refuse GA when the newest rc has no `success` `rc-validation` status (warn-only until then, so the gate can ship before the pipeline reports) |
@@ -125,17 +126,23 @@ Do these once, in this order. Everything here is idempotent.
    **Allow auto-merge** (the backport bot relies on it). Keep squash as the
    only merge method.
 
-7. **Buildkite.**
+7. **Buildkite (obedients).**
    - Add `release-*` to the PR pipeline's branch filter so backport PRs get
      `[OP] PR CI`.
-   - The rc validation runs the `npu-operator-test-infra` matrix pipeline in
-     release mode. That pipeline must accept the build env
-     `hack/release/validate-rc.sh` sends (`RELEASE_MODE`, `CLUSTERS`,
-     `HELM_CHART`, `HELM_CHART_VERSION`, `SENTINEL_CATALOG_IMAGE`,
-     `RC_STATUS_*`) and post the verdict as the `rc-validation` commit status
-     on this repository; its agent's `GIT_PAT` therefore needs `repo:status`
-     here. Superseded validations are cancelled by the script, not by a
-     pipeline setting.
+   - The rc validation creates a build of the `npu-operator-test-infra`
+     matrix pipeline through the Buildkite REST Builds API (`POST
+     .../pipelines/<slug>/builds` with `commit`, `branch`, `message`, `env`),
+     which obedients serves at `BUILDKITE_API_URL`. No pipeline trigger
+     (webhook) is needed; a trigger's values are fixed when it is created and
+     cannot carry the per-rc chart version and commit.
+   - That pipeline must accept the build env `hack/release/validate-rc.sh`
+     sends (`RELEASE_MODE`, `CLUSTERS`, `HELM_CHART`, `HELM_CHART_VERSION`,
+     `SENTINEL_CATALOG_IMAGE`, `RC_STATUS_*`) and post the verdict as the
+     `rc-validation` commit status on this repository; its agent's `GIT_PAT`
+     therefore needs `repo:status` here. Superseded validations are cancelled
+     by the script (best effort, by build message), not by a pipeline setting;
+     keep "Skip/Cancel Intermediate Builds" **off** on that pipeline, since
+     the matrix nightly shares its `dev` branch.
    - A validation and the matrix nightly can overlap; check the OpenStack
      quota allows two sets of dynamic clusters, or keep the nightly window
      clear of rc tags.
