@@ -73,12 +73,39 @@ func TestDRAKubeletPluginPatch(t *testing.T) {
 		t.Fatal("ClusterRoleBinding subject should reference the component ServiceAccount")
 	}
 
-	// No toolkit-validation init container: the DaemonSet serves both
-	// container and vm-passthrough nodes; toolkit-ready never appears on
-	// the latter, so gating on it would deadlock passthrough nodes.
-	if len(ds.Spec.Template.Spec.InitContainers) != 0 {
-		t.Fatalf("expected no init containers, got %d", len(ds.Spec.Template.Spec.InitContainers))
+	// dra-ready init container: waits for toolkit-ready (container nodes) or
+	// vfio-pci binding (vm-passthrough nodes). A plain toolkit-validation init
+	// would deadlock passthrough nodes, and no init at all lets the plugin race
+	// the driver container at boot.
+	inits := ds.Spec.Template.Spec.InitContainers
+	if len(inits) != 1 || inits[0].Name != "dra-ready" {
+		names := make([]string, 0, len(inits))
+		for _, ic := range inits {
+			names = append(names, ic.Name)
+		}
+		t.Fatalf("expected exactly one init container named dra-ready, got %v", names)
 	}
+	draReady := inits[0]
+	assertContainerImage(t, draReady, "rebellions/rbln-validator", "v1.0")
+	assertPrivileged(t, draReady)
+	if len(draReady.Args) != 1 || draReady.Args[0] != "dra-ready" {
+		t.Fatalf("dra-ready args = %v, want [dra-ready]", draReady.Args)
+	}
+	assertContainerHasVolumeMount(t, draReady, consts.ValidationsVolumeName)
+	assertContainerHasVolumeMount(t, draReady, "host-sys")
+	for _, m := range draReady.VolumeMounts {
+		switch m.Name {
+		case "host-sys":
+			if !m.ReadOnly {
+				t.Fatal("dra-ready must mount /sys read-only; it only reads driver symlinks")
+			}
+		case consts.ValidationsVolumeName:
+			if m.MountPropagation == nil || *m.MountPropagation != corev1.MountPropagationHostToContainer {
+				t.Fatal("dra-ready validations mount must use HostToContainer propagation so a later toolkit-ready is visible")
+			}
+		}
+	}
+	assertPodHasVolume(t, ds.Spec.Template.Spec, "host-sys")
 
 	// No /sys hostPath mount: the privileged container reads the host PCI
 	// tree through the runtime-provided sysfs, and an explicit read-only

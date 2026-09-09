@@ -19,6 +19,7 @@ func NewRBLNValidatorApp() *cobra.Command {
 		newDriverCommand(config),
 		newToolkitCommand(config),
 		newVFIOPCICommand(config),
+		newDRAReadyCommand(config),
 	)
 
 	config.bindFlags(cmd)

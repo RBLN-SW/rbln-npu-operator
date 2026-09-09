@@ -307,10 +307,13 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 		Build()
 }
 
-// buildPodSpec intentionally has no toolkit-validation init container: this
+// buildPodSpec gates the plugin behind the dra-ready init container instead of
+// the toolkit-validation one the other container components use: this
 // DaemonSet serves both container and vm-passthrough nodes, and toolkit-ready
-// never appears on the latter.
-func (h *draKubeletPluginPatcher) buildPodSpec() *corev1.PodSpec {
+// never appears on the latter. See buildDRAReadyInitContainer for the two
+// conditions the gate accepts.
+func (h *draKubeletPluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
+	initContainer := buildDRAReadyInitContainer(owner.Spec.Validator)
 	draContainer := h.buildDRAContainer()
 
 	return k8sutil.NewPodSpecBuilder().
@@ -339,13 +342,17 @@ func (h *draKubeletPluginPatcher) buildPodSpec() *corev1.PodSpec {
 			hostPathVolume("host-run-rbln", draHostRunRBLNPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume("host-usr-bin", draHostUsrBinPath, corev1.HostPathDirectory),
 			hostPathVolume("kubevirt-dra-metadata", draKubeVirtMetadataPath, corev1.HostPathDirectoryOrCreate),
+			// Mounted by the dra-ready init container only; the plugin container
+			// relies on the runtime-provided sysfs (see buildDRAContainer).
+			hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
 		}).
+		WithInitContainers([]*corev1.Container{initContainer}).
 		WithContainers([]*corev1.Container{draContainer}).
 		Build()
 }
 
 func (h *draKubeletPluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	podSpec := h.buildPodSpec()
+	podSpec := h.buildPodSpec(owner)
 
 	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
 	ds := builder.Build()
