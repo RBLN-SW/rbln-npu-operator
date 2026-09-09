@@ -1,0 +1,43 @@
+name: release-policy
+
+# Required status check for pull requests into release-* branches.
+# Proves that every change is a fix already merged on main, carried over
+# unchanged (or a labelled, justified exception). See hack/release/release-policy.sh
+# for the seven checks. Re-runs on label changes because two checks depend on
+# the release-only / backport-manual labels.
+#
+# The job id below is the status-check context named in
+# .github/rulesets/release-branches.json; keep them in sync.
+
+on:
+  pull_request:
+    branches: ["release-*"]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: write # advisory size comment
+
+concurrency:
+  group: release-policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  release-policy:
+    name: release-policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: hack/release/release-policy.sh

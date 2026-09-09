@@ -1,0 +1,80 @@
+name: cut-release
+
+# Cut release-X.Y.Z from main and tag vX.Y.Z-rc1. Run by a release manager from
+# the Actions tab (or `gh workflow run cut-release.yaml -f version=0.7.0`).
+# The tag push starts the rc path of release.yaml; this workflow builds nothing.
+#
+# The branch and tag are pushed with the release GitHub App's token, which is
+# the only actor (besides the release manager team) allowed to create
+# release-* branches and v* tags by the rulesets in .github/rulesets/.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to cut, X.Y.Z (e.g. 0.7.0). The release manager decides which position bumps."
+        required: true
+        type: string
+      sha:
+        description: "Commit to cut from. Empty = main HEAD."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cut-release
+  cancel-in-progress: false
+
+jobs:
+  cut:
+    name: cut release-${{ inputs.version }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint release App token
+        id: app
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      # The App can bypass the rulesets, so the workflow itself must check that
+      # a release manager pressed the button. Needs the App's org permission
+      # "Members: read".
+      - name: Require release-manager team membership
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          TEAM: ${{ vars.RELEASE_TEAM || 'npu-release-managers' }}
+        run: |
+          if ! gh api "orgs/${{ github.repository_owner }}/teams/${TEAM}/memberships/${{ github.actor }}" \
+               --jq '.state' 2>/dev/null | grep -qx active; then
+            echo "::error::${{ github.actor }} is not an active member of ${{ github.repository_owner }}/${TEAM}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
+
+      - name: Cut branch, tag rc1, create backport label
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          git config user.name "rbln-release-bot[bot]"
+          git config user.email "rbln-release-bot[bot]@users.noreply.github.com"
+          hack/release/cut-release.sh "${{ inputs.version }}" "${{ inputs.sha || 'origin/main' }}"
+
+      - name: Notify Slack
+        if: always()
+        env:
+          SLACK_OAUTH_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            hack/release/slack-notify.sh ":scissors: release-${{ inputs.version }} cut by ${{ github.actor }} — v${{ inputs.version }}-rc1 is publishing. Backport label: \`backport release-${{ inputs.version }}\`"
+          else
+            hack/release/slack-notify.sh ":x: cut-release ${{ inputs.version }} failed (${{ github.actor }})"
+          fi

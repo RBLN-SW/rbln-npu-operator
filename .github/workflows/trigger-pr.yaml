@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - main
+      # Backport PRs get the same CI as main PRs. The Buildkite PR pipeline's
+      # branch filter must include release-* as well (Buildkite-side setting).
+      - "release-*"
 
 concurrency:
   group: ${{ github.workflow }}

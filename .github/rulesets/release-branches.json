@@ -1,0 +1,48 @@
+{
+  "name": "release-branches",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [
+    { "actor_id": "__TEAM_ID__", "actor_type": "Team", "bypass_mode": "pull_request" },
+    { "actor_id": "__APP_ID__", "actor_type": "Integration", "bypass_mode": "always" }
+  ],
+  "conditions": {
+    "ref_name": { "include": ["refs/heads/release-*"], "exclude": [] }
+  },
+  "rules": [
+    { "type": "creation" },
+    { "type": "update", "parameters": { "update_allows_fetch_and_merge": false } },
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    { "type": "required_linear_history" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false,
+        "allowed_merge_methods": ["squash"],
+        "required_reviewers": [
+          {
+            "file_patterns": ["**/*"],
+            "minimum_approvals": 1,
+            "reviewer": { "id": "__TEAM_ID__", "type": "Team" }
+          }
+        ]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": true,
+        "required_status_checks": [
+          { "context": "[OP] PR CI", "integration_id": 3323144 },
+          { "context": "release-policy", "integration_id": 15368 }
+        ]
+      }
+    }
+  ]
+}

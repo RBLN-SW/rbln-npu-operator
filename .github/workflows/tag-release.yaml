@@ -1,0 +1,95 @@
+name: tag-release
+
+# Tag the HEAD of a release branch as the next rc, or as GA.
+#
+# Two ways in:
+#   - a release manager runs it from the Actions tab (`kind` = rc or ga)
+#   - a PR labelled `tag-rc` is merged into a release-* branch: the next rc is
+#     tagged automatically, so the release manager's approval doubles as the
+#     "publish an rc now" decision. GA is never automatic.
+#
+# The tag push is what starts release.yaml; this workflow publishes nothing.
+# hack/release/tag-release.sh refuses to tag when HEAD already carries an rc
+# tag, when the version already went GA, or (for ga) when HEAD is not the
+# newest rc's commit.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Release branch, e.g. release-0.7.0"
+        required: true
+        type: string
+      kind:
+        description: "rc = next release candidate, ga = general availability"
+        required: true
+        type: choice
+        options: [rc, ga]
+        default: rc
+  pull_request:
+    types: [closed]
+    branches: ["release-*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tag-release-${{ github.event.pull_request.base.ref || inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: tag ${{ github.event.pull_request.base.ref || inputs.branch }} (${{ inputs.kind || 'rc' }})
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true &&
+       contains(github.event.pull_request.labels.*.name, 'tag-rc'))
+    runs-on: ubuntu-latest
+    env:
+      BRANCH: ${{ github.event.pull_request.base.ref || inputs.branch }}
+      KIND: ${{ inputs.kind || 'rc' }}
+    steps:
+      - name: Mint release App token
+        id: app
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Require release-manager team membership
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          TEAM: ${{ vars.RELEASE_TEAM || 'npu-release-managers' }}
+        run: |
+          if ! gh api "orgs/${{ github.repository_owner }}/teams/${TEAM}/memberships/${{ github.actor }}" \
+               --jq '.state' 2>/dev/null | grep -qx active; then
+            echo "::error::${{ github.actor }} is not an active member of ${{ github.repository_owner }}/${TEAM}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH }}
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
+
+      - name: Tag
+        run: |
+          git config user.name "rbln-release-bot[bot]"
+          git config user.email "rbln-release-bot[bot]@users.noreply.github.com"
+          hack/release/tag-release.sh "$BRANCH" "$KIND"
+
+      - name: Notify Slack
+        if: always()
+        env:
+          SLACK_OAUTH_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
+        run: |
+          who="${{ github.actor }}"
+          [ "${{ github.event_name }}" = "pull_request" ] && who="PR #${{ github.event.pull_request.number }} (tag-rc)"
+          if [ "${{ job.status }}" = "success" ]; then
+            hack/release/slack-notify.sh ":label: $BRANCH: new $KIND tag pushed by $who — release.yaml is publishing"
+          else
+            hack/release/slack-notify.sh ":x: tag-release $KIND on $BRANCH failed ($who)"
+          fi
