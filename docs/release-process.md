@@ -89,7 +89,7 @@ Do these once, in this order. Everything here is idempotent.
    | variable | `RELEASE_APP_ID` | the App ID |
    | secret | `RELEASE_APP_PRIVATE_KEY` | contents of the App's `.pem` |
    | variable | `RELEASE_TEAM` | `npu-release-managers` (optional, this is the default) |
-   | secret | `BUILDKITE_API_TOKEN` | API token with `read_builds` + `write_builds` for the test-infra matrix pipeline (on obedients, the same token other repos keep as `OBEDIENTS_API_TOKEN`; prefer a bot account) |
+   | secret | `OBEDIENTS_API_TOKEN` | obedients API token with `read_builds` + `write_builds` for the test-infra matrix pipeline (prefer a bot account). The `rebellions-sw` organization already has one as an org secret, but this repository lives in the `RBLN-SW` organization and is public, so it needs its own copy |
    | variable | `BUILDKITE_API_URL` | REST base URL. The matrix runs on obedients, the in-house Buildkite-compatible CI: `https://obedients-api.k8s.rebellions.in/v2`. Default is `https://api.buildkite.com/v2` |
    | variable | `BUILDKITE_ORG`, `BUILDKITE_VALIDATE_PIPELINE` | organization slug (obedients: `main`) and the slug of the `npu-operator-test-infra` matrix pipeline (the validation trigger is skipped with a notice when unset) |
    | variable | `BUILDKITE_VALIDATE_BRANCH` | test-infra branch that holds the pipeline (optional, default `dev`) |

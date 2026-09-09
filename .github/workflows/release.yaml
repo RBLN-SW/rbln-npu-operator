@@ -336,7 +336,11 @@ jobs:
           fetch-depth: 0
       - name: Trigger the validation build
         env:
-          BUILDKITE_API_TOKEN: ${{ secrets.BUILDKITE_API_TOKEN }}
+          # Same secret name the other repositories use for their obedients
+          # token; this repository is in a different GitHub organization, so it
+          # needs its own copy (org secrets do not cross organizations).
+          BUILDKITE_API_TOKEN: ${{ secrets.OBEDIENTS_API_TOKEN }}
+          BUILDKITE_API_URL: ${{ vars.BUILDKITE_API_URL }}
           BUILDKITE_ORG: ${{ vars.BUILDKITE_ORG }}
           BUILDKITE_VALIDATE_PIPELINE: ${{ vars.BUILDKITE_VALIDATE_PIPELINE }}
           BUILDKITE_VALIDATE_BRANCH: ${{ vars.BUILDKITE_VALIDATE_BRANCH }}
