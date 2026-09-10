@@ -402,25 +402,25 @@ jobs:
           VERSION: ${{ needs.classify.outputs.version }}
           BRANCH: ${{ needs.classify.outputs.branch }}
         run: |
-          mark() { case "$1" in success) echo "✅";; failure) echo "❌";; cancelled) echo "🚫";; skipped) echo "⏭️";; *) echo "❔";; esac; }
+          mark() { case "$1" in success) echo ":white_check_mark:";; failure) echo ":x:";; cancelled) echo ":no_entry_sign:";; skipped) echo ":fast_forward:";; *) echo ":grey_question:";; esac; }
           color=good
           for r in "$R_IMG" "$R_CHART" "$R_OLM" "$R_DIG" "$R_REL" "$R_VAL"; do
             case $r in failure|cancelled) color=danger;; esac
           done
           pre="$(mark "$R_PRE") Preflight (Red Hat certification)"
-          if [ "$R_PRE" = failure ]; then pre="⚠️ Preflight found issues (warn-only, see run)"; [ "$color" = good ] && color=warning; fi
-          body="• $(mark "$R_IMG") Images amd64 + arm64 → \`$HARBOR_REGISTRY\`
-          • $(mark "$R_CHART") Helm chart \`${GITHUB_REF_NAME#v}\` → Harbor OCI
-          • $(mark "$R_OLM") OLM pre-validation, upgrade graph, catalog image
-          • $(mark "$R_DIG") Component digests pinned
-          • $pre
-          • $(mark "$R_REL") GitHub pre-release
-          • $(mark "$R_VAL") Matrix validation triggered
+          if [ "$R_PRE" = failure ]; then pre=":warning: Preflight found issues (warn-only, see run)"; [ "$color" = good ] && color=warning; fi
+          rows="$(mark "$R_IMG") Images amd64 + arm64 → \`$HARBOR_REGISTRY\`
+          $(mark "$R_CHART") Helm chart \`${GITHUB_REF_NAME#v}\` → Harbor OCI
+          $(mark "$R_OLM") OLM pre-validation, upgrade graph, catalog image
+          $(mark "$R_DIG") Component digests pinned
+          $pre
+          $(mark "$R_REL") GitHub pre-release
+          $(mark "$R_VAL") Matrix validation triggered
           _Verdict lands as the \`rc-validation\` status on the rc commit; GA waits for it._"
           links=(--link "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME|pre-release")
           [ -n "$BUILD_URL" ] && links+=(--link "$BUILD_URL|validation build")
-          hack/release/slack-notify.sh --color "$color" "${links[@]}" \
-            --title ":test_tube: *$GITHUB_REF_NAME* · release candidate on \`$BRANCH\`" "$body"
+          hack/release/slack-notify.sh --color "$color" "${links[@]}" --details "$rows" \
+            --title ":test_tube: *$GITHUB_REF_NAME* · release candidate on \`$BRANCH\`" ""
 
   # ---------------------------------------------------------------- GA path --
 
@@ -799,19 +799,19 @@ jobs:
           LAST_RC: ${{ needs.classify.outputs.last_rc }}
           BRANCH: ${{ needs.classify.outputs.branch }}
         run: |
-          mark() { case "$1" in success) echo "✅";; failure) echo "❌";; cancelled) echo "🚫";; skipped) echo "⏭️";; *) echo "❔";; esac; }
+          mark() { case "$1" in success) echo ":white_check_mark:";; failure) echo ":x:";; cancelled) echo ":no_entry_sign:";; skipped) echo ":fast_forward:";; *) echo ":grey_question:";; esac; }
           color=good
           for r in "$R_PROMOTE" "$R_CHART" "$R_OLM" "$R_NOTES"; do
             case $r in failure|cancelled) color=danger;; esac
           done
-          body="• $(mark "$R_PROMOTE") Images promoted from \`$LAST_RC\` by digest → \`$DOCKERHUB_REGISTRY\` (\`$GITHUB_REF_NAME\`, \`latest\`)
-          • $(mark "$R_CHART") Helm chart \`${GITHUB_REF_NAME#v}\` → docker.io OCI
-          • $(mark "$R_OLM") certified-operators bundle PR
-          • $(mark "$R_NOTES") Release notes drafted
-          • Backport label \`backport $BRANCH\` removed; the branch is read-only now
-          *Release manager:* review and publish the draft, then watch the certified-operators PR (\`/re-trigger\` if its pipeline fails)."
+          rows="$(mark "$R_PROMOTE") Images promoted from \`$LAST_RC\` by digest → \`$DOCKERHUB_REGISTRY\` (\`$GITHUB_REF_NAME\`, \`latest\`)
+          $(mark "$R_CHART") Helm chart \`${GITHUB_REF_NAME#v}\` → docker.io OCI
+          $(mark "$R_OLM") certified-operators bundle PR
+          $(mark "$R_NOTES") Release notes drafted
+          Backport label \`backport $BRANCH\` removed; the branch is read-only now"
           links=()
           [ -n "$DRAFT_URL" ] && links+=(--link "$DRAFT_URL|draft release")
           [ -n "$PR_URL" ] && links+=(--link "$PR_URL|certified-operators PR")
-          hack/release/slack-notify.sh --color "$color" "${links[@]}" \
-            --title ":rocket: *$GITHUB_REF_NAME* · GA" "$body"
+          hack/release/slack-notify.sh --color "$color" "${links[@]}" --details "$rows" \
+            --title ":rocket: *$GITHUB_REF_NAME* · GA" \
+            "*Release manager:* review and publish the draft, then watch the certified-operators PR (\`/re-trigger\` if its pipeline fails)."
