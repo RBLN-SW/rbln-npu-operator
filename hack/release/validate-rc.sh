@@ -142,3 +142,6 @@ fi
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 	echo "rc-validation build for \`$tag\`: $url" >>"$GITHUB_STEP_SUMMARY"
 fi
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+	echo "build_url=$url" >>"$GITHUB_OUTPUT"
+fi
