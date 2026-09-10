@@ -342,11 +342,14 @@ jobs:
     name: rc validation (test-infra matrix)
     needs: [classify, rc-chart, rc-images, rc-olm-check]
     runs-on: rbln-sw-k8s-general
+    outputs:
+      build_url: ${{ steps.trigger.outputs.build_url }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Trigger the validation build
+        id: trigger
         env:
           # Preferred: the pipeline's webhook trigger URL (no API token on the
           # GitHub side; obedients applies the body's env). The API token path
@@ -380,8 +383,29 @@ jobs:
           R_PRE: ${{ needs.rc-preflight.result }}
           R_REL: ${{ needs.rc-prerelease.result }}
           R_VAL: ${{ needs.rc-validate.result }}
+          BUILD_URL: ${{ needs.rc-validate.outputs.build_url }}
+          VERSION: ${{ needs.classify.outputs.version }}
+          BRANCH: ${{ needs.classify.outputs.branch }}
         run: |
-          hack/release/slack-notify.sh ":test_tube: $GITHUB_REF_NAME on Harbor — images: $R_IMG, chart: $R_CHART, OLM checks + catalog: $R_OLM, digests: $R_DIG, preflight: $R_PRE, pre-release: $R_REL, validation trigger: $R_VAL. The matrix verdict lands as the rc-validation status on the rc commit."
+          mark() { case "$1" in success) echo "✅";; failure) echo "❌";; cancelled) echo "🚫";; skipped) echo "⏭️";; *) echo "❔";; esac; }
+          color=good
+          for r in "$R_IMG" "$R_CHART" "$R_OLM" "$R_DIG" "$R_REL" "$R_VAL"; do
+            case $r in failure|cancelled) color=danger;; esac
+          done
+          pre="$(mark "$R_PRE") Preflight (Red Hat certification)"
+          if [ "$R_PRE" = failure ]; then pre="⚠️ Preflight found issues (warn-only, see run)"; [ "$color" = good ] && color=warning; fi
+          body="• $(mark "$R_IMG") Images amd64 + arm64 → \`$HARBOR_REGISTRY\`
+          • $(mark "$R_CHART") Helm chart \`${GITHUB_REF_NAME#v}\` → Harbor OCI
+          • $(mark "$R_OLM") OLM pre-validation, upgrade graph, catalog image
+          • $(mark "$R_DIG") Component digests pinned
+          • $pre
+          • $(mark "$R_REL") GitHub pre-release
+          • $(mark "$R_VAL") Matrix validation triggered
+          _Verdict lands as the \`rc-validation\` status on the rc commit; GA waits for it._"
+          links=(--link "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME|pre-release")
+          [ -n "$BUILD_URL" ] && links+=(--link "$BUILD_URL|validation build")
+          hack/release/slack-notify.sh --color "$color" "${links[@]}" \
+            --title ":test_tube: *$GITHUB_REF_NAME* · release candidate on \`$BRANCH\`" "$body"
 
   # ---------------------------------------------------------------- GA path --
 
@@ -454,6 +478,8 @@ jobs:
     name: GA OLM bundle PR (certified-operators)
     needs: [classify, ga-promote]
     runs-on: ubuntu-latest
+    outputs:
+      pr_url: ${{ steps.pr.outputs.pr_url }}
     steps:
       - uses: actions/checkout@v4
       - name: Install yq
@@ -537,6 +563,7 @@ jobs:
       - name: Validate bundle
         run: make operator-sdk && ./bin/operator-sdk bundle validate ./bundle
       - name: Create PR to certified-operators
+        id: pr
         env:
           TAG: ${{ github.ref_name }}
           GH_TOKEN: ${{ secrets.CERTIFIED_OPERATORS_PAT }}
@@ -684,17 +711,21 @@ jobs:
 
           # Cross-repo PR: fork → upstream
           FORK_OWNER="${FORK%%/*}"
-          gh pr create \
+          PR_URL=$(gh pr create \
             --repo redhat-openshift-ecosystem/certified-operators \
             --head "${FORK_OWNER}:${BRANCH}" \
             --base main \
             --title "operator rbln-npu-operator (${VERSION})" \
-            --body "Automated OLM bundle submission for rbln-npu-operator ${TAG}"
+            --body "Automated OLM bundle submission for rbln-npu-operator ${TAG}")
+          echo "$PR_URL"
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
 
   draft-release:
     name: GA release notes (draft)
     needs: [classify, ga-promote, ga-chart]
     runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.release.outputs.url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -717,6 +748,7 @@ jobs:
           name: helm-chart-${{ github.ref_name }}
           path: dist
       - uses: softprops/action-gh-release@v2
+        id: release
         with:
           draft: true
           tag_name: ${{ github.ref_name }}
@@ -747,5 +779,24 @@ jobs:
           R_CHART: ${{ needs.ga-chart.result }}
           R_OLM: ${{ needs.olm-bundle.result }}
           R_NOTES: ${{ needs.draft-release.result }}
+          PR_URL: ${{ needs.olm-bundle.outputs.pr_url }}
+          DRAFT_URL: ${{ needs.draft-release.outputs.url }}
+          LAST_RC: ${{ needs.classify.outputs.last_rc }}
+          BRANCH: ${{ needs.classify.outputs.branch }}
         run: |
-          hack/release/slack-notify.sh ":rocket: $GITHUB_REF_NAME GA — docker.io promote: $R_PROMOTE, chart: $R_CHART, certified-operators PR: $R_OLM, release draft: $R_NOTES. Release manager: review and publish the draft, watch the certified-operators PR."
+          mark() { case "$1" in success) echo "✅";; failure) echo "❌";; cancelled) echo "🚫";; skipped) echo "⏭️";; *) echo "❔";; esac; }
+          color=good
+          for r in "$R_PROMOTE" "$R_CHART" "$R_OLM" "$R_NOTES"; do
+            case $r in failure|cancelled) color=danger;; esac
+          done
+          body="• $(mark "$R_PROMOTE") Images promoted from \`$LAST_RC\` by digest → \`$DOCKERHUB_REGISTRY\` (\`$GITHUB_REF_NAME\`, \`latest\`)
+          • $(mark "$R_CHART") Helm chart \`${GITHUB_REF_NAME#v}\` → docker.io OCI
+          • $(mark "$R_OLM") certified-operators bundle PR
+          • $(mark "$R_NOTES") Release notes drafted
+          • Backport label \`backport $BRANCH\` removed; the branch is read-only now
+          *Release manager:* review and publish the draft, then watch the certified-operators PR (\`/re-trigger\` if its pipeline fails)."
+          links=()
+          [ -n "$DRAFT_URL" ] && links+=(--link "$DRAFT_URL|draft release")
+          [ -n "$PR_URL" ] && links+=(--link "$PR_URL|certified-operators PR")
+          hack/release/slack-notify.sh --color "$color" "${links[@]}" \
+            --title ":rocket: *$GITHUB_REF_NAME* · GA" "$body"

@@ -75,3 +75,6 @@ note "tagging $tag at ${head:0:12} on $branch"
 git tag -a "$tag" "$head" -m "$msg"
 git push origin "refs/tags/$tag"
 echo "tagged $tag (release.yaml ${kind} path is now running)"
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+	printf 'tag=%s\nlast_rc=%s\n' "$tag" "$last_rc" >>"$GITHUB_OUTPUT"
+fi
