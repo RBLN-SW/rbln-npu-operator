@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# Post a one-line message to the release Slack channel.
+# Post a message to the release Slack channel.
 #
 #   hack/release/slack-notify.sh "<text>"
+#   hack/release/slack-notify.sh --color <good|warning|danger|info|#hex> \
+#       --title "<mrkdwn>" [--link "<url>|<label>"]... "<body mrkdwn, may span lines>"
+#
+# The one-argument form posts plain text (with the run link appended), as
+# before. The flagged form posts a coloured attachment in the same shape as the
+# nightly scan message: a bold title, the body, and a context line with the
+# workflow run and any extra links. Bodies are mrkdwn, so `code`, *bold* and
+# bullets (•) render.
 #
 # Uses the same bot token as .github/workflows/nightly.yaml (SLACK_OAUTH_TOKEN)
 # and SLACK_CHANNEL_ID. A missing token or a Slack error is reported as a
@@ -10,21 +18,60 @@
 
 set -euo pipefail
 
-text=${*:?usage: slack-notify.sh <text>}
+color="" title="" links=()
+while [ $# -gt 1 ]; do
+	case $1 in
+	--color) color=$2; shift 2 ;;
+	--title) title=$2; shift 2 ;;
+	--link) links+=("$2"); shift 2 ;;
+	*) break ;;
+	esac
+done
+body=${1:?usage: slack-notify.sh [--color c --title t [--link "url|label"]...] <text>}
+
 if [ -z "${SLACK_OAUTH_TOKEN:-}" ]; then
-	echo "::notice::SLACK_OAUTH_TOKEN not set; skipping Slack: $text"
+	echo "::notice::SLACK_OAUTH_TOKEN not set; skipping Slack: ${title:+$title — }$body"
 	exit 0
 fi
 channel=${SLACK_CHANNEL_ID:?SLACK_CHANNEL_ID is required when SLACK_OAUTH_TOKEN is set}
 
+run_link=""
 if [ -n "${GITHUB_SERVER_URL:-}" ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
-	text="$text (<$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID|run>)"
+	run_link="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+fi
+
+case $color in
+good) color="#36a64f" ;;
+warning) color="#FFA500" ;;
+danger) color="#FF0000" ;;
+info) color="#439FE0" ;;
+esac
+
+if [ -z "$title" ]; then
+	# Plain text, as before.
+	text=$body
+	[ -n "$run_link" ] && text="$text (<$run_link|run>)"
+	payload=$(jq -n --arg c "$channel" --arg t "$text" '{channel: $c, text: $t, unfurl_links: false}')
+else
+	context=()
+	[ -n "$run_link" ] && context+=("<$run_link|workflow run>")
+	for l in "${links[@]}"; do context+=("<${l%%|*}|${l#*|}>"); done
+	[ -n "${GITHUB_ACTOR:-}" ] && context+=("by ${GITHUB_ACTOR}")
+	ctx=$(IFS=' '; printf '%s' "${context[*]/%/  ·}" | sed 's/  ·$//')
+	fallback=$(printf '%s' "$title" | sed 's/[*`]//g')
+	payload=$(jq -n --arg c "$channel" --arg fb "$fallback" --arg color "$color" \
+		--arg title "$title" --arg body "$body" --arg ctx "$ctx" '
+		{channel: $c, text: $fb, unfurl_links: false,
+		 attachments: [{color: $color, blocks: (
+		   [{type: "section", text: {type: "mrkdwn", text: $title}},
+		    {type: "section", text: {type: "mrkdwn", text: $body}}]
+		   + (if $ctx == "" then [] else [{type: "context", elements: [{type: "mrkdwn", text: $ctx}]}] end))}]}')
 fi
 
 resp=$(curl -sS -X POST https://slack.com/api/chat.postMessage \
 	-H "Authorization: Bearer $SLACK_OAUTH_TOKEN" \
 	-H 'Content-type: application/json; charset=utf-8' \
-	--data "$(jq -n --arg c "$channel" --arg t "$text" '{channel: $c, text: $t, unfurl_links: false}')") || {
+	--data "$payload") || {
 	echo "::warning::Slack request failed"
 	exit 0
 }

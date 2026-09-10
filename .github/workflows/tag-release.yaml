@@ -77,6 +77,7 @@ jobs:
           token: ${{ steps.app.outputs.token }}
 
       - name: Tag
+        id: tag
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           RC_VALIDATION_ENFORCE: ${{ vars.RC_VALIDATION_ENFORCE }}
@@ -90,11 +91,21 @@ jobs:
         env:
           SLACK_OAUTH_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
           SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          who="${{ github.actor }}"
-          [ "${{ github.event_name }}" = "pull_request" ] && who="PR #${{ github.event.pull_request.number }} (tag-rc)"
+          trigger="${{ github.actor }}"
+          [ "${{ github.event_name }}" = "pull_request" ] && trigger="merge of PR #${{ github.event.pull_request.number }} (\`tag-rc\`)"
           if [ "${{ job.status }}" = "success" ]; then
-            hack/release/slack-notify.sh ":label: $BRANCH: new $KIND tag pushed by $who — release.yaml is publishing"
+            if [ "$KIND" = ga ]; then
+              hack/release/slack-notify.sh --color good --title ":rocket: *$TAG* · GA tagged on \`$BRANCH\`" \
+                "• Triggered by $trigger
+          • release.yaml is promoting the validated rc by digest to docker.io and opening the OLM bundle PR"
+            else
+              hack/release/slack-notify.sh --color info --title ":label: *$TAG* · new release candidate on \`$BRANCH\`" \
+                "• Triggered by $trigger
+          • release.yaml is publishing to Harbor; the matrix validation follows"
+            fi
           else
-            hack/release/slack-notify.sh ":x: tag-release $KIND on $BRANCH failed ($who)"
+            hack/release/slack-notify.sh --color danger --title ":x: *tag-release* $KIND on \`$BRANCH\` refused" \
+              "Triggered by $trigger. See the workflow run for the guard that fired (nothing new to tag, GA not on the newest rc, or rc-validation not green)."
           fi

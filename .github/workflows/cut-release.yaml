@@ -85,9 +85,21 @@ jobs:
           SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
           BRANCH: ${{ steps.cut.outputs.branch }}
           TAG: ${{ steps.cut.outputs.tag }}
+          KIND: ${{ inputs.kind }}
         run: |
           if [ "${{ job.status }}" = "success" ]; then
-            hack/release/slack-notify.sh ":scissors: $BRANCH cut (${{ inputs.kind }}) by ${{ github.actor }} — $TAG is publishing. Backport label: \`backport $BRANCH\`"
+            case $KIND in
+              patch) from="the newest GA tag (fixes only)";;
+              *) from="\`main\` (everything merged since the last GA)";;
+            esac
+            hack/release/slack-notify.sh --color info \
+              --link "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$BRANCH|branch" \
+              --title ":scissors: *$BRANCH* · $KIND cut" \
+              "• Branch \`$BRANCH\` created from $from
+          • \`$TAG\` is publishing to Harbor; the matrix validation follows
+          • To get a fix into this release, label its \`main\` PR \`backport $BRANCH\`"
           else
-            hack/release/slack-notify.sh ":x: cut-release ${{ inputs.kind }} ${{ inputs.version }} failed (${{ github.actor }})"
+            hack/release/slack-notify.sh --color danger \
+              --title ":x: *cut-release* $KIND ${{ inputs.version }} failed" \
+              "See the workflow run for the reason. Nothing was created."
           fi

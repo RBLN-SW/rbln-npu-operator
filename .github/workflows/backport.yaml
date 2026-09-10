@@ -91,16 +91,29 @@ jobs:
           CREATED: ${{ steps.bp.outputs.created_pull_numbers }}
           SRC: ${{ github.event.pull_request.number }}
         run: |
+          src_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$SRC"
+          src_title=$(gh pr view "$SRC" --json title -q .title 2>/dev/null || echo "")
           if [ "${{ steps.bp.outcome }}" != "success" ]; then
-            hack/release/slack-notify.sh ":x: backport of #$SRC failed — see the PR comment"
+            hack/release/slack-notify.sh --color danger --link "$src_url|source PR" \
+              --title ":x: *backport* of #$SRC failed" \
+              "• $src_title
+          • The backport bot left a comment on the source PR with the reason"
           fi
           for n in $(tr ',' ' ' <<<"$CREATED"); do
             [ -n "$n" ] || continue
             base=$(gh pr view "$n" --json baseRefName -q .baseRefName)
+            pr_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$n"
             if [ "$(gh pr view "$n" --json isDraft -q .isDraft)" = "true" ]; then
               gh pr edit "$n" --add-label backport-manual
-              hack/release/slack-notify.sh ":warning: backport of #$SRC to $base has conflicts — draft PR #$n needs a hand-resolved cherry-pick"
+              hack/release/slack-notify.sh --color warning --link "$pr_url|draft PR #$n" --link "$src_url|source PR" \
+                --title ":warning: *backport* #$SRC → \`$base\` has conflicts" \
+                "• $src_title
+          • Draft PR #$n holds the conflicted state; redo the cherry-pick by hand (\`git cherry-pick -x\`), push, mark ready
+          • Labelled \`backport-manual\` so release-policy accepts the hand-resolved content"
             else
-              hack/release/slack-notify.sh ":arrow_right: backport of #$SRC to $base opened as PR #$n (auto-merge on approval)"
+              hack/release/slack-notify.sh --color info --link "$pr_url|PR #$n" --link "$src_url|source PR" \
+                --title ":arrow_right: *backport* #$SRC → \`$base\`" \
+                "• $src_title
+          • Auto-merge is on: one release-manager approval merges it once \`[OP] PR CI\` and \`release-policy\` are green"
             fi
           done
