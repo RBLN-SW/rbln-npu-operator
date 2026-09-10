@@ -1,7 +1,10 @@
 # Build the manager binary
 ARG GOLANG_VERSION=1.25.13
 
-FROM golang:${GOLANG_VERSION} AS builder
+# The builder always runs on the build host (BUILDPLATFORM) and cross-compiles
+# for TARGETARCH: Go needs no emulation (CGO_ENABLED=0), so a multi-arch
+# build only emulates the small runtime stage below.
+FROM --platform=$BUILDPLATFORM golang:${GOLANG_VERSION} AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH
 
@@ -18,7 +21,7 @@ COPY cmd/ cmd/
 COPY api/ api/
 COPY internal/ internal/
 
-RUN make cmds
+RUN make cmds GOOS=$TARGETOS GOARCH=$TARGETARCH
 
 FROM redhat/ubi9-minimal:9.8
 ARG VERSION
