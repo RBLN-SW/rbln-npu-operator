@@ -19,7 +19,7 @@ name: Release
 # whose rc-validation status is not success (once RC_VALIDATION_ENFORCE=true),
 # before anything is published: what was validated is what ships. Tags are
 # created only by cut-release / tag-release with the release App token
-# (rulesets in .github/rulesets/). Runbook: docs/release-process.md.
+# (rulesets in .github/rulesets/).
 
 on:
   push:
