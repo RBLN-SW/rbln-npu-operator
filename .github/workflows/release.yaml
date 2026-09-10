@@ -336,9 +336,13 @@ jobs:
           fetch-depth: 0
       - name: Trigger the validation build
         env:
-          # Same secret name the other repositories use for their obedients
-          # token; this repository is in a different GitHub organization, so it
-          # needs its own copy (org secrets do not cross organizations).
+          # Preferred: the pipeline's webhook trigger URL (no API token on the
+          # GitHub side; obedients applies the body's env). The API token path
+          # is optional and additionally lets the script cancel the previous
+          # rc's validation; this repository is in a different GitHub
+          # organization than the one holding OBEDIENTS_API_TOKEN, so it would
+          # need its own copy.
+          BUILDKITE_TRIGGER_URL: ${{ secrets.OBEDIENTS_VALIDATE_TRIGGER_URL }}
           BUILDKITE_API_TOKEN: ${{ secrets.OBEDIENTS_API_TOKEN }}
           BUILDKITE_API_URL: ${{ vars.BUILDKITE_API_URL }}
           BUILDKITE_ORG: ${{ vars.BUILDKITE_ORG }}

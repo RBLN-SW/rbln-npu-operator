@@ -89,9 +89,10 @@ Do these once, in this order. Everything here is idempotent.
    | variable | `RELEASE_APP_ID` | the App ID |
    | secret | `RELEASE_APP_PRIVATE_KEY` | contents of the App's `.pem` |
    | variable | `RELEASE_TEAM` | `npu-release-managers` (optional, this is the default) |
-   | secret | `OBEDIENTS_API_TOKEN` | obedients API token with `read_builds` + `write_builds` for the test-infra matrix pipeline (prefer a bot account). The `rebellions-sw` organization already has one as an org secret, but this repository lives in the `RBLN-SW` organization and is public, so it needs its own copy |
-   | variable | `BUILDKITE_API_URL` | REST base URL. The matrix runs on obedients, the in-house Buildkite-compatible CI: `https://obedients-api.k8s.rebellions.in/v2`. Default is `https://api.buildkite.com/v2` |
-   | variable | `BUILDKITE_ORG`, `BUILDKITE_VALIDATE_PIPELINE` | organization slug (obedients: `main`) and the slug of the `npu-operator-test-infra` matrix pipeline (the validation trigger is skipped with a notice when unset) |
+   | secret | `OBEDIENTS_VALIDATE_TRIGGER_URL` | **preferred.** Webhook trigger URL of the test-infra matrix pipeline (obedients: pipeline Settings → Triggers → Webhook; `https://obedients-api.k8s.rebellions.in/v1/pipeline-triggers/<uuid>/<obpt_…>`). No token needed; obedients applies the request body's `env`, so each rc's chart version and commit travel in the call. The URL is the credential: treat it as a secret, and delete/recreate the trigger if it leaks |
+   | secret | `OBEDIENTS_API_TOKEN` | optional. obedients API token with `read_builds` + `write_builds`; with it the script also cancels the previous rc's validation build. The `rebellions-sw` organization has one as an org secret, but this repository lives in `RBLN-SW` and is public, so it would need its own copy |
+   | variable | `BUILDKITE_API_URL` | REST base URL, used with the API token: `https://obedients-api.k8s.rebellions.in/v2` (default `https://api.buildkite.com/v2`) |
+   | variable | `BUILDKITE_ORG`, `BUILDKITE_VALIDATE_PIPELINE` | organization slug (obedients: `main`) and the slug of the matrix pipeline (`scheduled-jigsaw-npu-operator-matrix-validation`), used with the API token. With neither the trigger URL nor the API settings the validation is skipped with a notice |
    | variable | `BUILDKITE_VALIDATE_BRANCH` | test-infra branch that holds the pipeline (optional, default `dev`) |
    | variable | `RC_VALIDATION_SENTINEL_REF` | optional sentinel ref to pin for rc validations |
    | variable | `RC_VALIDATION_ENFORCE` | `true` to refuse GA when the newest rc has no `success` `rc-validation` status (warn-only until then, so the gate can ship before the pipeline reports) |
@@ -130,11 +131,13 @@ Do these once, in this order. Everything here is idempotent.
    - Add `release-*` to the PR pipeline's branch filter so backport PRs get
      `[OP] PR CI`.
    - The rc validation creates a build of the `npu-operator-test-infra`
-     matrix pipeline through the Buildkite REST Builds API (`POST
-     .../pipelines/<slug>/builds` with `commit`, `branch`, `message`, `env`),
-     which obedients serves at `BUILDKITE_API_URL`. No pipeline trigger
-     (webhook) is needed; a trigger's values are fixed when it is created and
-     cannot carry the per-rc chart version and commit.
+     matrix pipeline, preferably through the pipeline's **webhook trigger**
+     (`OBEDIENTS_VALIDATE_TRIGGER_URL`): `POST` with `branch`, `commit`,
+     `message`, `env` and no token. obedients applies the body's `env`
+     (unlike buildkite.com's triggers, whose values are fixed at creation), so
+     the per-rc chart version and commit travel in the call. The REST Builds
+     API path (`OBEDIENTS_API_TOKEN` + `BUILDKITE_*` variables) does the same
+     and additionally cancels the previous rc's build.
    - That pipeline must accept the build env `hack/release/validate-rc.sh`
      sends (`RELEASE_MODE`, `CLUSTERS`, `HELM_CHART`, `HELM_CHART_VERSION`,
      `SENTINEL_CATALOG_IMAGE`, `RC_STATUS_*`) and post the verdict as the
