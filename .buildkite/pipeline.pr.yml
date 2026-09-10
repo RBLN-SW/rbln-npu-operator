@@ -2,7 +2,11 @@
 #
 # On every PR, build the operator + validator images (short-SHA tag) and run the
 # sentinel scenarios as two parallel tracks:
-#   - container track (main cluster)    -> install container dra
+#   - container track (main cluster)    -> install container dra uninstall
+#                                          + driver_upgrade when the PR touches
+#                                            internal/upgrade or internal/driver
+#                                          + the nightly's full list with the
+#                                            ci/full-e2e label
 #   - vm track        (sandbox cluster) -> vm
 #
 # Differences from the nightly pipeline (.buildkite/pipeline.nightly.yml):
@@ -208,9 +212,31 @@ _scenario_command: &scenario_command |
   # HuggingFace token for gated model-zoo models.
   export SENTINEL_HF_TOKEN="$$HF_TOKEN"
 
+  # Scope. SCENARIO_FAMILY is the step's base set. A step that sets
+  # SCOPE_BY_CHANGE=true widens it: the ci/full-e2e PR label selects
+  # FULL_FAMILY (the nightly's list), otherwise a change under internal/upgrade
+  # or internal/driver adds driver_upgrade, the only e2e those controllers have.
+  # Everything else stays on the base set so the common PR keeps its budget.
+  FAMILIES="$$SCENARIO_FAMILY"
+  if [ "$${SCOPE_BY_CHANGE:-}" = "true" ] && [ "$${BUILDKITE_PULL_REQUEST:-false}" != "false" ]; then
+    repo=$$(sed -E 's#.*github.com[:/]##; s#\.git$$##' <<<"$$BUILDKITE_REPO")
+    pr_json=$$(curl -sSf -H "Authorization: Bearer $$GIT_PAT" \
+      "https://api.github.com/repos/$$repo/pulls/$$BUILDKITE_PULL_REQUEST" || true)
+    base="$${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-main}"
+    git -C "$$REPO_ROOT" fetch --quiet origin "$$base" || true
+    changed=$$(git -C "$$REPO_ROOT" diff --name-only "origin/$$base...HEAD" 2>/dev/null || true)
+    if grep -q '"name": *"ci/full-e2e"' <<<"$$pr_json"; then
+      FAMILIES="$$FULL_FAMILY"
+      echo "--- :label: ci/full-e2e -> $$FAMILIES"
+    elif grep -qE '^internal/(upgrade|driver)/' <<<"$$changed"; then
+      FAMILIES="$$FAMILIES driver_upgrade"
+      echo "--- :truck: upgrade/driver code changed -> $$FAMILIES"
+    fi
+  fi
+
   # Capture the result so we still tear down (nuke) before releasing the lock.
   set +e
-  uv run sentinel run $$SCENARIO_FAMILY \
+  uv run sentinel run $$FAMILIES \
     --helm-chart="$$HELM_CHART" \
     --namespace="${TEST_NAMESPACE}" \
     --reports-dir=reports \
@@ -296,19 +322,29 @@ steps:
           VERSION="$$IMAGE_TAG" \
           PUSH_ON_BUILD=true
 
-  # 1. Container track (main cluster): install + container + dra.
-  #    Mirrors the old GHA `container` Ginkgo label (install -> device-plugin ->
-  #    modelzoo -> DRA -> modelzoo).
-  - label: ":pytest: container track (install + container + dra)"
+  # 1. Container track (main cluster): install + container + dra + uninstall,
+  #    widened by SCOPE_BY_CHANGE (see scenario_command). uninstall is cheap and
+  #    catches the RBAC/finalizer leaks that otherwise surface as a later
+  #    build's "no lingering resources" failure.
+  - label: ":pytest: container track (install + container + dra + uninstall)"
     key: container-track
     depends_on: build-image
-    timeout_in_minutes: 120
+    # 120 covered the base set; driver_upgrade adds a driver install + upgrade
+    # cycle, and ci/full-e2e the whole nightly list. Tune after the first runs.
+    timeout_in_minutes: 180
     # Container-cluster lock, shared cross-repo (feature-discovery / driver-manager
     # / operator): one job at a time, held through teardown so the next job gets a
     # clean cluster.
     concurrency_group: "cloud-ci-container"
     env:
-      SCENARIO_FAMILY: "install container dra"
+      SCENARIO_FAMILY: "install container dra uninstall"
+      SCOPE_BY_CHANGE: "true"
+      FULL_FAMILY: "install container dra skip_label uninstall driver_upgrade negative"
+      # driver_upgrade targets, same pins as pipeline.nightly.yml's container track.
+      SENTINEL_ATOM_DRIVER_UPGRADE_VERSION: "${SENTINEL_ATOM_DRIVER_UPGRADE_VERSION:-3.2.3-rc1}"
+      SENTINEL_REBEL100_DRIVER_UPGRADE_VERSION: "${SENTINEL_REBEL100_DRIVER_UPGRADE_VERSION:-3.3.0}"
+      SENTINEL_ATOM_COMPILER_UPGRADE_VERSION: "${SENTINEL_ATOM_COMPILER_UPGRADE_VERSION:-rebel-compiler==0.10.4.post1}"
+      SENTINEL_REBEL100_COMPILER_UPGRADE_VERSION: "${SENTINEL_REBEL100_COMPILER_UPGRADE_VERSION:-rebel-compiler==0.11.1.post1}"
     notify:
       - github_commit_status:
           context: "[OP] Container Track"

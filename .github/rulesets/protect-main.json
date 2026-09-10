@@ -1,0 +1,41 @@
+{
+  "name": "protect-main",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] }
+  },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": false,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": ["squash"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "[OP] PR CI", "integration_id": 3323144 },
+          { "context": "pr-title-validation", "integration_id": 15368 },
+          { "context": "code-check / golang code checks", "integration_id": 15368 },
+          { "context": "go-tests / golang unit tests", "integration_id": 15368 },
+          { "context": "go-build / golang build operator", "integration_id": 15368 },
+          { "context": "manifests-check / helm lint", "integration_id": 15368 },
+          { "context": "olm-bundle-check / olm bundle + catalog validate", "integration_id": 15368 }
+        ]
+      }
+    }
+  ]
+}

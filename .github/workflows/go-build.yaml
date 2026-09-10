@@ -14,3 +14,7 @@ jobs:
         name: Setup Go
       - name: Build operator
         run: make cmd
+      # arm64 images are first built at rc time; a CGO-free cross-compile of
+      # every binary catches arch-specific build breaks on the PR instead.
+      - name: Cross-compile all binaries for arm64
+        run: make cmds GOARCH=arm64

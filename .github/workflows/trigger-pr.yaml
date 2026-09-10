@@ -4,10 +4,16 @@ on:
   pull_request:
     branches:
       - main
+      # Backport PRs get the same CI as main PRs. The Buildkite PR pipeline's
+      # branch filter must include release-* as well (Buildkite-side setting).
+      - "release-*"
 
+# One group per PR: a push supersedes that PR's running validation and never
+# touches another PR's. A repo-wide group would let GitHub cancel PR A's queued
+# run when PR B pushes (only one pending run per group is kept).
 concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
