@@ -38,7 +38,7 @@ type lookupFunc = func(apiversion string, resource string, namespace string, nam
 //
 // This function is considered deprecated, and will be renamed in Helm 4. It will no
 // longer be a public function.
-func NewLookupFunction(config *rest.Config) lookupFunc {
+func NewLookupFunction(config *rest.Config) lookupFunc { //nolint:revive
 	return newLookupFunction(clientProviderFromConfig{config: config})
 }
 
@@ -131,7 +131,7 @@ func getAPIResourceForGVK(gvk schema.GroupVersionKind, config *rest.Config) (met
 		return res, err
 	}
 	for _, resource := range resList.APIResources {
-		// if a resource contains a "/" it's referencing a subresource. we don't support suberesource for now.
+		// if a resource contains a "/" it's referencing a subresource. we don't support subresource for now.
 		if resource.Kind == gvk.Kind && !strings.Contains(resource.Name, "/") {
 			res = resource
 			res.Group = gvk.Group

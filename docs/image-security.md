@@ -120,11 +120,22 @@ resolution.
 
 ### Helm
 
-`helm.sh/helm/v3` pins `github.com/docker/cli` transitively, and it is the
-reason for the one standing entry in `.trivyignore.yaml`. Bumping Helm pulls a
-newer `client-go` minor into the tree, so it must be done together with the
-Kubernetes library bump above — not as an isolated fix for a docker/cli
-advisory.
+`helm.sh/helm/v3` tracks one Kubernetes minor per Helm minor (`v3.20.x` pins
+`k8s.io/*` v0.35.x) and pulls a registry client stack — `containerd`,
+`oras-go` — into the tree. Keep it on the Helm minor whose `k8s.io/*` pin
+matches the family above: moving Helm alone drags `client-go` to another minor
+and trips the skew check; moving `k8s.io/*` alone leaves Helm pinning the old
+one. When an advisory lands in Helm's registry stack, bump the affected module
+directly first (`containerd` moves freely within `v1.7.x`); a Helm bump is the
+fallback. Helm is only imported by the e2e suite, so it never reaches the
+shipped binaries, but Trivy and govulncheck still see it in the module graph.
+
+### go-containerregistry
+
+`github.com/google/go-containerregistry` is what pins `github.com/docker/cli`
+(it parses Docker credential-helper config). It has no Kubernetes coupling, so
+bump it directly when a `docker/cli` advisory lands rather than pinning
+`docker/cli` by hand.
 
 ### operator-framework tooling
 
