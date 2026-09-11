@@ -161,7 +161,7 @@ endpoint entirely with `--set operator.metrics.enabled=false`.
 | `rbln_operator_driver_owned_nodes` | Gauge | `driver` | Nodes routed to each RBLNDriver (zero-seeded, so a selector matching nothing reads 0) |
 | `rbln_operator_driver_uncovered_nodes` | Gauge | — | Deploy-labeled NPU nodes with no owning RBLNDriver |
 | `rbln_operator_driver_selector_conflict_nodes` | Gauge | `driver` | Nodes where this driver's selector ties with another RBLNDriver |
-| `rbln_operator_driver_upgrade_nodes` | Gauge | `state` | Nodes per driver upgrade state |
+| `rbln_operator_driver_upgrade_nodes` | Gauge | `state` | Nodes per driver upgrade state label (`upgrade-done`, `upgrade-skipped`, `upgrade-failed`, …; see [NPU Driver Auto Upgrade](docs/driver-upgrade.md)) |
 
 Standard controller-runtime metrics (`controller_runtime_*`, `workqueue_*`, `rest_client_*`, `go_*`)
 are exposed on the same endpoint.
@@ -203,7 +203,9 @@ The operator records Kubernetes Events for state transitions and failures, so
 | `NodeDrained` | Normal | Node | node drain succeeded | — (node label) |
 | `NodeDrainFailed` | Warning | Node | cordon or drain failed | — (node label) |
 | `DriverUpgradeCompleted` | Normal | Node | in-progress state → upgrade-done | — (node label) |
-| `DriverUpgradeFailed` | Warning | Node | non-Failed state → upgrade-failed | — (node label) |
+| `DriverUpgradeFailed` | Warning | Node | non-Failed state → upgrade-failed; message carries the recorded failure reason | — (node label) |
+| `DriverUpgradeSkipped` | Warning | Node | eviction or drain could not empty the node before the driver swap → upgrade-skipped; node returns to service on the old driver | — (node label) |
+| `DriverUpgradePodStuck` | Warning | Node | driver pod replacement is not progressing (e.g. `ImagePullBackOff`); repeats every reconcile while stuck, judged only by `podRestartTimeoutSeconds` | — (node label) |
 | `DriverNodeUncovered` | Warning | Node | node loses its RBLNDriver owner (no selector matches, or an unresolved selector tie); transition-only | — (node label) |
 | `DriverOwnerChanged` | Normal | Node | node's RBLNDriver owner is set or changed; transition-only | — (node label) |
 | `ComponentApplyFailed` | Warning | RBLNClusterPolicy | component apply failed | `False / ComponentApplyFailed` |
@@ -447,6 +449,11 @@ kubectl get nodes -l 'rebellions.ai/npu.driver.owner=rbln-driver'
 identically to every driver instance. Per-instance upgrade cadence — for
 example, upgrading a canary instance independently of the default — is not
 supported.
+
+What the policy does once `autoUpgrade` is on — the node state machine, the
+drain/reboot options, skipped vs. failed nodes and how to retry them, and the
+`status.driverUpgrade` block and conditions — is documented in
+[NPU Driver Auto Upgrade](docs/driver-upgrade.md).
 
 ### Verifying after install or upgrade
 

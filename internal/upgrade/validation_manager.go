@@ -115,7 +115,9 @@ func (m *ValidationManager) handleTimeout(ctx context.Context, node *corev1.Node
 	}
 
 	if timedOut {
-		if stateErr := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateFailed); stateErr != nil {
+		reason := fmt.Sprintf("driver validation timed out after %d seconds", timeoutSeconds)
+		if stateErr := markNodeUpgradeFailed(ctx, m.nodeUpgradeStateProvider, node,
+			UpgradeStateValidationRequired, reason); stateErr != nil {
 			log.FromContext(ctx).Error(stateErr, "Failed to mark node as failed after validation timeout; will retry next cycle",
 				"node", node.Name)
 			return stateErr

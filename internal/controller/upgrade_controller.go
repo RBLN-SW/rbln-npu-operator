@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -51,6 +52,8 @@ type UpgradeReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets;replicasets;statefulsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=controllerrevisions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
+// +kubebuilder:rbac:groups=rebellions.ai,resources=rblnclusterpolicies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=rebellions.ai,resources=rblnclusterpolicies/status,verbs=get;update;patch
 
 func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -81,6 +84,10 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		!clusterPolicy.Spec.Driver.UpgradePolicy.AutoUpgrade {
 		logger.Info("Auto-upgrade disabled; cleaning upgrade state and skipping reconciliation")
 		metrics.DriverUpgradeNodes.Reset()
+		if err := r.clearUpgradeStatus(ctx, clusterPolicy); err != nil {
+			logger.Error(err, "Failed to clear driver upgrade status")
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, r.removeNodeUpgradeStateLabels(ctx)
 	}
 
@@ -93,10 +100,20 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	err = r.StateManager.ApplyState(ctx, r.Namespace, state, clusterPolicy.Spec.Driver.UpgradePolicy)
-	if err != nil {
-		logger.Error(err, "Failed to apply cluster upgrade state")
-		return ctrl.Result{}, err
+	applyErr := r.StateManager.ApplyState(ctx, r.Namespace, state, clusterPolicy.Spec.Driver.UpgradePolicy)
+	if applyErr != nil {
+		logger.Error(applyErr, "Failed to apply cluster upgrade state")
+	}
+
+	// Published even when ApplyState partially failed — an erroring cycle is
+	// when visibility matters most.
+	if statusErr := r.publishUpgradeStatus(ctx, clusterPolicy,
+		upgrade.SummarizeClusterUpgrade(state)); statusErr != nil {
+		logger.Error(statusErr, "Failed to publish driver upgrade status")
+		applyErr = errors.Join(applyErr, statusErr)
+	}
+	if applyErr != nil {
+		return ctrl.Result{}, applyErr
 	}
 
 	return ctrl.Result{RequeueAfter: plannedRequeueInterval}, nil

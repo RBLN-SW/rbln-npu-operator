@@ -60,6 +60,53 @@ type RBLNComponentStatus struct {
 	Message string `json:"message,omitempty"`
 }
 
+// DriverUpgradeState values persisted in .status.driverUpgrade.state.
+const (
+	// DriverUpgradeStateInProgress: nodes are pending or moving through the pipeline.
+	DriverUpgradeStateInProgress = "InProgress"
+	// DriverUpgradeStateDegraded: upgrade-failed nodes exist; each holds an
+	// upgrade slot, so rollout parallelism shrinks until they are resolved.
+	DriverUpgradeStateDegraded = "Degraded"
+	// DriverUpgradeStatePartiallyComplete: the rollout finished but skipped
+	// nodes still run the old driver.
+	DriverUpgradeStatePartiallyComplete = "PartiallyComplete"
+	// DriverUpgradeStateComplete: every managed node runs the target driver.
+	DriverUpgradeStateComplete = "Complete"
+)
+
+// DriverUpgradeStatus summarizes the cluster-wide driver upgrade rollout.
+type DriverUpgradeStatus struct {
+	// Total is the number of nodes managed by the driver upgrade flow.
+	Total int32 `json:"total"`
+	// Done is the number of nodes whose upgrade is complete.
+	Done int32 `json:"done"`
+	// InProgress is the number of nodes currently moving through the upgrade
+	// pipeline (excluding skipped and failed nodes).
+	InProgress int32 `json:"inProgress"`
+	// Pending is the number of nodes waiting for an upgrade slot.
+	Pending int32 `json:"pending"`
+	// Skipped is the number of nodes this rollout could not empty before the
+	// driver swap; they were returned to service on the old driver and never
+	// count into Done — see the UpgradeIncomplete condition.
+	Skipped int32 `json:"skipped"`
+	// Failed is the number of nodes parked in upgrade-failed. Each failed node
+	// holds an upgrade slot — see the UpgradeDegraded condition.
+	Failed int32 `json:"failed"`
+	// State is the rollout-level disposition.
+	// +kubebuilder:validation:Enum=InProgress;Degraded;PartiallyComplete;Complete
+	// +optional
+	State string `json:"state,omitempty"`
+	// Progress is a human-readable summary used by printcolumns, e.g.
+	// "38/40 (2 skipped)". Skipped nodes are never folded into the done count.
+	// +optional
+	Progress string `json:"progress,omitempty"`
+	// LastTransitionTime is when the per-state node counts last changed; a
+	// long-unchanged value while nodes are in progress indicates a stalled
+	// rollout (surfaced via the UpgradeStalled condition).
+	// +optional
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty"`
+}
+
 // RBLNClusterPolicyStatus defines the observed state of RBLNClusterPolicy
 type RBLNClusterPolicyStatus struct {
 	// +kubebuilder:validation:Enum=ready;notReady;ignored
@@ -80,6 +127,10 @@ type RBLNClusterPolicyStatus struct {
 	// Components is a list of components and their status
 	// +operator-sdk:csv:customresourcedefinitions:type=status,displayName="Components",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	Components []RBLNComponentStatus `json:"components,omitempty"`
+	// DriverUpgrade summarizes the driver upgrade rollout across managed nodes.
+	// +optional
+	// +operator-sdk:csv:customresourcedefinitions:type=status,displayName="Driver Upgrade",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
+	DriverUpgrade *DriverUpgradeStatus `json:"driverUpgrade,omitempty"`
 	// Conditions is a list of conditions representing the RBLNClusterPolicy's current state
 	// +operator-sdk:csv:customresourcedefinitions:type=status,displayName="Conditions",xDescriptors="urn:alm:descriptor:io.kubernetes.conditions"
 	Conditions []metav1.Condition `json:"conditions,omitempty"`

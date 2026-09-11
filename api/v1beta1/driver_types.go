@@ -20,6 +20,16 @@ type DriverUpgradePolicySpec struct {
 	// +kubebuilder:default:=1
 	// +kubebuilder:validation:Minimum:=0
 	MaxParallelUpgrades int `json:"maxParallelUpgrades,omitempty"`
+	// PodRestartTimeoutSeconds bounds how long a node may stay in the
+	// pod-restart-required state (driver pod replacement). Failures that never
+	// raise the pod restart count — ImagePullBackOff, a hung init container —
+	// otherwise wait silently forever. On expiry the node is marked
+	// upgrade-failed with the pod status recorded as the failure reason.
+	// 0 disables the timeout.
+	// +optional
+	// +kubebuilder:default:=1800
+	// +kubebuilder:validation:Minimum:=0
+	PodRestartTimeoutSeconds int `json:"podRestartTimeoutSeconds,omitempty"`
 	// +optional
 	PodDeletion *PodDeletionSpec `json:"podDeletion,omitempty"`
 	// +optional
