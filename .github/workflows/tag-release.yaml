@@ -84,7 +84,13 @@ jobs:
         run: |
           git config user.name "rbln-release-bot[bot]"
           git config user.email "rbln-release-bot[bot]@users.noreply.github.com"
-          hack/release/tag-release.sh "$BRANCH" "$KIND"
+          # Keep the guard's ERROR line for the Slack message: the generic
+          # "refused" text was read as a GA attempt when an rc was refused.
+          set +e
+          hack/release/tag-release.sh "$BRANCH" "$KIND" 2>&1 | tee tag.log
+          rc=${PIPESTATUS[0]}
+          echo "reason=$(grep -m1 '^ERROR: ' tag.log | sed 's/^ERROR: //')" >> "$GITHUB_OUTPUT"
+          exit "$rc"
 
       - name: Notify Slack
         if: always()
@@ -92,6 +98,7 @@ jobs:
           SLACK_OAUTH_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
           SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
           TAG: ${{ steps.tag.outputs.tag }}
+          REASON: ${{ steps.tag.outputs.reason }}
         run: |
           trigger="${{ github.actor }}"
           [ "${{ github.event_name }}" = "pull_request" ] && trigger="merge of PR #${{ github.event.pull_request.number }} (\`tag-rc\`)"
@@ -107,5 +114,6 @@ jobs:
             fi
           else
             hack/release/slack-notify.sh --color danger --title ":x: *tag-release* $KIND on \`$BRANCH\` refused" \
-              "Triggered by $trigger. See the workflow run for the guard that fired (nothing new to tag, GA not on the newest rc, or rc-validation not green)."
+              "• Triggered by $trigger
+          • ${REASON:-No guard message captured; see the workflow run}"
           fi
