@@ -9,7 +9,7 @@ name: Release
 #                          posts the `rc-validation` commit status. Nothing
 #                          reaches docker.io.
 #   vX.Y.Z       GA path   no build: the newest rc's images are copied by digest
-#                          to docker.io (+ latest), the chart is re-packaged for
+#                          to docker.io (+ latest when it is the highest GA), the chart is re-packaged for
 #                          docker.io, the certified-operators bundle PR is
 #                          opened (merge: true) with the digests pinned at the
 #                          rc, release notes are drafted and the backport label
@@ -433,6 +433,7 @@ jobs:
     outputs:
       operator_digest: ${{ steps.copy.outputs.operator_digest }}
       validator_digest: ${{ steps.copy.outputs.validator_digest }}
+      latest: ${{ steps.copy.outputs.latest }}
     steps:
       - uses: actions/checkout@v4
       - name: Install regctl
@@ -452,13 +453,22 @@ jobs:
           LAST_RC: ${{ needs.classify.outputs.last_rc }}
         run: |
           set -euo pipefail
+          . hack/release/lib.sh
+          # `latest` follows the highest GA only: a patch of an older minor
+          # (0.6.1 after 0.7.0 shipped) must not move it back.
+          git fetch --quiet origin '+refs/tags/*:refs/tags/*'
+          highest=$(last_ga_tag)
+          move_latest=false
+          [ "$highest" = "$GITHUB_REF_NAME" ] && move_latest=true
+          echo "latest=$move_latest" >> "$GITHUB_OUTPUT"
+          [ "$move_latest" = true ] || echo "::notice::$GITHUB_REF_NAME is below the highest GA $highest; latest stays"
           for img in rbln-npu-operator rbln-npu-operator-validator; do
             src="$HARBOR_REGISTRY/$img:$LAST_RC"
             dst="$DOCKERHUB_REGISTRY/$img:$GITHUB_REF_NAME"
             regctl image copy "$src" "$dst"
             s=$(regctl image digest "$src"); d=$(regctl image digest "$dst")
             [ "$s" = "$d" ] || { echo "::error::digest changed while copying $img: $s -> $d"; exit 1; }
-            regctl image copy "$dst" "$DOCKERHUB_REGISTRY/$img:latest"
+            [ "$move_latest" = true ] && regctl image copy "$dst" "$DOCKERHUB_REGISTRY/$img:latest"
             echo "$img: $dst@$d (= $src)"
             key=${img#rbln-npu-operator}; key=${key:-operator}; key=${key#-}
             echo "${key}_digest=$d" >> "$GITHUB_OUTPUT"
@@ -797,6 +807,7 @@ jobs:
           PR_URL: ${{ needs.olm-bundle.outputs.pr_url }}
           DRAFT_URL: ${{ needs.draft-release.outputs.url }}
           LAST_RC: ${{ needs.classify.outputs.last_rc }}
+          LATEST: ${{ needs.ga-promote.outputs.latest }}
           BRANCH: ${{ needs.classify.outputs.branch }}
         run: |
           mark() { case "$1" in success) echo ":white_check_mark:";; failure) echo ":x:";; cancelled) echo ":no_entry_sign:";; skipped) echo ":fast_forward:";; *) echo ":grey_question:";; esac; }
@@ -804,7 +815,8 @@ jobs:
           for r in "$R_PROMOTE" "$R_CHART" "$R_OLM" "$R_NOTES"; do
             case $r in failure|cancelled) color=danger;; esac
           done
-          rows="$(mark "$R_PROMOTE") Images promoted from \`$LAST_RC\` by digest → \`$DOCKERHUB_REGISTRY\` (\`$GITHUB_REF_NAME\`, \`latest\`)
+          tags="\`$GITHUB_REF_NAME\`"; [ "$LATEST" = true ] && tags="$tags, \`latest\`"
+          rows="$(mark "$R_PROMOTE") Images promoted from \`$LAST_RC\` by digest → \`$DOCKERHUB_REGISTRY\` ($tags)
           $(mark "$R_CHART") Helm chart \`${GITHUB_REF_NAME#v}\` → docker.io OCI
           $(mark "$R_OLM") certified-operators bundle PR
           $(mark "$R_NOTES") Release notes drafted
