@@ -1,19 +1,9 @@
 name: tag-release
 
-# Tag the HEAD of a release branch as the next rc, or as GA.
-#
-# Two ways in:
-#   - a release manager runs it from the Actions tab (`kind` = rc or ga)
-#   - a PR labelled `tag-rc` is merged into a release-* branch: the next rc is
-#     tagged automatically, so the release manager's approval doubles as the
-#     "publish an rc now" decision. GA is never automatic.
-#
-# The tag push is what starts release.yaml; this workflow publishes nothing.
-# hack/release/tag-release.sh refuses to tag when HEAD already carries an rc
-# tag, when the version already went GA, or (for ga) when HEAD is not the
-# newest rc's commit or that commit's rc-validation status is not success
-# (enforced once the repository variable RC_VALIDATION_ENFORCE is "true").
-# Reading the status needs the App permission "Commit statuses: read".
+# Tag the HEAD of a release branch as the next rc, or as GA. Run from the
+# Actions tab, or automatically when a PR labelled `tag-rc` is merged into a
+# release-* branch (rc only; GA is never automatic).
+# Everything else lives in the release kit: https://github.com/RBLN-SW/cloud-component-release-kit
 
 on:
   workflow_dispatch:
@@ -41,79 +31,8 @@ concurrency:
 
 jobs:
   tag:
-    name: tag ${{ github.event.pull_request.base.ref || inputs.branch }} (${{ inputs.kind || 'rc' }})
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.pull_request.merged == true &&
-       contains(github.event.pull_request.labels.*.name, 'tag-rc'))
-    runs-on: ubuntu-latest
-    env:
-      BRANCH: ${{ github.event.pull_request.base.ref || inputs.branch }}
-      KIND: ${{ inputs.kind || 'rc' }}
-    steps:
-      - name: Mint release App token
-        id: app
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-      - name: Require release-manager team membership
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          TEAM: ${{ vars.RELEASE_TEAM || 'npu-release-managers' }}
-        run: |
-          if ! gh api "orgs/${{ github.repository_owner }}/teams/${TEAM}/memberships/${{ github.actor }}" \
-               --jq '.state' 2>/dev/null | grep -qx active; then
-            echo "::error::${{ github.actor }} is not an active member of ${{ github.repository_owner }}/${TEAM}"
-            exit 1
-          fi
-
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.BRANCH }}
-          fetch-depth: 0
-          token: ${{ steps.app.outputs.token }}
-
-      - name: Tag
-        id: tag
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          RC_VALIDATION_ENFORCE: ${{ vars.RC_VALIDATION_ENFORCE }}
-        run: |
-          git config user.name "rbln-release-bot[bot]"
-          git config user.email "rbln-release-bot[bot]@users.noreply.github.com"
-          # Keep the guard's ERROR line for the Slack message: the generic
-          # "refused" text was read as a GA attempt when an rc was refused.
-          set +e
-          hack/release/tag-release.sh "$BRANCH" "$KIND" 2>&1 | tee tag.log
-          rc=${PIPESTATUS[0]}
-          echo "reason=$(grep -m1 '^ERROR: ' tag.log | sed 's/^ERROR: //')" >> "$GITHUB_OUTPUT"
-          exit "$rc"
-
-      - name: Notify Slack
-        if: always()
-        env:
-          SLACK_OAUTH_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
-          TAG: ${{ steps.tag.outputs.tag }}
-          REASON: ${{ steps.tag.outputs.reason }}
-        run: |
-          trigger="${{ github.actor }}"
-          [ "${{ github.event_name }}" = "pull_request" ] && trigger="merge of PR #${{ github.event.pull_request.number }} (\`tag-rc\`)"
-          if [ "${{ job.status }}" = "success" ]; then
-            if [ "$KIND" = ga ]; then
-              hack/release/slack-notify.sh --color good --title ":rocket: *$TAG* · GA tagged on \`$BRANCH\`" \
-                "• Triggered by $trigger
-          • release.yaml is promoting the validated rc by digest to docker.io and opening the OLM bundle PR"
-            else
-              hack/release/slack-notify.sh --color info --title ":label: *$TAG* · new release candidate on \`$BRANCH\`" \
-                "• Triggered by $trigger
-          • release.yaml is publishing to Harbor; the matrix validation follows"
-            fi
-          else
-            hack/release/slack-notify.sh --color danger --title ":x: *tag-release* $KIND on \`$BRANCH\` refused" \
-              "• Triggered by $trigger
-          • ${REASON:-No guard message captured; see the workflow run}"
-          fi
+    uses: RBLN-SW/cloud-component-release-kit/.github/workflows/tag-release.yaml@v1
+    with:
+      branch: ${{ github.event.pull_request.base.ref || inputs.branch }}
+      kind: ${{ inputs.kind || 'rc' }}
+    secrets: inherit
