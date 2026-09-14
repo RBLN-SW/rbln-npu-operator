@@ -2,21 +2,7 @@ name: backport
 
 # Cherry-pick a merged main PR into the release branch named by its
 # `backport release-X.Y.Z` label(s) and open the backport PR.
-#
-# Runs once per main PR event: when the PR is merged, or when a backport label
-# is added to an already-merged PR. One label = one target = one PR; several
-# labels make several PRs. Targets that already have a PR are skipped, so
-# re-labelling never duplicates. The label of a released branch no longer
-# exists (GA deletes it), so a released branch cannot be targeted.
-#
-# On a conflict the action commits the conflicted state as a *draft* PR
-# (message BACKPORT-CONFLICT, no trailer) and comments the resolution steps.
-# The last step labels such drafts `backport-manual` and pings Slack; the
-# developer resets that commit and redoes `git cherry-pick -x` by hand.
-#
-# Uses the release App token, not GITHUB_TOKEN: PRs created with GITHUB_TOKEN
-# do not trigger other workflows, which would leave the backport PR without
-# its required checks and therefore unmergeable.
+# Everything else lives in the release kit: https://github.com/RBLN-SW/cloud-component-release-kit
 
 on:
   pull_request_target:
@@ -33,87 +19,5 @@ concurrency:
 
 jobs:
   backport:
-    name: backport PR #${{ github.event.pull_request.number }}
-    if: >
-      github.event.pull_request.merged == true &&
-      contains(toJSON(github.event.pull_request.labels.*.name), '"backport release-')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Mint release App token
-        id: app
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ steps.app.outputs.token }}
-
-      - name: Cherry-pick and open backport PRs
-        id: bp
-        uses: korthout/backport-action@v4
-        with:
-          github_token: ${{ steps.app.outputs.token }}
-          label_pattern: '^backport (release-[0-9]+\.[0-9]+\.[0-9]+)$'
-          pull_title: '${pull_title}'
-          # The trailer is repeated in the PR body so it survives the squash
-          # merge whichever commit-message default the repository uses: with
-          # "commit message" it comes from the cherry-picked commit, with "title
-          # and description" from this body. release-notes.sh needs it on the
-          # release-branch commit to tell a backport from a new change.
-          pull_description: |-
-            Backport of #${pull_number} to `${target_branch}`.
-
-            Created by the backport workflow from the merged main commit; the
-            cherry-pick trailer is the provenance the release-policy check verifies.
-
-            (cherry picked from commit ${{ github.event.pull_request.merge_commit_sha }})
-          add_author_as_assignee: true
-          add_team_reviewers: ${{ vars.RELEASE_TEAM || 'npu-release-managers' }}
-          copy_labels_pattern: '^(release-blocker|tag-rc)$'
-          auto_merge_enabled: true
-          auto_merge_method: squash
-          merge_commits: fail
-          git_committer_name: rbln-release-bot[bot]
-          git_committer_email: rbln-release-bot[bot]@users.noreply.github.com
-          experimental: '{"conflict_resolution":"draft_commit_conflicts"}'
-
-      # Drafts are conflicts in this mode: label them so release-policy accepts a
-      # hand-resolved (non-identical) cherry-pick, and tell the channel.
-      - name: Label conflicting drafts and notify
-        if: always()
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          SLACK_OAUTH_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
-          CREATED: ${{ steps.bp.outputs.created_pull_numbers }}
-          SRC: ${{ github.event.pull_request.number }}
-        run: |
-          src_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$SRC"
-          src_title=$(gh pr view "$SRC" --json title -q .title 2>/dev/null || echo "")
-          if [ "${{ steps.bp.outcome }}" != "success" ]; then
-            hack/release/slack-notify.sh --color danger --link "$src_url|source PR" \
-              --title ":x: *backport* of #$SRC failed" \
-              "• $src_title
-          • The backport bot left a comment on the source PR with the reason"
-          fi
-          for n in $(tr ',' ' ' <<<"$CREATED"); do
-            [ -n "$n" ] || continue
-            base=$(gh pr view "$n" --json baseRefName -q .baseRefName)
-            pr_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$n"
-            if [ "$(gh pr view "$n" --json isDraft -q .isDraft)" = "true" ]; then
-              gh pr edit "$n" --add-label backport-manual
-              hack/release/slack-notify.sh --color warning --link "$pr_url|draft PR #$n" --link "$src_url|source PR" \
-                --title ":warning: *backport* #$SRC → \`$base\` has conflicts" \
-                "• $src_title
-          • Draft PR #$n holds the conflicted state; redo the cherry-pick by hand (\`git cherry-pick -x\`), push, mark ready
-          • Labelled \`backport-manual\` so release-policy accepts the hand-resolved content"
-            else
-              hack/release/slack-notify.sh --color info --link "$pr_url|PR #$n" --link "$src_url|source PR" \
-                --title ":arrow_right: *backport* #$SRC → \`$base\`" \
-                "• $src_title
-          • Auto-merge is on: one release-manager approval merges it once \`[OP] PR CI\` and \`release-policy\` are green"
-            fi
-          done
+    uses: RBLN-SW/cloud-component-release-kit/.github/workflows/backport.yaml@v1
+    secrets: inherit

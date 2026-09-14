@@ -1,25 +1,24 @@
-name: Release
+name: release
 
-# One workflow, two paths, selected by the tag that was pushed.
+# Publish from a version tag: vX.Y.Z-rcN -> Harbor, vX.Y.Z -> docker.io by
+# digest. Tags are created by cut-release / tag-release only.
 #
-#   vX.Y.Z-rcN   rc path   multi-arch images + FBC catalog image -> Harbor,
-#                          chart -> Harbor OCI, component digests pinned,
-#                          GitHub pre-release, OLM pre-validation, preflight,
-#                          then the test-infra matrix validates the rc and
-#                          posts the `rc-validation` commit status. Nothing
-#                          reaches docker.io.
-#   vX.Y.Z       GA path   no build: the newest rc's images are copied by digest
-#                          to docker.io (+ latest when it is the highest GA), the chart is re-packaged for
-#                          docker.io, the certified-operators bundle PR is
-#                          opened (merge: true) with the digests pinned at the
-#                          rc, release notes are drafted and the backport label
-#                          is deleted.
+# The `release` job is the release kit's reusable workflow: it classifies the
+# tag, builds the operator and validator images and the chart for an rc, and
+# for a GA promotes the newest rc by digest, re-packages the chart, drafts the
+# release notes and deletes the backport label. The jobs after it are what only
+# the operator needs:
 #
-# `classify` refuses a GA tag that is not the exact commit of the newest rc, or
-# whose rc-validation status is not success (once RC_VALIDATION_ENFORCE=true),
-# before anything is published: what was validated is what ships. Tags are
-# created only by cut-release / tag-release with the release App token
-# (rulesets in .github/rulesets/).
+#   rc   OLM pre-validation and the rc catalog image, the component digests
+#        pinned at the rc (the GA bundle reuses them), Red Hat preflight, and
+#        the test-infra matrix validation that posts the `rc-validation` commit
+#        status the kit reads before a GA is published.
+#   GA   the certified-operators bundle PR (merge: true) with the digests
+#        pinned at the rc.
+#
+# The kit's own Slack summary is off (notify: false); rc-notify / ga-notify
+# below report the whole run in one message.
+# Everything else lives in the release kit: https://github.com/RBLN-SW/cloud-component-release-kit
 
 on:
   push:
@@ -32,135 +31,44 @@ permissions:
   statuses: read # GA reads the rc-validation commit status
 
 env:
-  HARBOR_HOST: harbor.k8s.rebellions.in
-  HARBOR_REGISTRY: harbor.k8s.rebellions.in/rebellions
-  DOCKERHUB_REGISTRY: docker.io/rebellions
-  CHART_DIR: deployments/rbln-npu-operator
+  HARBOR_REGISTRY: ${{ vars.CLOUD_COMPONENT_HARBOR_REGISTRY }}
+  DOCKERHUB_REGISTRY: ${{ vars.CLOUD_COMPONENT_DOCKERHUB_REGISTRY }}
   # The OCP range the bundle claims lives in versions.mk (OCP_RANGE); the jobs
   # that need it read it from there so there is exactly one place to bump.
 
 jobs:
-  classify:
-    name: Classify ${{ github.ref_name }}
-    runs-on: ubuntu-latest
-    outputs:
-      kind: ${{ steps.c.outputs.kind }}
-      version: ${{ steps.c.outputs.version }}
-      branch: ${{ steps.c.outputs.branch }}
-      last_rc: ${{ steps.c.outputs.last_rc }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Classify tag and enforce invariants
-        id: c
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RC_VALIDATION_ENFORCE: ${{ vars.RC_VALIDATION_ENFORCE }}
-        run: hack/release/classify-tag.sh "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT"
+  release:
+    uses: RBLN-SW/cloud-component-release-kit/.github/workflows/release.yaml@v1
+    with:
+      images: rbln-npu-operator rbln-npu-operator-validator
+      release_name: RBLN NPU Operator
+      chart_dir: deployments/rbln-npu-operator
+      chart_repos: nfd=https://kubernetes-sigs.github.io/node-feature-discovery/charts
+      # The rc chart resolves operator and validator from Harbor. Component
+      # images stay on docker.io at their GA tags: the rc validation exercises
+      # that exact combination, and rc-digests pins it for the GA bundle.
+      chart_rc_values: '.operator.image.registry = env(HARBOR_HOST) | .validator.image.registry = env(HARBOR_HOST)'
+      release_notes_extra: hack/release/component-table.sh
+      notify: false
+    secrets: inherit
 
   # ---------------------------------------------------------------- rc path --
   #
   # Harbor and obedients are reachable only from the in-network runner
-  # rbln-sw-k8s-general (the one trigger-ci's dev-image job uses); GitHub-hosted
-  # runners and the arm64 runner time out on harbor.k8s.rebellions.in. Every rc
-  # job that pulls, pushes or calls into the network runs there, and arm64 is
-  # built under QEMU on that runner: the Dockerfile cross-compiles Go through
-  # TARGETARCH, so only the runtime stage's microdnf step is emulated.
-
-  rc-images:
-    name: rc images (amd64 + arm64) -> Harbor
-    needs: classify
-    if: needs.classify.outputs.kind == 'rc'
-    runs-on: rbln-sw-k8s-general
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install prerequisites
-        run: |
-          if ! command -v docker &>/dev/null; then
-            curl -fsSL https://get.docker.com | sudo sh
-            sudo usermod -aG docker "$USER"
-            sudo chmod 666 /var/run/docker.sock
-          fi
-          if ! command -v make &>/dev/null; then
-            sudo apt-get update && sudo apt-get install -y make
-          fi
-      - name: Set up QEMU for arm64 emulation
-        uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ${{ env.HARBOR_HOST }}
-          username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_PASSWORD }}
-      - name: Login to Docker Hub for base-image pulls
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
-      - name: Build and push the operator and validator images (multi-arch)
-        run: |
-          set -euo pipefail
-          make build-image VERSION="$GITHUB_REF_NAME" REGISTRY="$HARBOR_REGISTRY" \
-            BUILD_MULTI_PLATFORM=true PUSH_ON_BUILD=true
-          make build-image VERSION="$GITHUB_REF_NAME" REGISTRY="$HARBOR_REGISTRY" \
-            BUILD_MULTI_PLATFORM=true PUSH_ON_BUILD=true \
-            IMAGE_NAME="$HARBOR_REGISTRY/rbln-npu-operator-validator"
-      - name: Verify both platforms are present
-        run: |
-          set -euo pipefail
-          for img in rbln-npu-operator rbln-npu-operator-validator; do
-            docker buildx imagetools inspect "$HARBOR_REGISTRY/$img:$GITHUB_REF_NAME" | tee inspect.out
-            for p in linux/amd64 linux/arm64; do
-              grep -q "$p" inspect.out || { echo "::error::$img:$GITHUB_REF_NAME is missing $p"; exit 1; }
-            done
-          done
-
-  rc-chart:
-    name: rc chart -> Harbor OCI
-    needs: [classify, rc-images]
-    runs-on: rbln-sw-k8s-general
-    steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
-      - name: Install yq
-        run: |
-          mkdir -p "$HOME/.local/bin" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          curl -sSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o "$HOME/.local/bin/yq"
-          chmod +x "$HOME/.local/bin/yq"
-      # The rc chart must resolve operator/validator from Harbor. Component
-      # images stay on docker.io at their GA tags: the rc validation exercises
-      # that exact combination, and rc-digests pins it for the GA bundle.
-      - name: Point operator and validator images at Harbor
-        run: |
-          yq -i '.operator.image.registry = env(HARBOR_HOST) | .validator.image.registry = env(HARBOR_HOST)' "$CHART_DIR/values.yaml"
-      - name: Package chart
-        run: |
-          set -euo pipefail
-          helm repo add nfd https://kubernetes-sigs.github.io/node-feature-discovery/charts
-          helm dependency build "$CHART_DIR"
-          mkdir -p dist
-          helm package "$CHART_DIR" --destination dist \
-            --version "${GITHUB_REF_NAME#v}" --app-version "$GITHUB_REF_NAME"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: helm-chart-${{ github.ref_name }}
-          path: dist/*.tgz
-      - name: Push chart to Harbor
-        run: |
-          echo "${{ secrets.HARBOR_PASSWORD }}" | \
-            helm registry login "$HARBOR_HOST" -u "${{ secrets.HARBOR_USERNAME }}" --password-stdin
-          helm push dist/*.tgz "oci://$HARBOR_REGISTRY"
+  # rbln-sw-k8s-general; every rc job that pulls, pushes or calls into the
+  # network runs there.
 
   rc-olm-check:
     name: rc OLM pre-validation
-    needs: [classify, rc-images]
+    needs: release
+    if: needs.release.outputs.kind == 'rc'
     runs-on: rbln-sw-k8s-general
     steps:
       - uses: actions/checkout@v4
-      # Every job lands on a fresh runner, so the prerequisites rc-images
-      # installs are not here: make (bundle, catalog, operator-sdk) and docker
-      # (catalog image) have to be installed again.
+      - name: Derive the Harbor host
+        run: echo "HARBOR_HOST=${HARBOR_REGISTRY%%/*}" >> "$GITHUB_ENV"
+      # Every job lands on a fresh runner: make (bundle, catalog, operator-sdk)
+      # and docker (catalog image) have to be installed here.
       - name: Install prerequisites
         run: |
           if ! command -v docker &>/dev/null; then
@@ -192,7 +100,7 @@ jobs:
       - name: Render and validate a single-bundle FBC catalog
         run: make catalog VERSION="$GITHUB_REF_NAME" CATALOG_BUNDLE=bundle
       - name: Upgrade-graph check against upstream certified-operators
-        run: hack/release/olm-graph-check.sh "${{ needs.classify.outputs.version }}"
+        run: hack/release/olm-graph-check.sh "${{ needs.release.outputs.version }}"
       # The rc validation installs the operator through OLM on OpenShift from
       # this catalog image, so the certified-operators PR is not the first place
       # the bundle meets a real cluster.
@@ -208,15 +116,20 @@ jobs:
             PLATFORM=linux/amd64 PUSH_ON_BUILD=true
           echo "catalog: $HARBOR_REGISTRY/rbln-npu-operator-catalog:$GITHUB_REF_NAME"
 
-  # Pin the component images the chart names, by digest, at the rc. GA reuses
-  # this file for the OLM bundle instead of resolving the (mutable) tags again,
-  # so the bundle ships exactly the combination the rc validation exercised.
+  # Pin the component images the chart names, by digest, at the rc, and attach
+  # the file to the kit's pre-release (assets do not expire like workflow
+  # artifacts do). GA reuses it for the OLM bundle instead of resolving the
+  # (mutable) tags again, so the bundle ships exactly the combination the rc
+  # validation exercised.
   rc-digests:
     name: rc component digests
-    needs: [classify, rc-images]
+    needs: release
+    if: needs.release.outputs.kind == 'rc'
     runs-on: rbln-sw-k8s-general
     steps:
       - uses: actions/checkout@v4
+      - name: Derive the Harbor host
+        run: echo "HARBOR_HOST=${HARBOR_REGISTRY%%/*}" >> "$GITHUB_ENV"
       - name: Install regctl and yq
         run: |
           mkdir -p "$HOME/.local/bin" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -257,19 +170,29 @@ jobs:
             resolve DRIVER_MANAGER .driver.manager.image
           } > digests/component-digests.env
           cat digests/component-digests.env
-      - uses: actions/upload-artifact@v4
+      # The kit created the pre-release for this tag before this job started
+      # (needs: release); only the asset is added here.
+      - name: Attach the digests to the rc pre-release
+        uses: softprops/action-gh-release@v2
         with:
-          name: component-digests-${{ github.ref_name }}
-          path: digests/component-digests.env
+          tag_name: ${{ github.ref_name }}
+          prerelease: true
+          files: digests/component-digests.env
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Red Hat container certification checks on the exact rc images. Warn-only
   # until PREFLIGHT_ENFORCE=true is set as a repository variable.
   rc-preflight:
     name: rc preflight (container)
-    needs: [classify, rc-images]
+    needs: release
+    if: needs.release.outputs.kind == 'rc'
     runs-on: rbln-sw-k8s-general
     continue-on-error: ${{ vars.PREFLIGHT_ENFORCE != 'true' }}
     steps:
+      - name: Derive the Harbor host
+        run: echo "HARBOR_HOST=${HARBOR_REGISTRY%%/*}" >> "$GITHUB_ENV"
       - name: Install preflight
         run: |
           set -euo pipefail
@@ -298,62 +221,14 @@ jobs:
           name: preflight-${{ github.ref_name }}
           path: artifacts/
 
-  rc-prerelease:
-    name: rc GitHub pre-release
-    needs: [classify, rc-chart, rc-digests]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Install yq
-        run: |
-          curl -sSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o /usr/local/bin/yq
-          chmod +x /usr/local/bin/yq
-      - name: Release notes since the previous rc (or the previous GA)
-        env:
-          VERSION: ${{ needs.classify.outputs.version }}
-        run: |
-          set -euo pipefail
-          . hack/release/lib.sh
-          prev=$(git tag -l "v${VERSION}-rc[0-9]*" | sort -V | awk -v cur="$GITHUB_REF_NAME" '$0 == cur { print p; exit } { p = $0 }')
-          [ -n "$prev" ] || prev=$(prev_ga_tag "v$VERSION")
-          hack/release/release-notes.sh "$GITHUB_REF_NAME" "$prev" release_notes.md
-          {
-            echo "> Release candidate. Images and chart are on \`$HARBOR_REGISTRY\`; nothing has been published to docker.io or OLM."
-            echo
-            cat release_notes.md
-          } > body.md
-      - uses: actions/download-artifact@v4
-        with:
-          name: helm-chart-${{ github.ref_name }}
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: component-digests-${{ github.ref_name }}
-          path: digests
-      # The digests file rides on the pre-release (assets do not expire like
-      # workflow artifacts do); the GA OLM bundle job downloads it from here.
-      - uses: softprops/action-gh-release@v2
-        with:
-          prerelease: true
-          tag_name: ${{ github.ref_name }}
-          name: "RBLN NPU Operator ${{ github.ref_name }} (release candidate)"
-          body_path: body.md
-          files: |
-            dist/*.tgz
-            digests/component-digests.env
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   # Hand the rc to the test-infra matrix pipeline once every artifact it
   # installs (chart, images, catalog) is on Harbor. The verdict comes back as
-  # the `rc-validation` commit status on the rc commit, which classify reads
+  # the `rc-validation` commit status on the rc commit, which the kit reads
   # before a GA is published. One validation per rc; a newer rc cancels the
   # validation of the older one.
   rc-validate:
     name: rc validation (test-infra matrix)
-    needs: [classify, rc-chart, rc-images, rc-olm-check]
+    needs: [release, rc-olm-check]
     runs-on: rbln-sw-k8s-general
     outputs:
       build_url: ${{ steps.trigger.outputs.build_url }}
@@ -369,9 +244,7 @@ jobs:
           # Preferred: the pipeline's webhook trigger URL (no API token on the
           # GitHub side; obedients applies the body's env). The API token path
           # is optional and additionally lets the script cancel the previous
-          # rc's validation; this repository is in a different GitHub
-          # organization than the one holding OBEDIENTS_API_TOKEN, so it would
-          # need its own copy.
+          # rc's validation.
           BUILDKITE_TRIGGER_URL: ${{ secrets.OBEDIENTS_VALIDATE_TRIGGER_URL }}
           BUILDKITE_API_TOKEN: ${{ secrets.OBEDIENTS_API_TOKEN }}
           BUILDKITE_API_URL: ${{ vars.BUILDKITE_API_URL }}
@@ -381,127 +254,55 @@ jobs:
           SENTINEL_REF: ${{ vars.RC_VALIDATION_SENTINEL_REF }}
         run: hack/release/validate-rc.sh "$GITHUB_REF_NAME"
 
+  # Gated on the tag name, not on the kit's outputs: a failure inside the kit
+  # must still be reported here, and the outputs may be empty then.
   rc-notify:
     name: rc summary -> Slack
-    needs: [classify, rc-images, rc-chart, rc-olm-check, rc-digests, rc-preflight, rc-prerelease, rc-validate]
-    if: always() && needs.classify.outputs.kind == 'rc'
+    needs: [release, rc-olm-check, rc-digests, rc-preflight, rc-validate]
+    if: always() && contains(github.ref_name, '-rc')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out the release kit (slack-notify.sh)
+        uses: actions/checkout@v4
+        with:
+          repository: RBLN-SW/cloud-component-release-kit
+          ref: v1
+          path: .release-kit
       - env:
           SLACK_OAUTH_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
-          R_IMG: ${{ needs.rc-images.result }}
-          R_CHART: ${{ needs.rc-chart.result }}
+          SLACK_CHANNEL_ID: ${{ vars.CLOUD_COMPONENT_SLACK_CHANNEL_ID }}
+          R_KIT: ${{ needs.release.result }}
           R_OLM: ${{ needs.rc-olm-check.result }}
           R_DIG: ${{ needs.rc-digests.result }}
           R_PRE: ${{ needs.rc-preflight.result }}
-          R_REL: ${{ needs.rc-prerelease.result }}
           R_VAL: ${{ needs.rc-validate.result }}
           BUILD_URL: ${{ needs.rc-validate.outputs.build_url }}
-          VERSION: ${{ needs.classify.outputs.version }}
-          BRANCH: ${{ needs.classify.outputs.branch }}
         run: |
           mark() { case "$1" in success) echo ":white_check_mark:";; failure) echo ":x:";; cancelled) echo ":no_entry_sign:";; skipped) echo ":fast_forward:";; *) echo ":grey_question:";; esac; }
           color=good
-          for r in "$R_IMG" "$R_CHART" "$R_OLM" "$R_DIG" "$R_REL" "$R_VAL"; do
+          for r in "$R_KIT" "$R_OLM" "$R_DIG" "$R_VAL"; do
             case $r in failure|cancelled) color=danger;; esac
           done
           pre="$(mark "$R_PRE") Preflight (Red Hat certification)"
           if [ "$R_PRE" = failure ]; then pre=":warning: Preflight found issues (warn-only, see run)"; [ "$color" = good ] && color=warning; fi
-          rows="$(mark "$R_IMG") Images amd64 + arm64 → \`$HARBOR_REGISTRY\`
-          $(mark "$R_CHART") Helm chart \`${GITHUB_REF_NAME#v}\` → Harbor OCI
+          branch="release-${GITHUB_REF_NAME#v}"; branch=${branch%-rc*}
+          rows="$(mark "$R_KIT") Images amd64 + arm64 → \`$HARBOR_REGISTRY\`, Helm chart \`${GITHUB_REF_NAME#v}\` → Harbor OCI, GitHub pre-release
           $(mark "$R_OLM") OLM pre-validation, upgrade graph, catalog image
           $(mark "$R_DIG") Component digests pinned
           $pre
-          $(mark "$R_REL") GitHub pre-release
           $(mark "$R_VAL") Matrix validation triggered
           _Verdict lands as the \`rc-validation\` status on the rc commit; GA waits for it._"
           links=(--link "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME|pre-release")
           [ -n "$BUILD_URL" ] && links+=(--link "$BUILD_URL|validation build")
-          hack/release/slack-notify.sh --color "$color" "${links[@]}" --details "$rows" \
-            --title ":test_tube: *$GITHUB_REF_NAME* · release candidate on \`$BRANCH\`" ""
+          .release-kit/scripts/slack-notify.sh --color "$color" "${links[@]}" --details "$rows" \
+            --title ":test_tube: *${GITHUB_REPOSITORY#*/}* · *$GITHUB_REF_NAME* · release candidate on \`$branch\`" ""
 
   # ---------------------------------------------------------------- GA path --
 
-  # Reads from Harbor, so this runs on the in-network runner too (see rc path).
-  ga-promote:
-    name: GA promote rc digests -> docker.io
-    needs: classify
-    if: needs.classify.outputs.kind == 'ga'
-    runs-on: rbln-sw-k8s-general
-    outputs:
-      operator_digest: ${{ steps.copy.outputs.operator_digest }}
-      validator_digest: ${{ steps.copy.outputs.validator_digest }}
-      latest: ${{ steps.copy.outputs.latest }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install regctl
-        run: |
-          mkdir -p "$HOME/.local/bin" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          REGCTL_VERSION=$(grep '^REGCTL_VERSION' versions.mk | cut -d'=' -f2 | tr -d ' ?')
-          curl -sSL "https://github.com/regclient/regclient/releases/download/${REGCTL_VERSION}/regctl-linux-amd64" \
-            -o "$HOME/.local/bin/regctl"
-          chmod +x "$HOME/.local/bin/regctl"
-      - name: Registry logins
-        run: |
-          regctl registry login "$HARBOR_HOST" -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}"
-          regctl registry login docker.io -u "${{ secrets.DOCKERHUB_USERNAME }}" -p "${{ secrets.DOCKERHUB_PASSWORD }}"
-      - name: Copy the validated rc images by digest (no rebuild)
-        id: copy
-        env:
-          LAST_RC: ${{ needs.classify.outputs.last_rc }}
-        run: |
-          set -euo pipefail
-          . hack/release/lib.sh
-          # `latest` follows the highest GA only: a patch of an older minor
-          # (0.6.1 after 0.7.0 shipped) must not move it back.
-          git fetch --quiet origin '+refs/tags/*:refs/tags/*'
-          highest=$(last_ga_tag)
-          move_latest=false
-          [ "$highest" = "$GITHUB_REF_NAME" ] && move_latest=true
-          echo "latest=$move_latest" >> "$GITHUB_OUTPUT"
-          [ "$move_latest" = true ] || echo "::notice::$GITHUB_REF_NAME is below the highest GA $highest; latest stays"
-          for img in rbln-npu-operator rbln-npu-operator-validator; do
-            src="$HARBOR_REGISTRY/$img:$LAST_RC"
-            dst="$DOCKERHUB_REGISTRY/$img:$GITHUB_REF_NAME"
-            regctl image copy "$src" "$dst"
-            s=$(regctl image digest "$src"); d=$(regctl image digest "$dst")
-            [ "$s" = "$d" ] || { echo "::error::digest changed while copying $img: $s -> $d"; exit 1; }
-            [ "$move_latest" = true ] && regctl image copy "$dst" "$DOCKERHUB_REGISTRY/$img:latest"
-            echo "$img: $dst@$d (= $src)"
-            key=${img#rbln-npu-operator}; key=${key:-operator}; key=${key#-}
-            echo "${key}_digest=$d" >> "$GITHUB_OUTPUT"
-          done
-
-  ga-chart:
-    name: GA chart -> docker.io OCI
-    needs: [classify, ga-promote]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
-      - name: Package chart
-        run: |
-          set -euo pipefail
-          helm repo add nfd https://kubernetes-sigs.github.io/node-feature-discovery/charts
-          helm dependency build "$CHART_DIR"
-          mkdir -p dist
-          helm package "$CHART_DIR" --destination dist \
-            --version "${GITHUB_REF_NAME#v}" --app-version "$GITHUB_REF_NAME"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: helm-chart-${{ github.ref_name }}
-          path: dist/*.tgz
-      - name: Push chart to Docker Hub OCI
-        run: |
-          echo "${{ secrets.DOCKERHUB_PASSWORD }}" | \
-            helm registry login docker.io -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-          helm push dist/*.tgz "oci://$DOCKERHUB_REGISTRY"
-
   olm-bundle:
     name: GA OLM bundle PR (certified-operators)
-    needs: [classify, ga-promote]
+    needs: release
+    if: needs.release.outputs.kind == 'ga'
     runs-on: ubuntu-latest
     outputs:
       pr_url: ${{ steps.pr.outputs.pr_url }}
@@ -514,26 +315,30 @@ jobs:
           chmod +x /usr/local/bin/yq
       - name: Read the OCP range from versions.mk
         run: echo "OCP_RANGE=$(grep '^OCP_RANGE' versions.mk | cut -d'=' -f2 | tr -d ' ?')" >> "$GITHUB_ENV"
-      # Component digests were pinned when the rc was published (rc-digests) and
-      # travel on the rc pre-release. Resolving the tags again here could pick
-      # up an image re-pushed since the validation ran.
+      # Operator and validator digests come from the kit's promotion (copied by
+      # digest from the rc). Component digests were pinned when the rc was
+      # published (rc-digests) and travel on the rc pre-release. Resolving the
+      # tags again here could pick up an image re-pushed since the validation.
       - name: Component digests pinned at the validated rc
         id: digests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          LAST_RC: ${{ needs.classify.outputs.last_rc }}
+          LAST_RC: ${{ needs.release.outputs.last_rc }}
           TAG: ${{ github.ref_name }}
-          OPERATOR_DIGEST: ${{ needs.ga-promote.outputs.operator_digest }}
-          VALIDATOR_DIGEST: ${{ needs.ga-promote.outputs.validator_digest }}
+          PROMOTED: ${{ needs.release.outputs.digests }}
         run: |
           set -euo pipefail
+          digest_of() { awk -F= -v k="$1" '$1 == k { print $2 }' <<<"$PROMOTED"; }
+          operator_digest=$(digest_of rbln-npu-operator)
+          validator_digest=$(digest_of rbln-npu-operator-validator)
+          [ -n "$operator_digest" ] && [ -n "$validator_digest" ] ||
+            { echo "::error::operator/validator digests missing from the kit's outputs: '$PROMOTED'"; exit 1; }
           gh release download "$LAST_RC" --pattern component-digests.env --dir digests
           # shellcheck disable=SC1091
           . digests/component-digests.env
           {
-            # Operator and validator were promoted by digest from the rc.
-            echo "operator=$DOCKERHUB_REGISTRY/rbln-npu-operator:$TAG@$OPERATOR_DIGEST"
-            echo "validator=$DOCKERHUB_REGISTRY/rbln-npu-operator-validator:$TAG@$VALIDATOR_DIGEST"
+            echo "operator=$DOCKERHUB_REGISTRY/rbln-npu-operator:$TAG@$operator_digest"
+            echo "validator=$DOCKERHUB_REGISTRY/rbln-npu-operator-validator:$TAG@$validator_digest"
             echo "device_plugin=$DEVICE_PLUGIN"
             echo "metrics_exporter=$METRICS_EXPORTER"
             echo "npu_feature_discovery=$NPU_FEATURE_DISCOVERY"
@@ -701,8 +506,9 @@ jobs:
           # bundles (0.0.1..0.4.0) via `replaces`. The new FBC catalog tracks
           # v0.4.x onwards only; subsequent releases auto-chain via PREV_PER_OCP.
           # Releases go GA in version order (a minor from main, a patch from the
-          # newest GA only — cut-release.sh refuses anything else), so the chain
-          # is always linear: the newest version replaces the current head.
+          # newest GA only — the kit's cut-release refuses anything else), so
+          # the chain is always linear: the newest version replaces the current
+          # head.
           {
             echo '---'
             echo 'catalog_templates:'
@@ -745,85 +551,42 @@ jobs:
           echo "$PR_URL"
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
 
-  draft-release:
-    name: GA release notes (draft)
-    needs: [classify, ga-promote, ga-chart]
-    runs-on: ubuntu-latest
-    outputs:
-      url: ${{ steps.release.outputs.url }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Install yq
-        run: |
-          curl -sSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o /usr/local/bin/yq
-          chmod +x /usr/local/bin/yq
-      # The previous GA is the highest GA tag below this one, not "the tag before
-      # this one in history": release branches make git describe unreliable.
-      - name: Generate release notes
-        run: |
-          set -euo pipefail
-          . hack/release/lib.sh
-          prev=$(prev_ga_tag "$GITHUB_REF_NAME")
-          echo "previous GA: ${prev:-<none>}"
-          hack/release/release-notes.sh "$GITHUB_REF_NAME" "$prev" release_notes.md
-      - uses: actions/download-artifact@v4
-        with:
-          name: helm-chart-${{ github.ref_name }}
-          path: dist
-      - uses: softprops/action-gh-release@v2
-        id: release
-        with:
-          draft: true
-          tag_name: ${{ github.ref_name }}
-          name: "RBLN NPU Operator ${{ github.ref_name }} Release"
-          body_path: release_notes.md
-          files: dist/*.tgz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  ga-finish:
-    name: GA close-out
-    needs: [classify, ga-promote, ga-chart, olm-bundle, draft-release]
-    if: always() && needs.classify.outputs.kind == 'ga'
+  # Gated on the tag name for the same reason as rc-notify. The kit already
+  # deleted the backport label (ga-finish runs with notify off as well).
+  ga-notify:
+    name: GA summary -> Slack
+    needs: [release, olm-bundle]
+    if: always() && !contains(github.ref_name, '-rc')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      # No label, no bot: backports to a released branch become impossible.
-      - name: Delete the backport label
-        if: needs.ga-promote.result == 'success'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh label delete "backport ${{ needs.classify.outputs.branch }}" --yes || echo "::notice::label already gone"
-      - name: Notify Slack
-        env:
+      - name: Check out the release kit (slack-notify.sh)
+        uses: actions/checkout@v4
+        with:
+          repository: RBLN-SW/cloud-component-release-kit
+          ref: v1
+          path: .release-kit
+      - env:
           SLACK_OAUTH_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
-          R_PROMOTE: ${{ needs.ga-promote.result }}
-          R_CHART: ${{ needs.ga-chart.result }}
+          SLACK_CHANNEL_ID: ${{ vars.CLOUD_COMPONENT_SLACK_CHANNEL_ID }}
+          R_KIT: ${{ needs.release.result }}
           R_OLM: ${{ needs.olm-bundle.result }}
-          R_NOTES: ${{ needs.draft-release.result }}
           PR_URL: ${{ needs.olm-bundle.outputs.pr_url }}
-          DRAFT_URL: ${{ needs.draft-release.outputs.url }}
-          LAST_RC: ${{ needs.classify.outputs.last_rc }}
-          LATEST: ${{ needs.ga-promote.outputs.latest }}
-          BRANCH: ${{ needs.classify.outputs.branch }}
+          DRAFT_URL: ${{ needs.release.outputs.draft_url }}
+          LAST_RC: ${{ needs.release.outputs.last_rc }}
+          LATEST: ${{ needs.release.outputs.latest }}
         run: |
           mark() { case "$1" in success) echo ":white_check_mark:";; failure) echo ":x:";; cancelled) echo ":no_entry_sign:";; skipped) echo ":fast_forward:";; *) echo ":grey_question:";; esac; }
           color=good
-          for r in "$R_PROMOTE" "$R_CHART" "$R_OLM" "$R_NOTES"; do
+          for r in "$R_KIT" "$R_OLM"; do
             case $r in failure|cancelled) color=danger;; esac
           done
+          branch="release-${GITHUB_REF_NAME#v}"
           tags="\`$GITHUB_REF_NAME\`"; [ "$LATEST" = true ] && tags="$tags, \`latest\`"
-          rows="$(mark "$R_PROMOTE") Images promoted from \`$LAST_RC\` by digest → \`$DOCKERHUB_REGISTRY\` ($tags)
-          $(mark "$R_CHART") Helm chart \`${GITHUB_REF_NAME#v}\` → docker.io OCI
-          $(mark "$R_OLM") certified-operators bundle PR
-          $(mark "$R_NOTES") Release notes drafted
-          Backport label \`backport $BRANCH\` removed; the branch is read-only now"
+          rows="$(mark "$R_KIT") Images promoted from \`${LAST_RC:-the newest rc}\` by digest → \`$DOCKERHUB_REGISTRY\` ($tags), Helm chart \`${GITHUB_REF_NAME#v}\` → docker.io OCI, release notes drafted, \`backport $branch\` label removed
+          $(mark "$R_OLM") certified-operators bundle PR"
           links=()
           [ -n "$DRAFT_URL" ] && links+=(--link "$DRAFT_URL|draft release")
           [ -n "$PR_URL" ] && links+=(--link "$PR_URL|certified-operators PR")
-          hack/release/slack-notify.sh --color "$color" "${links[@]}" --details "$rows" \
-            --title ":rocket: *$GITHUB_REF_NAME* · GA" \
+          .release-kit/scripts/slack-notify.sh --color "$color" ${links[@]+"${links[@]}"} --details "$rows" \
+            --title ":rocket: *${GITHUB_REPOSITORY#*/}* · *$GITHUB_REF_NAME* · GA" \
             "*Release manager:* review and publish the draft, then watch the certified-operators PR (\`/re-trigger\` if its pipeline fails)."
