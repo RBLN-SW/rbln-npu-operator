@@ -67,6 +67,24 @@ func TestSummariseWorkloadStatuses(t *testing.T) {
 			wantReason:  consts.RBLNConditionReasonWorkloadProgressing,
 			wantMessage: "Progressing workload(s): container(1/3 ready)",
 		},
+		"progressing with unequal counts carries the workload message": {
+			workloads: []rblnv1beta1.RBLNWorkloadStatus{
+				{Type: consts.RBLNWorkloadConfigContainer, ReadyCount: 0, ComponentCount: 8, State: rblnv1beta1.WorkloadStateProgressing, Message: "0/8 components ready on 1 container node(s); 1 node(s) paused for driver install/upgrade: node-a"},
+				{Type: consts.RBLNWorkloadConfigVMPassthrough, State: rblnv1beta1.WorkloadStateEmpty},
+			},
+			wantState:   consts.RBLNStateNotReady,
+			wantReason:  consts.RBLNConditionReasonWorkloadProgressing,
+			wantMessage: "Progressing workload(s): container(0/8 components ready on 1 container node(s); 1 node(s) paused for driver install/upgrade: node-a)",
+		},
+		"progressing with every component ready carries the workload message": {
+			workloads: []rblnv1beta1.RBLNWorkloadStatus{
+				{Type: consts.RBLNWorkloadConfigContainer, ReadyCount: 6, ComponentCount: 6, State: rblnv1beta1.WorkloadStateProgressing, Message: "2 of 3 container node(s) paused for driver install/upgrade: node-a, node-b"},
+				{Type: consts.RBLNWorkloadConfigVMPassthrough, State: rblnv1beta1.WorkloadStateEmpty},
+			},
+			wantState:   consts.RBLNStateNotReady,
+			wantReason:  consts.RBLNConditionReasonWorkloadProgressing,
+			wantMessage: "Progressing workload(s): container(2 of 3 container node(s) paused for driver install/upgrade: node-a, node-b)",
+		},
 		"empty input → ready": {
 			workloads:  nil,
 			wantState:  consts.RBLNStateReady,

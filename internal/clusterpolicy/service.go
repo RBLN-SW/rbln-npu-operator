@@ -3,6 +3,8 @@ package clusterpolicy
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -164,6 +166,7 @@ func buildWorkloadStatuses(
 
 	for _, wlType := range order {
 		nodeCount := census.CountFor(wlType)
+		pausedNodes := census.PausedNodesFor(wlType)
 		a := aggregates[wlType]
 		ws := rblnv1beta1.RBLNWorkloadStatus{
 			Type:           wlType,
@@ -193,10 +196,37 @@ func buildWorkloadStatuses(
 				"%d/%d components ready on %d %s node(s)",
 				a.readyCount, a.componentCount, nodeCount, wlType,
 			)
+			// A node held paused shrinks the DaemonSet's own desired count, so
+			// it can also explain (or coexist with) an otherwise-unready
+			// component instead of only showing up once components pass.
+			if len(pausedNodes) > 0 {
+				ws.Message += fmt.Sprintf("; %d node(s) paused for driver install/upgrade: %s",
+					len(pausedNodes), pausedNodeList(pausedNodes))
+			}
+		case len(pausedNodes) > 0:
+			// Every component is ready at the DaemonSet level, but the
+			// DaemonSets exclude nodes k8s-driver-manager is holding paused.
+			ws.State = rblnv1beta1.WorkloadStateProgressing
+			ws.Message = fmt.Sprintf(
+				"%d of %d %s node(s) paused for driver install/upgrade: %s",
+				len(pausedNodes), nodeCount, wlType, pausedNodeList(pausedNodes),
+			)
 		default:
 			ws.State = rblnv1beta1.WorkloadStateReady
 		}
 		out = append(out, ws)
 	}
 	return out
+}
+
+// pausedNodeList names paused nodes in a status message, bounded so a large
+// cluster does not turn the condition into a page.
+func pausedNodeList(names []string) string {
+	const maxNames = 3
+	sorted := slices.Clone(names)
+	slices.Sort(sorted)
+	if len(sorted) <= maxNames {
+		return strings.Join(sorted, ", ")
+	}
+	return fmt.Sprintf("%s, … (+%d more)", strings.Join(sorted[:maxNames], ", "), len(sorted)-maxNames)
 }

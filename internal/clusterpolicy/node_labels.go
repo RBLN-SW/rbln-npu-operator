@@ -94,11 +94,18 @@ func deduplicateNodes(nodes []corev1.Node) []corev1.Node {
 
 // NodeCensus excludes skip-labeled and non-NPU nodes. TotalNPU may exceed
 // ContainerNodes + VMPassthroughNodes when a node's workload label is
-// missing or unrecognised.
+// missing or unrecognised. The *PausedNodes lists name each workload's nodes
+// that k8s-driver-manager currently holds paused: their component DaemonSets
+// exclude those nodes, so DaemonSet-level readiness alone reads as ready
+// while the driver is still being installed. driver-manager pauses on every
+// driver pod start, not only on version upgrades, so the policy reports
+// progressing during any driver pod restart.
 type NodeCensus struct {
-	TotalNPU           int32
-	ContainerNodes     int32
-	VMPassthroughNodes int32
+	TotalNPU                 int32
+	ContainerNodes           int32
+	VMPassthroughNodes       int32
+	ContainerPausedNodes     []string
+	VMPassthroughPausedNodes []string
 }
 
 // CountFor returns 0 for unknown workload types.
@@ -112,6 +119,24 @@ func (c NodeCensus) CountFor(workload string) int32 {
 		return c.ContainerNodes + c.VMPassthroughNodes
 	default:
 		return 0
+	}
+}
+
+// PausedNodesFor returns nil for unknown workload types. Callers must not
+// mutate the result; pausedNodeList clones before sorting.
+func (c NodeCensus) PausedNodesFor(workload string) []string {
+	switch workload {
+	case consts.RBLNWorkloadConfigContainer:
+		return c.ContainerPausedNodes
+	case consts.RBLNWorkloadConfigVMPassthrough:
+		return c.VMPassthroughPausedNodes
+	case consts.RBLNWorkloadConfigAll:
+		all := make([]string, 0, len(c.ContainerPausedNodes)+len(c.VMPassthroughPausedNodes))
+		all = append(all, c.ContainerPausedNodes...)
+		all = append(all, c.VMPassthroughPausedNodes...)
+		return all
+	default:
+		return nil
 	}
 }
 
@@ -135,11 +160,18 @@ func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []
 		}
 		census.TotalNPU++
 		workload, _ := getWorkloadConfig(labels, s.policy.Spec.WorkloadType)
+		paused := hasPausedComponentLabel(labels, workload)
 		switch workload {
 		case consts.RBLNWorkloadConfigContainer:
 			census.ContainerNodes++
+			if paused {
+				census.ContainerPausedNodes = append(census.ContainerPausedNodes, node.Name)
+			}
 		case consts.RBLNWorkloadConfigVMPassthrough:
 			census.VMPassthroughNodes++
+			if paused {
+				census.VMPassthroughPausedNodes = append(census.VMPassthroughPausedNodes, node.Name)
+			}
 		}
 	}
 
@@ -396,6 +428,23 @@ func hasRBLNPresentLabel(labels map[string]string) bool {
 
 func hasDriverDeployLabel(labels map[string]string) bool {
 	return labels[consts.RBLNDeployDriverLabelKey] == labelValueTrue
+}
+
+// hasPausedComponentLabel reports whether k8s-driver-manager has paused any of
+// the node's components for this workload. Only the pause value counts: "false"
+// is a user opt-out and "" is reported by emptyDesiredComponentLabels.
+// Exact equality is safe: driver-manager writes the bare pause value over the
+// "true" the operator filled, and its composite "<value>_paused-for-driver-upgrade"
+// form is unreachable here because the operator never writes any other value
+// on the keys driver-manager tracks, and the only sanctioned user value,
+// "false", maps to itself.
+func hasPausedComponentLabel(labels map[string]string, config string) bool {
+	for key := range rblnComponentLabels[config] {
+		if labels[key] == consts.RBLNDeployPausedForDriverUpgrade {
+			return true
+		}
+	}
+	return false
 }
 
 func hasRBLNDeploySkipLabel(labels map[string]string) bool {
