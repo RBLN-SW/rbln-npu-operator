@@ -2,6 +2,7 @@ package upgrade
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -66,6 +67,54 @@ func TestNodeUpgradeStateProviderSetAndRemoveAnnotation(t *testing.T) {
 	}
 	if _, exists := updated.Annotations["test-key"]; exists {
 		t.Fatal("annotation should have been removed")
+	}
+}
+
+func TestNodeUpgradeStateProviderSetAnnotationsBatch(t *testing.T) {
+	provider := newTestNodeUpgradeStateProvider(t)
+	ctx := context.Background()
+
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name:        "worker-1",
+		Annotations: map[string]string{"stale-key": "stale-value"},
+	}}
+	if err := provider.K8sClient.Create(ctx, node); err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+
+	err := provider.SetNodeUpgradeAnnotations(ctx, node, map[string]any{
+		"key-a":     "value-a",
+		"key-b":     "value-b",
+		"stale-key": nil,
+	})
+	if err != nil {
+		t.Fatalf("SetNodeUpgradeAnnotations() error: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := provider.K8sClient.Get(ctx, types.NamespacedName{Name: "worker-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Annotations["key-a"]; got != "value-a" {
+		t.Fatalf("annotation key-a = %q, want %q", got, "value-a")
+	}
+	if got := updated.Annotations["key-b"]; got != "value-b" {
+		t.Fatalf("annotation key-b = %q, want %q", got, "value-b")
+	}
+	if _, exists := updated.Annotations["stale-key"]; exists {
+		t.Fatal("nil-valued annotation should have been removed")
+	}
+}
+
+func TestTruncateReason(t *testing.T) {
+	if got := truncateReason("short reason"); got != "short reason" {
+		t.Fatalf("truncateReason = %q, want unchanged", got)
+	}
+
+	long := strings.Repeat("x", 500)
+	got := truncateReason(long)
+	if len(got) != 403 || !strings.HasSuffix(got, "...") {
+		t.Fatalf("truncateReason len = %d, want 403 ending in ellipsis", len(got))
 	}
 }
 

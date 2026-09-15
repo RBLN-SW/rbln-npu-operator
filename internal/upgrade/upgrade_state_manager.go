@@ -47,6 +47,7 @@ type ClusterUpgradeStateManagerImpl struct {
 	log                      logr.Logger
 	k8sClient                client.Client
 	k8sInterface             kubernetes.Interface
+	eventRecorder            record.EventRecorder
 	nodeUpgradeStateProvider *NodeUpgradeStateProvider
 	podManager               PodManagerInterface
 	safeDriverLoadManager    SafeDriverLoadManagerInterface
@@ -81,6 +82,7 @@ func NewClusterUpgradeStateManager(
 		log:                      log,
 		k8sClient:                k8sClient,
 		k8sInterface:             k8sInterface,
+		eventRecorder:            eventRecorder,
 		drainManager:             NewDrainManager(k8sInterface, nodeUpgradeStateProvider, eventRecorder),
 		rebootManager:            NewPodRebootManager(k8sClient),
 		podManager:               NewPodManager(k8sInterface, nodeUpgradeStateProvider, nil),

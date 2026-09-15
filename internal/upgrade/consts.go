@@ -30,6 +30,16 @@ const (
 	UpgradeRebootPodNameAnnotationKey = "rebellions.ai/npu-driver-upgrade-reboot-pod-name"
 	// UpgradeRebootPostStartTimeAnnotationKey stores the start time for post-reboot stabilization checks.
 	UpgradeRebootPostStartTimeAnnotationKey = "rebellions.ai/npu-driver-upgrade-reboot-post-start-time"
+	// UpgradeFailureReasonAnnotationKey records why the node was moved to upgrade-failed.
+	UpgradeFailureReasonAnnotationKey = "rebellions.ai/npu-driver-upgrade-failure-reason"
+	// UpgradeFailureStepAnnotationKey records the pipeline state the node failed in.
+	UpgradeFailureStepAnnotationKey = "rebellions.ai/npu-driver-upgrade-failure-step"
+	// UpgradeSkipReasonAnnotationKey records why the node's upgrade attempt was skipped.
+	UpgradeSkipReasonAnnotationKey = "rebellions.ai/npu-driver-upgrade-skip-reason"
+	// UpgradePodRestartStartTimeAnnotationKey stores the time the node entered pod-restart-required state.
+	UpgradePodRestartStartTimeAnnotationKey = "rebellions.ai/npu-driver-upgrade-pod-restart-start-time"
+	// UpgradeAttemptedRevisionAnnotationKey records the driver DaemonSet revision of the attempt that parked the node.
+	UpgradeAttemptedRevisionAnnotationKey = "rebellions.ai/npu-driver-upgrade-attempted-revision"
 )
 
 // Node upgrade states.
@@ -62,6 +72,9 @@ const (
 	UpgradeStateDone = "upgrade-done"
 	// UpgradeStateFailed means the upgrade failed.
 	UpgradeStateFailed = "upgrade-failed"
+	// UpgradeStateSkipped means the attempt could not empty the node before the driver
+	// pod swap; the old driver is intact, so the node is uncordoned back into service.
+	UpgradeStateSkipped = "upgrade-skipped"
 )
 
 // managedUpgradeStates is the canonical ordered list of states used by metrics/logging and state accounting.
@@ -73,6 +86,7 @@ var managedUpgradeStates = []string{
 	UpgradeStateWaitForJobsRequired,
 	UpgradeStatePodDeletionRequired,
 	UpgradeStateFailed,
+	UpgradeStateSkipped,
 	UpgradeStateDrainRequired,
 	UpgradeStatePodRestartRequired,
 	UpgradeStateRebootRequired,
@@ -91,6 +105,19 @@ const (
 	// MaxPodRestartCount is the threshold above which a pod is considered crash-looping.
 	MaxPodRestartCount int32 = 10
 )
+
+// badContainerWaitingReasons are container waiting reasons that indicate the
+// driver pod replacement is not making progress.
+var badContainerWaitingReasons = map[string]struct{}{
+	"ImagePullBackOff":           {},
+	"ErrImagePull":               {},
+	"InvalidImageName":           {},
+	"ImageInspectError":          {},
+	"CreateContainerError":       {},
+	"CreateContainerConfigError": {},
+	"RunContainerError":          {},
+	"CrashLoopBackOff":           {},
+}
 
 // Internal constants used across the upgrade package.
 const (
