@@ -455,7 +455,7 @@ esac`,
 		h.log.Error(err, "Failed to reconcile VFIOManager ConfigMap")
 		return err
 	}
-	h.log.Info("Reconciled VFIOManager ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled VFIOManager ConfigMap", res, "namespace", cm.Namespace, "name", cm.Name)
 	return nil
 }
 
@@ -568,6 +568,6 @@ func (h *vfioManagerPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1b
 		h.log.Error(err, "Failed to reconcile VFIOManager DaemonSet")
 		return err
 	}
-	h.log.Info("Reconciled VFIOManager DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled VFIOManager DaemonSet", res, "namespace", ds.Namespace, "name", ds.Name)
 	return nil
 }

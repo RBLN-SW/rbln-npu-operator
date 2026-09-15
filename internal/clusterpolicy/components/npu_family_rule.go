@@ -18,6 +18,7 @@ import (
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 // nodeFeatureRuleGVKs are the NodeFeatureRule APIs this patcher can target:
@@ -192,7 +193,7 @@ func (h *npuFamilyRulePatcher) reconcileRule(ctx context.Context, owner *rblnv1b
 		h.log.Error(err, "Failed to reconcile NodeFeatureRule", "name", h.name, "group", mapping.GroupVersionKind.Group)
 		return err
 	}
-	h.log.Info("Reconciled NodeFeatureRule", "name", rule.GetName(), "group", mapping.GroupVersionKind.Group, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled NodeFeatureRule", res, "name", rule.GetName(), "group", mapping.GroupVersionKind.Group)
 	return nil
 }
 

@@ -51,7 +51,7 @@ func (h *driverManagerPatcher) handleRDSBindConfigMap(ctx context.Context, owner
 		h.log.Error(err, "Failed to reconcile RDS bind-config ConfigMap")
 		return err
 	}
-	h.log.Info("Reconciled RDS bind-config ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled RDS bind-config ConfigMap", res, "namespace", cm.Namespace, "name", cm.Name)
 	return nil
 }
 

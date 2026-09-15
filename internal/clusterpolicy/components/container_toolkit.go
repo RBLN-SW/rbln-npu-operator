@@ -148,7 +148,7 @@ func (h *containerToolkitPatcher) reconcileContainerToolkitRole(ctx context.Cont
 		h.log.Error(err, "Failed to reconcile Container Toolkit Role", "name", h.name)
 		return err
 	}
-	h.log.Info("Reconciled Container Toolkit Role", "name", role.Name, "namespace", role.Namespace, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled Container Toolkit Role", res, "name", role.Name, "namespace", role.Namespace)
 	return nil
 }
 
@@ -186,7 +186,7 @@ func (h *containerToolkitPatcher) handleConfigMap(ctx context.Context, owner *rb
 		h.log.Error(err, "Failed to reconcile Container Toolkit ConfigMap")
 		return err
 	}
-	h.log.Info("Reconciled Container Toolkit ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled Container Toolkit ConfigMap", res, "namespace", cm.Namespace, "name", cm.Name)
 	return nil
 }
 
@@ -418,6 +418,6 @@ func (h *containerToolkitPatcher) handleDaemonSet(ctx context.Context, owner *rb
 		h.log.Error(err, "Failed to reconcile Container Toolkit DaemonSet")
 		return err
 	}
-	h.log.Info("Reconciled Container Toolkit DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled Container Toolkit DaemonSet", res, "namespace", ds.Namespace, "name", ds.Name)
 	return nil
 }

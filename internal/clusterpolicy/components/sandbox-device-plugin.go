@@ -164,6 +164,6 @@ func (h *sandboxDevicePluginPatcher) handleDaemonSet(ctx context.Context, owner 
 		h.log.Error(err, "Failed to reconcile SandboxDevicePlugin DaemonSet")
 		return err
 	}
-	h.log.Info("Reconciled SandboxDevicePlugin DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled SandboxDevicePlugin DaemonSet", res, "namespace", ds.Namespace, "name", ds.Name)
 	return nil
 }

@@ -160,7 +160,7 @@ func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *
 	if err != nil {
 		return err
 	}
-	h.log.Info("Reconciled DRA DeviceClass", "name", deviceClass.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled DRA DeviceClass", res, "name", deviceClass.Name)
 	return nil
 }
 
@@ -214,7 +214,7 @@ func (h *draKubeletPluginPatcher) handleClusterRole(ctx context.Context, owner *
 		h.log.Error(err, "Failed to reconcile DRA kubelet plugin ClusterRole")
 		return err
 	}
-	h.log.Info("Reconciled DRA kubelet plugin ClusterRole", "name", clusterRole.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled DRA kubelet plugin ClusterRole", res, "name", clusterRole.Name)
 	return nil
 }
 
@@ -240,7 +240,7 @@ func (h *draKubeletPluginPatcher) handleClusterRoleBinding(ctx context.Context, 
 		h.log.Error(err, "Failed to reconcile DRA kubelet plugin ClusterRoleBinding")
 		return err
 	}
-	h.log.Info("Reconciled DRA kubelet plugin ClusterRoleBinding", "name", binding.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled DRA kubelet plugin ClusterRoleBinding", res, "name", binding.Name)
 	return nil
 }
 
@@ -371,6 +371,6 @@ func (h *draKubeletPluginPatcher) handleDaemonSet(ctx context.Context, owner *rb
 		h.log.Error(err, "Failed to reconcile DRA kubelet plugin DaemonSet")
 		return err
 	}
-	h.log.Info("Reconciled DRA kubelet plugin DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled DRA kubelet plugin DaemonSet", res, "namespace", ds.Namespace, "name", ds.Name)
 	return nil
 }

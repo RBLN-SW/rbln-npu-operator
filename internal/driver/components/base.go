@@ -14,6 +14,7 @@ import (
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/registry"
+	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 // DriverPatcher implementations that do not manage DaemonSets return
@@ -95,7 +96,7 @@ func (b *basePatcher) reconcileServiceAccount(ctx context.Context, owner *rebell
 		b.log.Error(err, "Failed to reconcile ServiceAccount", "name", b.name)
 		return err
 	}
-	b.log.Info("Reconciled ServiceAccount", "name", sa.Name, "namespace", sa.Namespace, "result", res)
+	k8sutil.LogReconcileResult(b.log, "Reconciled ServiceAccount", res, "name", sa.Name, "namespace", sa.Namespace)
 	return nil
 }
 
@@ -130,7 +131,7 @@ func (b *basePatcher) reconcileRole(ctx context.Context, owner *rebellionsaiv1al
 		b.log.Error(err, "Failed to reconcile Role", "name", b.name)
 		return err
 	}
-	b.log.Info("Reconciled Role", "name", role.Name, "namespace", role.Namespace, "result", res)
+	k8sutil.LogReconcileResult(b.log, "Reconciled Role", res, "name", role.Name, "namespace", role.Namespace)
 	return nil
 }
 
@@ -153,7 +154,7 @@ func (b *basePatcher) reconcileRoleBinding(ctx context.Context, owner *rebellion
 		b.log.Error(err, "Failed to reconcile RoleBinding", "name", b.name)
 		return err
 	}
-	b.log.Info("Reconciled RoleBinding", "name", rb.Name, "namespace", rb.Namespace, "result", res)
+	k8sutil.LogReconcileResult(b.log, "Reconciled RoleBinding", res, "name", rb.Name, "namespace", rb.Namespace)
 	return nil
 }
 

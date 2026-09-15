@@ -146,7 +146,7 @@ func (h *validatorPatcher) reconcileValidatorRole(ctx context.Context, owner *rb
 		h.log.Error(err, "Failed to reconcile Validator Role", "name", h.name)
 		return err
 	}
-	h.log.Info("Reconciled Validator Role", "name", role.Name, "namespace", role.Namespace, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled Validator Role", res, "name", role.Name, "namespace", role.Namespace)
 	return nil
 }
 
@@ -167,7 +167,7 @@ func (h *validatorPatcher) handleClusterRole(ctx context.Context, owner *rblnv1b
 		h.log.Error(err, "Failed to reconcile Validator ClusterRole")
 		return err
 	}
-	h.log.Info("Reconciled Validator ClusterRole", "name", role.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled Validator ClusterRole", res, "name", role.Name)
 	return nil
 }
 
@@ -193,7 +193,7 @@ func (h *validatorPatcher) handleClusterRoleBinding(ctx context.Context, owner *
 		h.log.Error(err, "Failed to reconcile Validator ClusterRoleBinding")
 		return err
 	}
-	h.log.Info("Reconciled Validator ClusterRoleBinding", "name", binding.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled Validator ClusterRoleBinding", res, "name", binding.Name)
 	return nil
 }
 
@@ -357,6 +357,6 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 		h.log.Error(err, "Failed to reconcile Validator DaemonSet")
 		return err
 	}
-	h.log.Info("Reconciled Validator DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled Validator DaemonSet", res, "namespace", ds.Namespace, "name", ds.Name)
 	return nil
 }

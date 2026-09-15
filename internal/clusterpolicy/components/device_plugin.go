@@ -160,6 +160,6 @@ func (h *devicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1
 		h.log.Error(err, "Failed to reconcile DevicePlugin DaemonSet")
 		return err
 	}
-	h.log.Info("Reconciled DevicePlugin DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled DevicePlugin DaemonSet", res, "namespace", ds.Namespace, "name", ds.Name)
 	return nil
 }

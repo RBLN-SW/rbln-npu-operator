@@ -130,6 +130,6 @@ func (h *npuFeatureDiscoveryPatcher) handleDaemonSet(ctx context.Context, owner 
 		h.log.Error(err, "Failed to reconcile NPUFeatureDiscovery DaemonSet")
 		return err
 	}
-	h.log.Info("Reconciled NPUFeatureDiscovery DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled NPUFeatureDiscovery DaemonSet", res, "namespace", ds.Namespace, "name", ds.Name)
 	return nil
 }

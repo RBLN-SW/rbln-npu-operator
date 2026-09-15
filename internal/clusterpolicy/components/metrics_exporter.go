@@ -97,7 +97,7 @@ func (h *metricsExporterPatcher) handleService(ctx context.Context, cp *rblnv1be
 		h.log.Error(err, "Failed to reconcile MetricsExporter Service")
 		return err
 	}
-	h.log.Info("Reconciled MetricsExporter Service", "namespace", svc.Namespace, "name", svc.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled MetricsExporter Service", res, "namespace", svc.Namespace, "name", svc.Name)
 	return nil
 }
 
@@ -176,6 +176,6 @@ func (h *metricsExporterPatcher) handleDaemonSet(ctx context.Context, owner *rbl
 		h.log.Error(err, "Failed to reconcile MetricsExporter DaemonSet")
 		return err
 	}
-	h.log.Info("Reconciled MetricsExporter DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled MetricsExporter DaemonSet", res, "namespace", ds.Namespace, "name", ds.Name)
 	return nil
 }
