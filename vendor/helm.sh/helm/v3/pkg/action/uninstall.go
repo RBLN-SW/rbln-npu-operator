@@ -28,6 +28,7 @@ import (
 	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/releaseutil"
+	"helm.sh/helm/v3/pkg/storage/driver"
 	helmtime "helm.sh/helm/v3/pkg/time"
 )
 
@@ -170,6 +171,19 @@ func (u *Uninstall) Run(name string) (*release.UninstallReleaseResponse, error) 
 		u.cfg.Log("uninstall: Failed to store updated release: %s", err)
 	}
 
+	// Supersede all previous deployments, see issue #12556 (which is a
+	// variation on #2941).
+	deployed, err := u.cfg.Releases.DeployedAll(name)
+	if err != nil && !errors.Is(err, driver.ErrNoDeployedReleases) {
+		return nil, err
+	}
+	for _, reli := range deployed {
+		reli.Info.Status = release.StatusSuperseded
+		if err = u.cfg.Releases.Update(reli); err != nil {
+			u.cfg.Log("uninstall: Failed to store updated release: %s", err)
+		}
+	}
+
 	if len(errs) > 0 {
 		return res, errors.Errorf("uninstallation completed with %d error(s): %s", len(errs), joinErrors(errs))
 	}
@@ -196,13 +210,9 @@ func joinErrors(errs []error) string {
 // deleteRelease deletes the release and returns list of delete resources and manifests that were kept in the deletion process
 func (u *Uninstall) deleteRelease(rel *release.Release) (kube.ResourceList, string, []error) {
 	var errs []error
-	caps, err := u.cfg.getCapabilities()
-	if err != nil {
-		return nil, rel.Manifest, []error{errors.Wrap(err, "could not get apiVersions from Kubernetes")}
-	}
 
 	manifests := releaseutil.SplitManifests(rel.Manifest)
-	_, files, err := releaseutil.SortManifests(manifests, caps.APIVersions, releaseutil.UninstallOrder)
+	_, files, err := releaseutil.SortManifests(manifests, nil, releaseutil.UninstallOrder)
 	if err != nil {
 		// We could instead just delete everything in no particular order.
 		// FIXME: One way to delete at this point would be to try a label-based

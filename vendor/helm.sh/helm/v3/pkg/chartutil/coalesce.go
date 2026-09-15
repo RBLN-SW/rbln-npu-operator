@@ -237,6 +237,9 @@ func coalesceValues(printf printFn, c *chart.Chart, v map[string]interface{}, pr
 						printf("warning: skipped value for %s.%s: Not a table.", subPrefix, key)
 					}
 				} else {
+					// If the key is a child chart, coalesce tables with Merge set to true
+					merge := childChartMergeTrue(c, key, merge)
+
 					// Because v has higher precedence than nv, dest values override src
 					// values.
 					coalesceTablesFullKey(printf, dest, src, concatPrefix(subPrefix, key), merge)
@@ -247,6 +250,15 @@ func coalesceValues(printf printFn, c *chart.Chart, v map[string]interface{}, pr
 			v[key] = val
 		}
 	}
+}
+
+func childChartMergeTrue(chrt *chart.Chart, key string, merge bool) bool {
+	for _, subchart := range chrt.Dependencies() {
+		if subchart.Name() == key {
+			return true
+		}
+	}
+	return merge
 }
 
 // CoalesceTables merges a source map into a destination map.
@@ -271,13 +283,31 @@ func coalesceTablesFullKey(printf printFn, dst, src map[string]interface{}, pref
 	if dst == nil {
 		return src
 	}
+	// Track original non-nil src keys before modifying src
+	// This lets us distinguish between user nullifying a chart default vs
+	// user setting nil for a key not in chart defaults.
+	srcOriginalNonNil := make(map[string]bool)
+	for key, val := range src {
+		if val != nil {
+			srcOriginalNonNil[key] = true
+		}
+	}
+	for key, val := range dst {
+		if val == nil {
+			src[key] = nil
+		}
+	}
 	// Because dest has higher precedence than src, dest values override src
 	// values.
 	for key, val := range src {
 		fullkey := concatPrefix(prefix, key)
-		if dv, ok := dst[key]; ok && !merge && dv == nil {
+		if dv, ok := dst[key]; ok && !merge && dv == nil && srcOriginalNonNil[key] {
+			// When coalescing (not merging), if dst has nil and src has a non-nil
+			// value, the user is nullifying a chart default - remove the key.
+			// But if src also has nil (or key not in src), preserve the nil
 			delete(dst, key)
 		} else if !ok {
+			// key not in user values, preserve src value (including nil)
 			dst[key] = val
 		} else if istable(val) {
 			if istable(dv) {

@@ -172,28 +172,28 @@ func copyFile(src, dst string) (err error) {
 
 	in, err := os.Open(src)
 	if err != nil {
-		return
+		return //nolint:nakedret
 	}
 	defer in.Close()
 
 	out, err := os.Create(dst)
 	if err != nil {
-		return
+		return //nolint:nakedret
 	}
 
 	if _, err = io.Copy(out, in); err != nil {
 		out.Close()
-		return
+		return //nolint:nakedret
 	}
 
 	// Check for write errors on Close
 	if err = out.Close(); err != nil {
-		return
+		return //nolint:nakedret
 	}
 
 	si, err := os.Stat(src)
 	if err != nil {
-		return
+		return //nolint:nakedret
 	}
 
 	// Temporary fix for Go < 1.9
@@ -205,7 +205,7 @@ func copyFile(src, dst string) (err error) {
 	}
 	err = os.Chmod(dst, si.Mode())
 
-	return
+	return //nolint:nakedret
 }
 
 // cloneSymlink will create a new symlink that points to the resolved path of sl.
@@ -260,7 +260,7 @@ func fixLongPath(path string) string {
 	// minus 12)." Since MAX_PATH is 260, 260 - 12 = 248.
 	//
 	// The MSDN docs appear to say that a normal path that is 248 bytes long
-	// will work; empirically the path must be less then 248 bytes long.
+	// will work; empirically the path must be less than 248 bytes long.
 	if len(path) < 248 {
 		// Don't fix. (This is how Go 1.7 and earlier worked,
 		// not automatically generating the \\?\ form)
