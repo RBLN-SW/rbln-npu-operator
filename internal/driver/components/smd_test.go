@@ -40,8 +40,8 @@ func smdDaemonSetKey() types.NamespacedName {
 func assertSmdContainerContract(t *testing.T, container corev1.Container) {
 	t.Helper()
 	port := container.Ports[0]
-	// 50051 is a cross-repo contract (metrics-exporter and npu-feature-
-	// discovery dial $(NODE_IP):50051), so pin the literal, not the const
+	// 50051 is a cross-repo contract (metrics-exporter dials
+	// $(NODE_IP):50051), so pin the literal, not the const
 	// the production code itself reads.
 	if port.ContainerPort != 50051 {
 		t.Fatalf("containerPort = %d, want 50051", port.ContainerPort)

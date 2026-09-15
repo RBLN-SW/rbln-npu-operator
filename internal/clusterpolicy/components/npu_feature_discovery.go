@@ -85,19 +85,11 @@ func (h *npuFeatureDiscoveryPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 			k8sutil.NewContainerBuilder().
 				WithName(h.name).
 				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
-				WithEnvs(mergeEnvVars(
-					[]corev1.EnvVar{
-						{
-							Name: "NODE_IP",
-							ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
-								APIVersion: "v1", FieldPath: "status.hostIP",
-							}},
-						},
-					},
-					loggingEnvVars(h.desiredSpec.Logging, nfdLogLevelEnv, nfdLogFormatEnv),
-				)).
+				// No --rbln-daemon-url: a deprecated no-op since
+				// rbln-npu-feature-discovery v0.2.2, and older images fall back
+				// to sysfs on their own, so no version needs it.
+				WithEnvs(loggingEnvVars(h.desiredSpec.Logging, nfdLogLevelEnv, nfdLogFormatEnv)).
 				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
-				WithArgs([]string{"--rbln-daemon-url", "http://$(NODE_IP):50051"}).
 				WithVolumeMounts([]corev1.VolumeMount{
 					{Name: "features-dir", MountPath: "/etc/kubernetes/node-feature-discovery/features.d"},
 				}).
