@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -163,6 +164,75 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 
 			By("verifying upgrade state label is removed from the node")
 			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+		})
+
+		// Turning autoUpgrade off is the documented way to pause a rollout, so
+		// a node caught mid-flight must not be left unschedulable with the
+		// state label that explained it gone.
+		It("returns a mid-rollout node to service", func() {
+			DeferCleanup(func() { restoreNodeSchedulable(ctx, nodeName) })
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, upgrade.UpgradeStatePodRestartRequired)
+			setNodeUnschedulable(ctx, nodeName, true)
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			expectNodeUnschedulable(ctx, nodeName, false)
+			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+		})
+
+		// A cordon predating the rollout belongs to whoever placed it. The
+		// annotation that records this still goes, so the next rollout derives
+		// it from the node instead of trusting a stale one.
+		It("leaves a cordon the rollout did not take and drops its initial-state annotation", func() {
+			DeferCleanup(func() { restoreNodeSchedulable(ctx, nodeName) })
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, upgrade.UpgradeStatePodRestartRequired)
+			setNodeUnschedulable(ctx, nodeName, true)
+			setNodeAnnotation(ctx, nodeName, upgrade.UpgradeInitialStateAnnotationKey, "true")
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			expectNodeUnschedulable(ctx, nodeName, true)
+			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+			expectNodeHasNoAnnotation(ctx, nodeName, upgrade.UpgradeInitialStateAnnotationKey)
+		})
+
+		// A failed node runs a driver that never came up, so it stays isolated.
+		// Its label stays too: without it the next rollout would admit the node
+		// as unknown, read this rollout's cordon as the administrator's and
+		// never lift it, wiping the failure reason on the way in.
+		It("leaves an upgrade-failed node parked with its label, cordon and failure reason", func() {
+			DeferCleanup(func() {
+				restoreNodeSchedulable(ctx, nodeName)
+				removeNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+				removeNodeAnnotation(ctx, nodeName, upgrade.UpgradeFailureReasonAnnotationKey)
+			})
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, upgrade.UpgradeStateFailed)
+			setNodeAnnotation(ctx, nodeName, upgrade.UpgradeFailureReasonAnnotationKey, "driver pod crash-looping")
+			setNodeUnschedulable(ctx, nodeName, true)
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			expectNodeUnschedulable(ctx, nodeName, true)
+			expectNodeLabelValue(ctx, nodeName, upgrade.UpgradeStateLabelKey, upgrade.UpgradeStateFailed)
+			expectNodeKeepsAnnotation(ctx, nodeName, upgrade.UpgradeFailureReasonAnnotationKey)
+		})
+
+		// The timeout clocks belong to the rollout that started them; left
+		// behind, the next rollout would read a stale epoch and time out at once.
+		It("drops the rollout's timeout clocks", func() {
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, upgrade.UpgradeStateValidationRequired)
+			setNodeAnnotation(ctx, nodeName, upgrade.UpgradeValidationStartTimeAnnotationKey, "1")
+			setNodeAnnotation(ctx, nodeName, upgrade.UpgradeWaitForPodCompletionStartTimeAnnotationKey, "1")
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+			expectNodeHasNoAnnotation(ctx, nodeName, upgrade.UpgradeValidationStartTimeAnnotationKey)
+			expectNodeHasNoAnnotation(ctx, nodeName, upgrade.UpgradeWaitForPodCompletionStartTimeAnnotationKey)
 		})
 	})
 
@@ -431,4 +501,83 @@ func newUpgradeClusterPolicyFixture(name string, upgradePolicy *rblnv1beta1.Driv
 			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
 		},
 	}
+}
+
+// restoreNodeSchedulable undoes a test's cordon. It tolerates a missing node:
+// Ginkgo runs a spec's DeferCleanup after the container's AfterAll, which has
+// already deleted the shared node when the spec is the last one to run.
+func restoreNodeSchedulable(ctx context.Context, nodeName string) {
+	var node corev1.Node
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node); err != nil {
+		if apierrors.IsNotFound(err) {
+			return
+		}
+		Expect(err).NotTo(HaveOccurred())
+	}
+	if !node.Spec.Unschedulable {
+		return
+	}
+	node.Spec.Unschedulable = false
+	Expect(k8sClient.Update(ctx, &node)).To(Succeed())
+}
+
+func setNodeUnschedulable(ctx context.Context, nodeName string, unschedulable bool) {
+	var node corev1.Node
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
+	node.Spec.Unschedulable = unschedulable
+	Expect(k8sClient.Update(ctx, &node)).To(Succeed())
+}
+
+func expectNodeUnschedulable(ctx context.Context, nodeName string, want bool) {
+	Eventually(func() bool {
+		var node corev1.Node
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
+		return node.Spec.Unschedulable
+	}, 5*time.Second, 250*time.Millisecond).Should(Equal(want),
+		"expected node %s unschedulable=%v", nodeName, want)
+}
+
+func setNodeAnnotation(ctx context.Context, nodeName, key, value string) {
+	var node corev1.Node
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
+	if node.Annotations == nil {
+		node.Annotations = map[string]string{}
+	}
+	node.Annotations[key] = value
+	Expect(k8sClient.Update(ctx, &node)).To(Succeed())
+}
+
+func removeNodeAnnotation(ctx context.Context, nodeName, key string) {
+	var node corev1.Node
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
+	if _, exists := node.Annotations[key]; !exists {
+		return
+	}
+	delete(node.Annotations, key)
+	Expect(k8sClient.Update(ctx, &node)).To(Succeed())
+}
+
+func expectNodeLabelValue(ctx context.Context, nodeName, key, want string) {
+	GinkgoHelper()
+	var node corev1.Node
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
+	Expect(node.Labels).To(HaveKeyWithValue(key, want),
+		"expected node %s to keep label %s=%s", nodeName, key, want)
+}
+
+func expectNodeKeepsAnnotation(ctx context.Context, nodeName, key string) {
+	GinkgoHelper()
+	var node corev1.Node
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
+	Expect(node.Annotations).To(HaveKey(key), "expected node %s to keep annotation %s", nodeName, key)
+}
+
+func expectNodeHasNoAnnotation(ctx context.Context, nodeName, key string) {
+	Eventually(func() bool {
+		var node corev1.Node
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
+		_, exists := node.Annotations[key]
+		return exists
+	}, 5*time.Second, 250*time.Millisecond).Should(BeFalse(),
+		"expected node %s annotation %s to be removed", nodeName, key)
 }

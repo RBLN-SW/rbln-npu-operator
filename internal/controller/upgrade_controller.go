@@ -93,7 +93,7 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			logger.Error(err, "Failed to clear driver upgrade status")
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, r.removeNodeUpgradeStateLabels(ctx)
+		return ctrl.Result{}, r.removeNodeUpgradeState(ctx)
 	}
 
 	driverLabel := map[string]string{DriverLabelKey: DriverLabelValue}
@@ -136,30 +136,70 @@ func (r *UpgradeReconciler) cleanupIfNoPoliciesLeft(ctx context.Context) error {
 		return nil
 	}
 	metrics.DriverUpgradeNodes.Reset()
-	return r.removeNodeUpgradeStateLabels(ctx)
+	return r.removeNodeUpgradeState(ctx)
 }
 
-// removeNodeUpgradeStateLabels loops over nodes in the cluster and removes "rebellions.ai/npu-driver-upgrade-state"
-// It is used for cleanup when autoUpgrade feature gets disabled
-func (r *UpgradeReconciler) removeNodeUpgradeStateLabels(ctx context.Context) error {
+// removeNodeUpgradeState tears the workflow's node bookkeeping down: the state
+// label, the initial-state annotation and the timeout clocks go, and the cordon
+// this rollout took is lifted. Label and cordon move in one patch, so a node can
+// never be left uncordoned while still labeled, or labeled while already back
+// in service.
+//
+// The initial-state annotation has to go with the label. It records whether the
+// node was unschedulable when the rollout admitted it, and left behind it
+// outlives the rollout that meant it: the next one would read this rollout's own
+// leftover cordon as the administrator's and refuse to lift it forever. The
+// timeout clocks are cleared only when their state completes, so a rollout
+// paused inside one would hand the next rollout a stale epoch and an instant
+// timeout.
+//
+// A node parked in upgrade-failed is left alone entirely. Its cordon stays on
+// purpose, the driver did not come up, and its label has to stay with it:
+// stripped of the label, the next rollout would admit the node as unknown, read
+// the leftover cordon as the administrator's, wipe the failure reason on the way
+// in and finish without ever uncordoning. With the label it is retried as a
+// parked node (ProcessUpgradeFailedNodes), which knows the cordon is its own.
+func (r *UpgradeReconciler) removeNodeUpgradeState(ctx context.Context) error {
 	logger := log.FromContext(ctx)
-	logger.Info("Resetting node upgrade labels from all nodes")
+	logger.Info("Resetting node upgrade state from all nodes")
 
 	nodeList := &corev1.NodeList{}
 	if err := r.List(ctx, nodeList, client.HasLabels{upgrade.UpgradeStateLabelKey}); err != nil {
-		logger.Error(err, "Failed to get node list to reset upgrade labels")
+		logger.Error(err, "Failed to get node list to reset upgrade state")
 		return err
 	}
 
 	for i := range nodeList.Items {
 		node := &nodeList.Items[i]
-		patchBytes := fmt.Appendf(nil, `{"metadata":{"labels":{%q:null}}}`, upgrade.UpgradeStateLabelKey)
-		if err := r.Patch(ctx, node, client.RawPatch(types.MergePatchType, patchBytes)); err != nil {
-			logger.Error(err, "Failed to reset upgrade state label from node", "node", node.Name)
+		state := node.Labels[upgrade.UpgradeStateLabelKey]
+		if state == upgrade.UpgradeStateFailed {
+			logger.Info("Leaving upgrade-failed node parked with its label and cordon", "node", node.Name)
+			continue
+		}
+		releaseCordon := upgrade.ShouldReleaseCordonOnTeardown(node)
+		if err := r.Patch(ctx, node,
+			client.RawPatch(types.MergePatchType, upgradeStateTeardownPatch(releaseCordon))); err != nil {
+			logger.Error(err, "Failed to reset upgrade state on node", "node", node.Name)
 			return err
+		}
+		if releaseCordon {
+			logger.Info("Returned the node to service, lifting any cordon the rollout took",
+				"node", node.Name, "state", state)
 		}
 	}
 	return nil
+}
+
+func upgradeStateTeardownPatch(releaseCordon bool) []byte {
+	patch := fmt.Appendf(nil, `{"metadata":{"labels":{%q:null},"annotations":{%q:null,%q:null,%q:null}}`,
+		upgrade.UpgradeStateLabelKey,
+		upgrade.UpgradeInitialStateAnnotationKey,
+		upgrade.UpgradeValidationStartTimeAnnotationKey,
+		upgrade.UpgradeWaitForPodCompletionStartTimeAnnotationKey)
+	if releaseCordon {
+		patch = append(patch, `,"spec":{"unschedulable":false}`...)
+	}
+	return append(patch, '}')
 }
 
 // clusterPolicyUpgradePredicate also fires on status transitions (state or
