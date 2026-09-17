@@ -74,18 +74,6 @@ func (m *mockCordonManager) Uncordon(_ context.Context, node *corev1.Node) error
 }
 
 // ---------------------------------------------------------------------------
-// Mock: DrainManagerInterface
-// ---------------------------------------------------------------------------
-
-type mockDrainManager struct {
-	err error
-}
-
-func (m *mockDrainManager) ScheduleNodesDrain(_ context.Context, _ *DrainConfiguration) error {
-	return m.err
-}
-
-// ---------------------------------------------------------------------------
 // Mock: ValidationManagerInterface
 // ---------------------------------------------------------------------------
 
@@ -139,7 +127,6 @@ func newTestManager(t *testing.T, opts ...func(*ClusterUpgradeStateManagerImpl))
 		nodeUpgradeStateProvider: provider,
 		podManager:               &mockPodManager{podRevisionHash: "rev1", dsRevisionHash: "rev1"},
 		cordonManager:            &mockCordonManager{},
-		drainManager:             &mockDrainManager{},
 		validationManager:        &mockValidationManager{done: true},
 		safeDriverLoadManager:    &mockSafeDriverLoadManager{},
 	}
@@ -168,10 +155,6 @@ func withValidationManager(v ValidationManagerInterface) func(*ClusterUpgradeSta
 
 func withValidationEnabled() func(*ClusterUpgradeStateManagerImpl) {
 	return func(m *ClusterUpgradeStateManagerImpl) { m.validationStateEnabled = true }
-}
-
-func withDrainManager(d DrainManagerInterface) func(*ClusterUpgradeStateManagerImpl) {
-	return func(m *ClusterUpgradeStateManagerImpl) { m.drainManager = d }
 }
 
 func newNodeUpgradeState(nodeName, stateLabel, podRevHash string) *NodeUpgradeState {

@@ -3527,39 +3527,6 @@ spec:
                           AutoUpgrade enables/disables the automatic upgrade workflow.
                           If false, other upgrade policy fields are ignored.
                         type: boolean
-                      drain:
-                        description: DrainSpec describes configuration for node drain
-                          during automatic upgrade
-                        properties:
-                          deleteEmptyDirData:
-                            default: false
-                            description: |-
-                              DeleteEmptyDirData indicates whether to allow deleting pods that use emptyDir/local ephemeral storage
-                              during drain.
-                            type: boolean
-                          enable:
-                            default: false
-                            description: Enable indicates if node draining is allowed
-                              during upgrade
-                            type: boolean
-                          force:
-                            default: false
-                            description: Force indicates if force draining is allowed
-                            type: boolean
-                          podSelector:
-                            description: |-
-                              PodSelector specifies a label selector to filter pods on the node that need to be drained
-                              For more details on label selectors, see:
-                              https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors
-                            type: string
-                          timeoutSeconds:
-                            default: 300
-                            description: TimeoutSeconds specifies the length of time
-                              in seconds to wait before giving up drain, zero means
-                              infinite
-                            minimum: 0
-                            type: integer
-                        type: object
                       maxParallelUpgrades:
                         default: 1
                         description: |-
@@ -3568,9 +3535,19 @@ spec:
                         minimum: 0
                         type: integer
                       podDeletion:
-                        description: PodDeletionSpec describes pod deletion behavior
-                          during automatic upgrade.
+                        description: |-
+                          PodDeletionSpec describes how NPU pods are evicted from a node before its
+                          driver is replaced. Pods that do not hold an NPU are never evicted.
                         properties:
+                          deleteEmptyDirData:
+                            default: false
+                            description: |-
+                              DeleteEmptyDirData allows evicting NPU pods that mount emptyDir volumes,
+                              whose contents are lost with the pod. Off by default: such a pod blocks
+                              the eviction and parks the node in upgrade-skipped with the pod named in
+                              the skip reason. Pods that do not request an NPU are never evicted
+                              regardless of this setting.
+                            type: boolean
                           force:
                             default: false
                             description: Force indicates if force deletion is allowed

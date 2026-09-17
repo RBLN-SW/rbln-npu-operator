@@ -200,11 +200,9 @@ The operator records Kubernetes Events for state transitions and failures, so
 | Reason | Type | Object | When | Paired `Ready` condition |
 |--------|------|--------|------|--------------------------|
 | `DriverUpgradeStarted` | Normal | Node | upgrade-required → cordon-required | — (node label) |
-| `NodeDrained` | Normal | Node | node drain succeeded | — (node label) |
-| `NodeDrainFailed` | Warning | Node | cordon or drain failed | — (node label) |
 | `DriverUpgradeCompleted` | Normal | Node | in-progress state → upgrade-done | — (node label) |
 | `DriverUpgradeFailed` | Warning | Node | non-Failed state → upgrade-failed; message carries the recorded failure reason | — (node label) |
-| `DriverUpgradeSkipped` | Warning | Node | eviction or drain could not empty the node before the driver swap → upgrade-skipped; node returns to service on the old driver | — (node label) |
+| `DriverUpgradeSkipped` | Warning | Node | eviction could not empty the node before the driver swap → upgrade-skipped; node returns to service on the old driver | — (node label) |
 | `DriverUpgradePodStuck` | Warning | Node | driver pod replacement is not progressing (e.g. `ImagePullBackOff`); repeats every reconcile while stuck, judged only by `podRestartTimeoutSeconds` | — (node label) |
 | `DriverNodeUncovered` | Warning | Node | node loses its RBLNDriver owner (no selector matches, or an unresolved selector tie); transition-only | — (node label) |
 | `DriverOwnerChanged` | Normal | Node | node's RBLNDriver owner is set or changed; transition-only | — (node label) |
@@ -451,7 +449,7 @@ example, upgrading a canary instance independently of the default — is not
 supported.
 
 What the policy does once `autoUpgrade` is on — the node state machine, the
-drain options, skipped vs. failed nodes and how to retry them, and the
+eviction options, skipped vs. failed nodes and how to retry them, and the
 `status.driverUpgrade` block and conditions — is documented in
 [NPU Driver Auto Upgrade](docs/driver-upgrade.md).
 

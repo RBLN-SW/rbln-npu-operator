@@ -158,12 +158,9 @@ driver:
     npuPodDeletion:
       force: false
       timeoutSeconds: 300
-    drain:
-      enable: false
-      force: false
+      # Evict NPU pods that mount emptyDir volumes (contents are lost). When
+      # false such a pod parks its node in upgrade-skipped, named in the reason.
       deleteEmptyDirData: false
-      podSelector: ""
-      timeoutSeconds: 300
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-driver

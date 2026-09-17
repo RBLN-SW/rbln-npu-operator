@@ -46,8 +46,6 @@ const (
 	UpgradeStateWaitForJobsRequired = "wait-for-jobs-required"
 	// UpgradeStatePodDeletionRequired means pod deletion is required before proceeding.
 	UpgradeStatePodDeletionRequired = "pod-deletion-required"
-	// UpgradeStateDrainRequired means the node requires drain.
-	UpgradeStateDrainRequired = "drain-required"
 	// UpgradeStatePodRestartRequired means the driver pod must be restarted.
 	UpgradeStatePodRestartRequired = "pod-restart-required"
 	// UpgradeStateValidationRequired means the new driver must be validated.
@@ -73,7 +71,6 @@ var managedUpgradeStates = []string{
 	UpgradeStatePodDeletionRequired,
 	UpgradeStateFailed,
 	UpgradeStateSkipped,
-	UpgradeStateDrainRequired,
 	UpgradeStatePodRestartRequired,
 	UpgradeStateValidationRequired,
 	UpgradeStateUncordonRequired,

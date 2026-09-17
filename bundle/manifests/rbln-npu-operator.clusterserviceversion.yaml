@@ -83,14 +83,9 @@ metadata:
             "driver": {
               "upgradePolicy": {
                 "autoUpgrade": false,
-                "drain": {
-                  "deleteEmptyDirData": false,
-                  "enable": false,
-                  "force": false,
-                  "timeoutSeconds": 300
-                },
                 "maxParallelUpgrades": 1,
                 "podDeletion": {
+                  "deleteEmptyDirData": false,
                   "force": false,
                   "timeoutSeconds": 300
                 },
@@ -148,7 +143,7 @@ metadata:
       ]
     capabilities: Basic Install
     containerImage: docker.io/rebellions/rbln-npu-operator:latest
-    createdAt: "2026-09-17T06:39:20Z"
+    createdAt: "2026-09-17T06:46:09Z"
     description: Deploy and manage Rebellions NPU in Kubernetes
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"

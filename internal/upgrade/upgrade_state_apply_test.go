@@ -18,20 +18,20 @@ func TestRecordNodeStateMetrics(t *testing.T) {
 
 	state := &ClusterUpgradeState{
 		NodeStates: map[string][]*NodeUpgradeState{
-			UpgradeStateUnknown:       {{}, {}},
-			UpgradeStateDone:          {{}, {}, {}},
-			UpgradeStateDrainRequired: {{}},
+			UpgradeStateUnknown:             {{}, {}},
+			UpgradeStateDone:                {{}, {}, {}},
+			UpgradeStatePodDeletionRequired: {{}},
 		},
 	}
 
 	recordNodeStateMetrics(state)
 
 	tests := map[string]float64{
-		"unknown":         2, // UpgradeStateUnknown ("") maps to a non-empty label
-		"upgrade-done":    3,
-		"drain-required":  1,
-		"upgrade-failed":  0, // absent states must be published as 0
-		"cordon-required": 0,
+		"unknown":               2, // UpgradeStateUnknown ("") maps to a non-empty label
+		"upgrade-done":          3,
+		"pod-deletion-required": 1,
+		"upgrade-failed":        0, // absent states must be published as 0
+		"cordon-required":       0,
 	}
 	for label, want := range tests {
 		got := testutil.ToFloat64(metrics.DriverUpgradeNodes.WithLabelValues(label))
