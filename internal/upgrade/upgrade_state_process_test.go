@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 
@@ -185,8 +184,8 @@ func TestProcessUpgradeRequiredNodes(t *testing.T) {
 func TestProcessUpgradeRequiredNodes_CountsInProgressFromNodeLabels(t *testing.T) {
 	mgr := newTestManager(t)
 
-	inProgressA := newNodeUpgradeState("node-reboot-a", UpgradeStateRebootValidationRequired, "rev1")
-	inProgressB := newNodeUpgradeState("node-reboot-b", UpgradeStateRebootValidationRequired, "rev1")
+	inProgressA := newNodeUpgradeState("node-in-progress-a", UpgradeStateValidationRequired, "rev1")
+	inProgressB := newNodeUpgradeState("node-in-progress-b", UpgradeStateValidationRequired, "rev1")
 	queued := newNodeUpgradeState("node-queued", UpgradeStateUpgradeRequired, "rev1")
 
 	registerNodes(t, mgr, inProgressA.Node, inProgressB.Node, queued.Node)
@@ -530,7 +529,7 @@ func TestProcessPodRestartNodesCrashLoopRecordsDiagnosis(t *testing.T) {
 	state := newClusterState(map[string][]*NodeUpgradeState{
 		UpgradeStatePodRestartRequired: {ns},
 	})
-	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 0); err != nil {
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, 0); err != nil {
 		t.Fatalf("ProcessPodRestartNodes: %v", err)
 	}
 
@@ -578,7 +577,7 @@ func TestProcessPodRestartNodes_TimeoutMarksNodeFailedWithReason(t *testing.T) {
 	state := newClusterState(map[string][]*NodeUpgradeState{
 		UpgradeStatePodRestartRequired: {ns},
 	})
-	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 60); err != nil {
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, 60); err != nil {
 		t.Fatalf("ProcessPodRestartNodes: %v", err)
 	}
 
@@ -609,7 +608,7 @@ func TestProcessPodRestartNodes_FirstSightStampsClockWithoutJudging(t *testing.T
 	state := newClusterState(map[string][]*NodeUpgradeState{
 		UpgradeStatePodRestartRequired: {ns},
 	})
-	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 3600); err != nil {
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, 3600); err != nil {
 		t.Fatalf("ProcessPodRestartNodes: %v", err)
 	}
 
@@ -633,7 +632,7 @@ func TestProcessPodRestartNodes_TimeoutDisabledKeepsWaiting(t *testing.T) {
 	state := newClusterState(map[string][]*NodeUpgradeState{
 		UpgradeStatePodRestartRequired: {ns},
 	})
-	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 0); err != nil {
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, 0); err != nil {
 		t.Fatalf("ProcessPodRestartNodes: %v", err)
 	}
 
@@ -656,7 +655,7 @@ func TestProcessPodRestartNodes_StuckEventEmittedWithoutJudgement(t *testing.T) 
 	state := newClusterState(map[string][]*NodeUpgradeState{
 		UpgradeStatePodRestartRequired: {ns},
 	})
-	if err := mgr.ProcessPodRestartNodes(context.Background(), state, false, 3600); err != nil {
+	if err := mgr.ProcessPodRestartNodes(context.Background(), state, 3600); err != nil {
 		t.Fatalf("ProcessPodRestartNodes: %v", err)
 	}
 
@@ -675,37 +674,6 @@ func TestProcessPodRestartNodes_StuckEventEmittedWithoutJudgement(t *testing.T) 
 	}
 	if got := updated.Labels[UpgradeStateLabelKey]; got == UpgradeStateFailed {
 		t.Fatal("early signal must not judge the node failed")
-	}
-}
-
-func TestProcessRebootRequiredNodesTriggerFailureRecordsDiagnosis(t *testing.T) {
-	mgr := newTestManager(t)
-	mgr.rebootManager = &mockRebootManager{err: fmt.Errorf("reboot pod create rejected")}
-
-	ns := newNodeUpgradeState("node-1", UpgradeStateRebootRequired, "rev1")
-	ns.Node.Status.NodeInfo.BootID = "boot-1"
-	registerNodes(t, mgr, ns.Node)
-
-	state := newClusterState(map[string][]*NodeUpgradeState{
-		UpgradeStateRebootRequired: {ns},
-	})
-	if err := mgr.ProcessRebootRequiredNodes(context.Background(), "test-ns", state,
-		&v1beta1.RebootSpec{Enable: true}); err == nil {
-		t.Fatal("expected the reboot trigger error to be reported")
-	}
-
-	var updated corev1.Node
-	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
-		t.Fatalf("get node: %v", err)
-	}
-	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateFailed {
-		t.Fatalf("state = %q, want %q", got, UpgradeStateFailed)
-	}
-	if reason := updated.Annotations[UpgradeFailureReasonAnnotationKey]; !strings.Contains(reason, "reboot pod create rejected") {
-		t.Fatalf("failure reason = %q, want it to carry the trigger error", reason)
-	}
-	if got := updated.Annotations[UpgradeFailureStepAnnotationKey]; got != UpgradeStateRebootRequired {
-		t.Fatalf("failure step = %q, want %q", got, UpgradeStateRebootRequired)
 	}
 }
 
@@ -836,7 +804,7 @@ func TestTransitionToUpgradeRequiredClearsJudgementArtifacts(t *testing.T) {
 	ns.Node.Annotations = map[string]string{
 		UpgradePodRestartStartTimeAnnotationKey: "100",
 		UpgradeFailureReasonAnnotationKey:       "stale reason",
-		UpgradeFailureStepAnnotationKey:         UpgradeStateRebootRequired,
+		UpgradeFailureStepAnnotationKey:         UpgradeStateValidationRequired,
 		UpgradeSkipReasonAnnotationKey:          "stale skip reason",
 		UpgradeAttemptedRevisionAnnotationKey:   "rev0",
 	}
@@ -941,14 +909,14 @@ func TestProcessUpgradeFailedNodes(t *testing.T) {
 			},
 			wantState: UpgradeStateFailed,
 		},
-		"reboot failure never self-heals even with pod in sync and Ready": {
+		"validation failure never self-heals even with pod in sync and Ready": {
 			podRevHash: "rev1",
 			dsRevHash:  "rev1",
 			podPhase:   corev1.PodRunning,
 			podReady:   true,
 			annotations: map[string]string{
-				UpgradeFailureStepAnnotationKey:   UpgradeStateRebootValidationRequired,
-				UpgradeFailureReasonAnnotationKey: "reboot validation timed out after 600 seconds",
+				UpgradeFailureStepAnnotationKey:   UpgradeStateValidationRequired,
+				UpgradeFailureReasonAnnotationKey: "validation timed out after 600 seconds",
 			},
 			wantState: UpgradeStateFailed,
 		},
@@ -964,8 +932,8 @@ func TestProcessUpgradeFailedNodes(t *testing.T) {
 			dsRevHash:  "rev1",
 			annotations: map[string]string{
 				UpgradeRequestedAnnotationKey:         trueString,
-				UpgradeFailureStepAnnotationKey:       UpgradeStateRebootRequired,
-				UpgradeFailureReasonAnnotationKey:     "reboot trigger failed",
+				UpgradeFailureStepAnnotationKey:       UpgradeStateValidationRequired,
+				UpgradeFailureReasonAnnotationKey:     "validation timed out",
 				UpgradeAttemptedRevisionAnnotationKey: "rev1",
 			},
 			wantState: UpgradeStateUpgradeRequired,
@@ -1047,7 +1015,7 @@ func TestProcessUpgradeFailedNodes_StampsAttemptedRevisionOnFirstSight(t *testin
 
 	ns := newNodeUpgradeState("node-1", UpgradeStateFailed, "rev0")
 	ns.Node.Annotations = map[string]string{
-		UpgradeFailureStepAnnotationKey: UpgradeStateRebootRequired,
+		UpgradeFailureStepAnnotationKey: UpgradeStateValidationRequired,
 	}
 	registerNodes(t, mgr, ns.Node)
 
@@ -1127,75 +1095,6 @@ func TestIsDriverPodFailing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := mgr.isDriverPodFailing(tc.pod); got != tc.want {
 				t.Fatalf("isDriverPodFailing() = %t, want %t", got, tc.want)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// isRebootPostPodReady (standalone function)
-// ---------------------------------------------------------------------------
-
-func TestIsRebootPostPodReady(t *testing.T) {
-	now := metav1.Now()
-	tests := map[string]struct {
-		pod  corev1.Pod
-		want bool
-	}{
-		"running pod with all containers ready": {
-			pod: corev1.Pod{
-				Status: corev1.PodStatus{
-					Phase: corev1.PodRunning,
-					ContainerStatuses: []corev1.ContainerStatus{
-						{Ready: true},
-					},
-				},
-			},
-			want: true,
-		},
-		"pod being deleted": {
-			pod: corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &now},
-				Status: corev1.PodStatus{
-					Phase:             corev1.PodRunning,
-					ContainerStatuses: []corev1.ContainerStatus{{Ready: true}},
-				},
-			},
-			want: false,
-		},
-		"pod not running": {
-			pod: corev1.Pod{
-				Status: corev1.PodStatus{
-					Phase:             corev1.PodPending,
-					ContainerStatuses: []corev1.ContainerStatus{{Ready: false}},
-				},
-			},
-			want: false,
-		},
-		"pod with no container statuses": {
-			pod: corev1.Pod{
-				Status: corev1.PodStatus{Phase: corev1.PodRunning},
-			},
-			want: false,
-		},
-		"pod with not-ready container": {
-			pod: corev1.Pod{
-				Status: corev1.PodStatus{
-					Phase: corev1.PodRunning,
-					ContainerStatuses: []corev1.ContainerStatus{
-						{Ready: true},
-						{Ready: false},
-					},
-				},
-			},
-			want: false,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			if got := isRebootPostPodReady(tc.pod); got != tc.want {
-				t.Fatalf("isRebootPostPodReady() = %t, want %t", got, tc.want)
 			}
 		})
 	}

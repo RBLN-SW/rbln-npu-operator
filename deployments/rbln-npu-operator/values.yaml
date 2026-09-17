@@ -164,13 +164,6 @@ driver:
       deleteEmptyDirData: false
       podSelector: ""
       timeoutSeconds: 300
-    reboot:
-      enable: false
-      rebootTimeoutSeconds: 0
-      image:
-        registry: docker.io
-        image: rebellions/rbln-node-reboot
-        version: v1.0.1
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-driver

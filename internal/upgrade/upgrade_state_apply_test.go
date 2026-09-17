@@ -67,7 +67,7 @@ func TestApplyStateRunsAllStepsAndJoinsErrors(t *testing.T) {
 		UpgradeStateUncordonRequired: {finishing},
 	})
 
-	err := mgr.ApplyState(context.Background(), "test-ns", state,
+	err := mgr.ApplyState(context.Background(), state,
 		&v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true})
 	if err == nil {
 		t.Fatal("expected the failing cordon step's error to be reported")

@@ -121,18 +121,6 @@ func (m *mockSafeDriverLoadManager) UnblockLoading(_ context.Context, _ *corev1.
 }
 
 // ---------------------------------------------------------------------------
-// Mock: RebootManager
-// ---------------------------------------------------------------------------
-
-type mockRebootManager struct {
-	err error
-}
-
-func (m *mockRebootManager) Trigger(_ context.Context, _ *corev1.Node, _ RebootTriggerRequest) error {
-	return m.err
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -154,7 +142,6 @@ func newTestManager(t *testing.T, opts ...func(*ClusterUpgradeStateManagerImpl))
 		drainManager:             &mockDrainManager{},
 		validationManager:        &mockValidationManager{done: true},
 		safeDriverLoadManager:    &mockSafeDriverLoadManager{},
-		rebootManager:            &mockRebootManager{},
 	}
 
 	for _, opt := range opts {

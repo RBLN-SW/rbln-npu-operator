@@ -679,6 +679,12 @@ spec:
         path: conditions
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes.conditions
+      - description: DriverUpgrade summarizes the driver upgrade rollout across managed
+          nodes.
+        displayName: Driver Upgrade
+        path: driverUpgrade
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced
       - description: State indicates the overall status of the RBLNClusterPolicy.
         displayName: State
         path: state

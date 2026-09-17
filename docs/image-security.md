@@ -11,7 +11,6 @@ nightly run repeats the scan against `main` and reports to Slack.
 | --- | --- | --- |
 | `rbln-npu-operator` | `Dockerfile` | `redhat/ubi9-minimal` |
 | `rbln-vfio-manager` | `images/vfio-manager/Dockerfile` | `redhat/ubi9` |
-| `rbln-node-reboot` | `images/node-reboot/Dockerfile` | `alpine` |
 
 The operator image carries three binaries — `npu-operator`, `rbln-validator`
 and `crd-apply` — each analysed separately for Go dependencies.
@@ -45,7 +44,7 @@ visible in the SARIF upload and the repository's security tab.
 make scan-images
 ```
 
-This builds all three images and scans them with the same severity, scanner
+This builds both images and scans them with the same severity, scanner
 set, `--ignore-unfixed` behaviour and ignore file as CI. Install Trivy first;
 the pinned version is `TRIVY_VERSION` in `versions.mk`.
 
@@ -55,7 +54,7 @@ To narrow the scan to one image, override `TRIVY_IMAGES`:
 make scan-images TRIVY_IMAGES=docker.io/rebellions/rbln-npu-operator:v0.4.4
 ```
 
-Note that `scan-images` builds all three images first regardless; override
+Note that `scan-images` builds both images first regardless; override
 `TRIVY_IMAGES` only to narrow what gets scanned.
 
 ## Fixing a finding
@@ -178,7 +177,7 @@ to revisit, not a permanent waiver.
 
 ## CI layout
 
-- `.github/workflows/image-scan.yaml` — reusable; builds and scans the three
+- `.github/workflows/image-scan.yaml` — reusable; builds and scans the two
   images in a matrix, uploads SARIF per image, aggregates counts and applies
   the gate.
 - `.github/workflows/trigger-pr.yaml` — calls it with `fail-on-findings: true`.

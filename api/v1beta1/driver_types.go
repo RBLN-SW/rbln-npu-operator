@@ -36,36 +36,6 @@ type DriverUpgradePolicySpec struct {
 	WaitForCompletion *WaitForCompletionSpec `json:"waitForCompletion,omitempty"`
 	// +optional
 	DrainSpec *DrainSpec `json:"drain,omitempty"`
-	// Reboot describes reboot workflow configuration.
-	// +optional
-	Reboot *RebootSpec `json:"reboot,omitempty"`
-}
-
-// RebootSpec describes reboot behavior during automatic upgrade.
-type RebootSpec struct {
-	// Enable indicates if node reboot workflow is enabled.
-	// +optional
-	// +kubebuilder:default:=false
-	Enable bool `json:"enable,omitempty"`
-	// RebootTimeoutSeconds specifies the length of time in seconds to wait for reboot validation.
-	// 0 means infinite wait.
-	// +optional
-	// +kubebuilder:default:=0
-	// +kubebuilder:validation:Minimum:=0
-	RebootTimeoutSeconds int `json:"rebootTimeoutSeconds,omitempty"`
-	// Image specifies reboot trigger pod image configuration.
-	// +optional
-	Image *RebootImageSpec `json:"image,omitempty"`
-}
-
-// RebootImageSpec describes container image coordinates for reboot trigger pod.
-type RebootImageSpec struct {
-	// +optional
-	Registry string `json:"registry,omitempty"`
-	// +optional
-	Image string `json:"image,omitempty"`
-	// +optional
-	Version string `json:"version,omitempty"`
 }
 
 // PodDeletionSpec describes pod deletion behavior during automatic upgrade.

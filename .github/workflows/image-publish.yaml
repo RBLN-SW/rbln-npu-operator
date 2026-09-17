@@ -10,7 +10,7 @@ on:
   workflow_call:
     inputs:
       image:
-        description: "Image repository under the registry (e.g. rbln-node-reboot)"
+        description: "Image repository under the registry (e.g. rbln-vfio-manager)"
         required: true
         type: string
       make-target:

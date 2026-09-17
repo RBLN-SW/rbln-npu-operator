@@ -40,7 +40,7 @@ import (
 
 type mockStateManager struct {
 	buildStateFunc func(ctx context.Context, namespace string, driverLabels map[string]string) (*upgrade.ClusterUpgradeState, error)
-	applyStateFunc func(ctx context.Context, namespace string, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec) error
+	applyStateFunc func(ctx context.Context, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec) error
 }
 
 func (m *mockStateManager) WithPodDeletionEnabled(_ upgrade.PodDeletionFilter) upgrade.ClusterUpgradeStateManager {
@@ -58,9 +58,9 @@ func (m *mockStateManager) BuildState(ctx context.Context, namespace string, dri
 	return &upgrade.ClusterUpgradeState{NodeStates: map[string][]*upgrade.NodeUpgradeState{}}, nil
 }
 
-func (m *mockStateManager) ApplyState(ctx context.Context, namespace string, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec) error {
+func (m *mockStateManager) ApplyState(ctx context.Context, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec) error {
 	if m.applyStateFunc != nil {
-		return m.applyStateFunc(ctx, namespace, currentState, upgradePolicy)
+		return m.applyStateFunc(ctx, currentState, upgradePolicy)
 	}
 	return nil
 }
@@ -201,7 +201,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 
 		BeforeEach(func() {
 			mock := &mockStateManager{
-				applyStateFunc: func(_ context.Context, _ string, _ *upgrade.ClusterUpgradeState, _ *rblnv1beta1.DriverUpgradePolicySpec) error {
+				applyStateFunc: func(_ context.Context, _ *upgrade.ClusterUpgradeState, _ *rblnv1beta1.DriverUpgradePolicySpec) error {
 					return fmt.Errorf("apply failed")
 				},
 			}

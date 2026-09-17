@@ -39,7 +39,6 @@ type ClusterUpgradeStateManager interface {
 	BuildState(ctx context.Context, namespace string,
 		driverLabels map[string]string) (*ClusterUpgradeState, error)
 	ApplyState(ctx context.Context,
-		namespace string,
 		currentState *ClusterUpgradeState, upgradePolicy *v1beta1.DriverUpgradePolicySpec) (err error)
 }
 
@@ -53,7 +52,6 @@ type ClusterUpgradeStateManagerImpl struct {
 	safeDriverLoadManager    SafeDriverLoadManagerInterface
 	cordonManager            CordonManagerInterface
 	drainManager             DrainManagerInterface
-	rebootManager            RebootManager
 	validationManager        ValidationManagerInterface
 
 	// optional states
@@ -84,7 +82,6 @@ func NewClusterUpgradeStateManager(
 		k8sInterface:             k8sInterface,
 		eventRecorder:            eventRecorder,
 		drainManager:             NewDrainManager(k8sInterface, nodeUpgradeStateProvider, eventRecorder),
-		rebootManager:            NewPodRebootManager(k8sClient),
 		podManager:               NewPodManager(k8sInterface, nodeUpgradeStateProvider, nil),
 		cordonManager:            NewCordonManager(k8sInterface),
 		nodeUpgradeStateProvider: nodeUpgradeStateProvider,

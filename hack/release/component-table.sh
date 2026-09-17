@@ -32,7 +32,5 @@ for entry in \
 	path=${entry#*|}
 	echo "| $name | \`$(yq "${path}.registry" "$values")/$(yq "${path}.repository" "$values"):$(yq "${path}.tag" "$values")\` |"
 done
-nr=".driver.upgradePolicy.reboot.image"
-echo "| Node reboot | \`$(yq "${nr}.registry" "$values")/$(yq "${nr}.image" "$values"):$(yq "${nr}.version" "$values")\` |"
 echo
 echo "Driver (\`rbln-driver\`) and \`rbln-smd\` versions are chosen per \`RBLNDriver\` CR and are not pinned by this release."

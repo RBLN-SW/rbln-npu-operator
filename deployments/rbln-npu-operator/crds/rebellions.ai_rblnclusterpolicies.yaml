@@ -3594,33 +3594,6 @@ spec:
                           0 disables the timeout.
                         minimum: 0
                         type: integer
-                      reboot:
-                        description: Reboot describes reboot workflow configuration.
-                        properties:
-                          enable:
-                            default: false
-                            description: Enable indicates if node reboot workflow
-                              is enabled.
-                            type: boolean
-                          image:
-                            description: Image specifies reboot trigger pod image
-                              configuration.
-                            properties:
-                              image:
-                                type: string
-                              registry:
-                                type: string
-                              version:
-                                type: string
-                            type: object
-                          rebootTimeoutSeconds:
-                            default: 0
-                            description: |-
-                              RebootTimeoutSeconds specifies the length of time in seconds to wait for reboot validation.
-                              0 means infinite wait.
-                            minimum: 0
-                            type: integer
-                        type: object
                       waitForCompletion:
                         description: WaitForCompletionSpec describes the configuration
                           for waiting on job completions

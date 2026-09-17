@@ -451,7 +451,7 @@ example, upgrading a canary instance independently of the default — is not
 supported.
 
 What the policy does once `autoUpgrade` is on — the node state machine, the
-drain/reboot options, skipped vs. failed nodes and how to retry them, and the
+drain options, skipped vs. failed nodes and how to retry them, and the
 `status.driverUpgrade` block and conditions — is documented in
 [NPU Driver Auto Upgrade](docs/driver-upgrade.md).
 

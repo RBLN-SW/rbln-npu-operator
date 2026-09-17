@@ -86,8 +86,6 @@ spec:
             value: docker.io/rebellions/k8s-dra-driver-npu:v0.1.4@sha256:c039469b6151d8bb1bcd21a32acf91ba7a6a603094105ba7aa16ce123b6c2869
           - name: RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN
             value: docker.io/rebellions/sandbox-device-plugin:v0.1.1@sha256:5504fbc0f61da69c98e6e74de0f6a4feb3771019139a34f3283209a180f1281e
-          - name: RELATED_IMAGE_NODE_REBOOT
-            value: docker.io/rebellions/rbln-node-reboot:v1.0.1@sha256:0d5674b43ccf766da5989251c2a50454791a0231699b853415d612ff7e68f9b6
           - name: RELATED_IMAGE_DRIVER_MANAGER
             value: docker.io/rebellions/rbln-k8s-driver-manager:v0.2.2@sha256:8dafc00eac13a9ac7076f094796e51e1ac538c5cb1de061c1b05fb83350b24af
       serviceAccountName: controller-manager

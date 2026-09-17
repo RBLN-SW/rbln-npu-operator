@@ -100,7 +100,7 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	applyErr := r.StateManager.ApplyState(ctx, r.Namespace, state, clusterPolicy.Spec.Driver.UpgradePolicy)
+	applyErr := r.StateManager.ApplyState(ctx, state, clusterPolicy.Spec.Driver.UpgradePolicy)
 	if applyErr != nil {
 		logger.Error(applyErr, "Failed to apply cluster upgrade state")
 	}
