@@ -5,31 +5,25 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/kubectl/pkg/drain"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-)
-
-const (
-	PodControllerRevisionHashLabelKey = "controller-revision-hash"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 // PodManagerInterface abstracts pod lifecycle operations for testability.
 type PodManagerInterface interface {
-	GetPodControllerRevisionHash(pod *corev1.Pod) (string, error)
-	GetDaemonsetControllerRevisionHash(ctx context.Context, ds *appsv1.DaemonSet) (string, error)
+	GetPodDriverConfigDigest(pod *corev1.Pod) string
+	GetDaemonSetDriverConfigDigest(ds *appsv1.DaemonSet) (string, error)
 	ScheduleCheckOnPodCompletion(ctx context.Context, config *PodManagerConfig) error
 	SchedulePodEviction(ctx context.Context, config *PodManagerConfig) error
 	SchedulePodsRestart(ctx context.Context, pods []*corev1.Pod) error
@@ -78,38 +72,33 @@ func NewPodManager(
 	return mgr
 }
 
-func (m *PodManager) GetPodControllerRevisionHash(pod *corev1.Pod) (string, error) {
-	if hash, ok := pod.Labels[PodControllerRevisionHashLabelKey]; ok {
-		return hash, nil
-	}
-	return "", fmt.Errorf("controller-revision-hash label not present for pod %s", pod.Name)
+// GetPodDriverConfigDigest returns the driver config digest the pod was
+// rendered with. A pod predating the digest reads as "" — out of sync with any
+// stamped DaemonSet — rather than as an error that would strand its node.
+func (m *PodManager) GetPodDriverConfigDigest(pod *corev1.Pod) string {
+	return driverConfigDigestOf(pod.Spec.InitContainers)
 }
 
-func (m *PodManager) GetDaemonsetControllerRevisionHash(ctx context.Context,
-	daemonset *appsv1.DaemonSet,
-) (string, error) {
-	listOptions := metav1.ListOptions{LabelSelector: labels.SelectorFromSet(daemonset.Spec.Selector.MatchLabels).String()}
-	controllerRevisionList, err := m.k8sInterface.AppsV1().ControllerRevisions(daemonset.Namespace).List(ctx, listOptions)
-	if err != nil {
-		return "", fmt.Errorf("error getting controller revision list for daemonset %s: %v", daemonset.Name, err)
+// GetDaemonSetDriverConfigDigest returns the digest the driver reconciler
+// stamped into the DaemonSet's pod template. Every rendered driver DaemonSet
+// carries one, so its absence is an operator bug rather than a legacy object.
+func (m *PodManager) GetDaemonSetDriverConfigDigest(ds *appsv1.DaemonSet) (string, error) {
+	digest := driverConfigDigestOf(ds.Spec.Template.Spec.InitContainers)
+	if digest == "" {
+		return "", fmt.Errorf("daemonset %s carries no %s in its pod template", ds.Name, consts.DriverConfigDigestEnv)
 	}
+	return digest, nil
+}
 
-	var revisions []appsv1.ControllerRevision
-	for _, controllerRevision := range controllerRevisionList.Items {
-		if strings.HasPrefix(controllerRevision.Name, daemonset.Name) {
-			revisions = append(revisions, controllerRevision)
+func driverConfigDigestOf(initContainers []corev1.Container) string {
+	for i := range initContainers {
+		for _, env := range initContainers[i].Env {
+			if env.Name == consts.DriverConfigDigestEnv {
+				return env.Value
+			}
 		}
 	}
-
-	if len(revisions) == 0 {
-		return "", fmt.Errorf("no revision found for daemonset %s", daemonset.Name)
-	}
-
-	sort.Slice(revisions, func(i, j int) bool { return revisions[i].Revision < revisions[j].Revision })
-
-	currentRevision := revisions[len(revisions)-1]
-	hash := strings.TrimPrefix(currentRevision.Name, fmt.Sprintf("%s-", daemonset.Name))
-	return hash, nil
+	return ""
 }
 
 func (m *PodManager) ListPods(ctx context.Context, selector string, nodeName string) (*corev1.PodList, error) {

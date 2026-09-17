@@ -11,8 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-
-	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 func TestShouldSkipDaemonSetUpdate(t *testing.T) {
@@ -20,94 +18,120 @@ func TestShouldSkipDaemonSetUpdate(t *testing.T) {
 		basePatcher: basePatcher{log: logf.Log},
 	}
 
-	containers := []corev1.Container{{Name: "test", Image: "img:v1"}}
+	// A stamped DaemonSet as handleDaemonSet would hand to the API server:
+	// the template hash covers the whole pod spec, not just the driver
+	// container, so an init-container-only change (driver-manager tag or
+	// env) must still reach the DaemonSet.
+	mk := func(mutate func(*corev1.PodSpec)) *appsv1.DaemonSet {
+		spec := corev1.PodSpec{
+			InitContainers: []corev1.Container{{
+				Name:  driverManagerInitContainer,
+				Image: "driver-manager:v0.2.2",
+				Env:   []corev1.EnvVar{{Name: driverConfigDigestEnv, Value: "digest-1"}},
+			}},
+			Containers:   []corev1.Container{{Name: driverManagerContainer, Image: "driver:3.0.0"}},
+			NodeSelector: map[string]string{driverManagerDeployLabelKey: labelValueTrue},
+			Volumes:      []corev1.Volume{{Name: "host-sys"}},
+		}
+		if mutate != nil {
+			mutate(&spec)
+		}
+		ds := &appsv1.DaemonSet{Spec: appsv1.DaemonSetSpec{Template: corev1.PodTemplateSpec{Spec: spec}}}
+		stampTemplateHash(ds)
+		return ds
+	}
 
 	tests := map[string]struct {
 		current  *appsv1.DaemonSet
 		desired  *appsv1.DaemonSet
-		digest   string
 		wantSkip bool
 	}{
 		"nil current returns false": {
 			current:  nil,
-			desired:  &appsv1.DaemonSet{},
-			digest:   "abc123",
+			desired:  mk(nil),
 			wantSkip: false,
 		},
-		"matching hash and scheduling skips update": {
-			current: &appsv1.DaemonSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{driverLastAppliedHashAnnotation: "abc123"},
-				},
-			},
-			desired:  &appsv1.DaemonSet{},
-			digest:   "abc123",
+		"current without template hash annotation is updated once": {
+			current: func() *appsv1.DaemonSet {
+				ds := mk(nil)
+				ds.Annotations = nil
+				return ds
+			}(),
+			desired:  mk(nil),
+			wantSkip: false,
+		},
+		"identical template skips update": {
+			current:  mk(nil),
+			desired:  mk(nil),
 			wantSkip: true,
 		},
-		"different annotation hash allows update": {
-			current: &appsv1.DaemonSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{driverLastAppliedHashAnnotation: "old-hash"},
-				},
-			},
-			desired:  &appsv1.DaemonSet{},
-			digest:   "new-hash",
+		"init container image change is applied": {
+			current:  mk(nil),
+			desired:  mk(func(s *corev1.PodSpec) { s.InitContainers[0].Image = "driver-manager:v0.3.0" }),
 			wantSkip: false,
 		},
-		"missing annotation falls back to container hash": {
-			current: &appsv1.DaemonSet{
-				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}},
-				Spec: appsv1.DaemonSetSpec{
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{Containers: containers},
-					},
-				},
-			},
-			desired:  &appsv1.DaemonSet{},
-			digest:   k8sutil.GetObjectHash(containers),
-			wantSkip: true,
-		},
-		"same hash but affinity differs allows update": {
-			current: &appsv1.DaemonSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{driverLastAppliedHashAnnotation: "abc123"},
-				},
-			},
-			desired: &appsv1.DaemonSet{
-				Spec: appsv1.DaemonSetSpec{
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{Affinity: rdsExclusionAffinity()},
-					},
-				},
-			},
-			digest:   "abc123",
+		"init container env change is applied": {
+			current: mk(nil),
+			desired: mk(func(s *corev1.PodSpec) {
+				s.InitContainers[0].Env = append(s.InitContainers[0].Env,
+					corev1.EnvVar{Name: "NPU_POD_EVICTION_FORCE", Value: "true"})
+			}),
 			wantSkip: false,
 		},
-		"same hash but nodeSelector differs allows update": {
-			current: &appsv1.DaemonSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{driverLastAppliedHashAnnotation: "abc123"},
-				},
-			},
-			desired: &appsv1.DaemonSet{
-				Spec: appsv1.DaemonSetSpec{
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{NodeSelector: map[string]string{rdsPresentLabelKey: labelValueTrue}},
-					},
-				},
-			},
-			digest:   "abc123",
+		"driver container change is applied": {
+			current:  mk(nil),
+			desired:  mk(func(s *corev1.PodSpec) { s.Containers[0].Image = "driver:3.1.0" }),
+			wantSkip: false,
+		},
+		"affinity change is applied": {
+			current:  mk(nil),
+			desired:  mk(func(s *corev1.PodSpec) { s.Affinity = rdsExclusionAffinity() }),
+			wantSkip: false,
+		},
+		"nodeSelector change is applied": {
+			current:  mk(nil),
+			desired:  mk(func(s *corev1.PodSpec) { s.NodeSelector[rdsPresentLabelKey] = labelValueTrue }),
+			wantSkip: false,
+		},
+		"volume change is applied": {
+			current:  mk(nil),
+			desired:  mk(func(s *corev1.PodSpec) { s.Volumes = append(s.Volumes, corev1.Volume{Name: "extra"}) }),
 			wantSkip: false,
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := h.shouldSkipDaemonSetUpdate(tc.current, tc.desired, tc.digest)
+			got := h.shouldSkipDaemonSetUpdate(tc.current, tc.desired)
 			if got != tc.wantSkip {
 				t.Fatalf("shouldSkipDaemonSetUpdate() = %v, want %v", got, tc.wantSkip)
 			}
 		})
+	}
+}
+
+// The template hash gates every DaemonSet update, so a non-deterministic
+// field in the rendered pod spec would re-stamp a new hash each reconcile
+// and, with autoUpgrade on, roll the fleet every pass.
+func TestStampTemplateHashIsDeterministic(t *testing.T) {
+	h := newTestPatcher(t, "")
+	pool := nodePool{osRelease: "ubuntu", osVersion: "22.04", kernel: "5.15.0-100-generic", family: "atom"}
+	const image = "repo.rebellions.ai/rebellions/atom/rbln-driver:3.0.0-5.15.0-100-generic-ubuntu22.04"
+
+	stamp := func() string {
+		ds := &appsv1.DaemonSet{Spec: appsv1.DaemonSetSpec{Template: corev1.PodTemplateSpec{
+			Spec: *h.buildDriverPodSpec(pool, image),
+		}}}
+		return stampTemplateHash(ds)
+	}
+	// Go randomizes map iteration per range statement, so two renders agree
+	// by chance about half the time on a small map; many renders make an
+	// unsorted iteration in the render path fail reliably.
+	first := stamp()
+	for i := 0; i < 32; i++ {
+		if again := stamp(); again != first {
+			t.Fatalf("template hash differs across identical renders: %s vs %s", first, again)
+		}
 	}
 }
 

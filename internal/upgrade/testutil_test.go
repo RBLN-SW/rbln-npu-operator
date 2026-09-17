@@ -11,6 +11,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 // ---------------------------------------------------------------------------
@@ -18,28 +20,30 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockPodManager struct {
-	podRevisionHash      string
-	podRevisionHashErr   error
-	dsRevisionHash       string
-	dsRevisionHashErr    error
+	podDigest            string
+	dsDigest             string
+	dsDigestErr          error
 	schedulePodEvictErr  error
 	schedulePodsRestart  error
 	scheduleCheckOnPodCp error
+
+	evictionConfigs []*PodManagerConfig
 }
 
-func (m *mockPodManager) GetPodControllerRevisionHash(_ *corev1.Pod) (string, error) {
-	return m.podRevisionHash, m.podRevisionHashErr
+func (m *mockPodManager) GetPodDriverConfigDigest(_ *corev1.Pod) string {
+	return m.podDigest
 }
 
-func (m *mockPodManager) GetDaemonsetControllerRevisionHash(_ context.Context, _ *appsv1.DaemonSet) (string, error) {
-	return m.dsRevisionHash, m.dsRevisionHashErr
+func (m *mockPodManager) GetDaemonSetDriverConfigDigest(_ *appsv1.DaemonSet) (string, error) {
+	return m.dsDigest, m.dsDigestErr
 }
 
 func (m *mockPodManager) ScheduleCheckOnPodCompletion(_ context.Context, _ *PodManagerConfig) error {
 	return m.scheduleCheckOnPodCp
 }
 
-func (m *mockPodManager) SchedulePodEviction(_ context.Context, _ *PodManagerConfig) error {
+func (m *mockPodManager) SchedulePodEviction(_ context.Context, config *PodManagerConfig) error {
+	m.evictionConfigs = append(m.evictionConfigs, config)
 	return m.schedulePodEvictErr
 }
 
@@ -125,7 +129,7 @@ func newTestManager(t *testing.T, opts ...func(*ClusterUpgradeStateManagerImpl))
 		log:                      logr.Discard(),
 		k8sClient:                k8sClient,
 		nodeUpgradeStateProvider: provider,
-		podManager:               &mockPodManager{podRevisionHash: "rev1", dsRevisionHash: "rev1"},
+		podManager:               &mockPodManager{podDigest: "rev1", dsDigest: "rev1"},
 		cordonManager:            &mockCordonManager{},
 		validationManager:        &mockValidationManager{done: true},
 		safeDriverLoadManager:    &mockSafeDriverLoadManager{},
@@ -157,18 +161,25 @@ func withValidationEnabled() func(*ClusterUpgradeStateManagerImpl) {
 	return func(m *ClusterUpgradeStateManagerImpl) { m.validationStateEnabled = true }
 }
 
-func newNodeUpgradeState(nodeName, stateLabel, podRevHash string) *NodeUpgradeState {
-	return newNodeUpgradeStateWithDS(nodeName, stateLabel, podRevHash, "ds-1")
+func withPodDeletionEnabled() func(*ClusterUpgradeStateManagerImpl) {
+	return func(m *ClusterUpgradeStateManagerImpl) { m.podDeletionStateEnabled = true }
 }
 
-func newNodeUpgradeStateWithDS(nodeName, stateLabel, podRevHash, dsName string) *NodeUpgradeState {
+func newNodeUpgradeState(nodeName, stateLabel, podDigest string) *NodeUpgradeState {
+	return newNodeUpgradeStateWithDS(nodeName, stateLabel, podDigest, "ds-1")
+}
+
+func newNodeUpgradeStateWithDS(nodeName, stateLabel, podDigest, dsName string) *NodeUpgradeState {
 	labels := map[string]string{}
 	if stateLabel != "" {
 		labels[UpgradeStateLabelKey] = stateLabel
 	}
-	podLabels := map[string]string{}
-	if podRevHash != "" {
-		podLabels[PodControllerRevisionHashLabelKey] = podRevHash
+	var initContainers []corev1.Container
+	if podDigest != "" {
+		initContainers = []corev1.Container{{
+			Name: "k8s-driver-manager",
+			Env:  []corev1.EnvVar{{Name: consts.DriverConfigDigestEnv, Value: podDigest}},
+		}}
 	}
 
 	var ds *appsv1.DaemonSet
@@ -181,7 +192,8 @@ func newNodeUpgradeStateWithDS(nodeName, stateLabel, podRevHash, dsName string) 
 			ObjectMeta: metav1.ObjectMeta{Name: nodeName, Labels: labels},
 		},
 		DriverPod: &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Name: nodeName + "-pod", Labels: podLabels},
+			ObjectMeta: metav1.ObjectMeta{Name: nodeName + "-pod"},
+			Spec:       corev1.PodSpec{InitContainers: initContainers},
 		},
 		DriverDaemonSet: ds,
 	}

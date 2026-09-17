@@ -20,19 +20,15 @@ func (m *ClusterUpgradeStateManagerImpl) podInSyncWithDS(ctx context.Context,
 	if isOrphened = nodeState.IsOrphanedPod(); isOrphened {
 		return isPodSynced, isOrphened, nil
 	}
-	podRevisionHash, err := m.podManager.GetPodControllerRevisionHash(nodeState.DriverPod)
+	podDigest := m.podManager.GetPodDriverConfigDigest(nodeState.DriverPod)
+	log.FromContext(ctx).V(consts.VDebug).Info("Pod driver config digest", "digest", podDigest)
+	daemonsetDigest, err := m.podManager.GetDaemonSetDriverConfigDigest(nodeState.DriverDaemonSet)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get pod template revision hash", "pod", nodeState.DriverPod)
+		log.FromContext(ctx).Error(err, "Failed to get daemonset driver config digest", "daemonset", nodeState.DriverDaemonSet.Name)
 		return isPodSynced, isOrphened, err
 	}
-	log.FromContext(ctx).V(consts.VDebug).Info("Pod template revision hash", "hash", podRevisionHash)
-	daemonsetRevisionHash, err := m.podManager.GetDaemonsetControllerRevisionHash(ctx, nodeState.DriverDaemonSet)
-	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get daemonset template revision hash", "daemonset", nodeState.DriverDaemonSet)
-		return isPodSynced, isOrphened, err
-	}
-	log.FromContext(ctx).V(consts.VDebug).Info("Daemonset template revision hash", "hash", daemonsetRevisionHash)
-	isPodSynced = podRevisionHash == daemonsetRevisionHash
+	log.FromContext(ctx).V(consts.VDebug).Info("Daemonset driver config digest", "digest", daemonsetDigest)
+	isPodSynced = podDigest == daemonsetDigest
 	return isPodSynced, isOrphened, nil
 }
 
@@ -90,7 +86,7 @@ func (m *ClusterUpgradeStateManagerImpl) shouldRequireUpgradeForDoneOrUnknownNod
 ) (bool, error) {
 	isPodSynced, isOrphaned, err := m.podInSyncWithDS(ctx, nodeState)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get daemonset template/pod revision hash")
+		log.FromContext(ctx).Error(err, "Failed to compare pod and daemonset driver config digest")
 		return false, err
 	}
 
@@ -329,7 +325,7 @@ func (m *ClusterUpgradeStateManagerImpl) isDriverPodInSync(ctx context.Context,
 ) (bool, error) {
 	isPodSynced, isOrphaned, err := m.podInSyncWithDS(ctx, nodeState)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get daemonset template/pod revision hash")
+		log.FromContext(ctx).Error(err, "Failed to compare pod and daemonset driver config digest")
 		return false, err
 	}
 	if isOrphaned {
@@ -420,7 +416,7 @@ func (m *ClusterUpgradeStateManagerImpl) processPodRestartNode(
 
 	isPodSynced, isOrphaned, err := m.podInSyncWithDS(ctx, nodeState)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get daemonset template/pod revision hash")
+		log.FromContext(ctx).Error(err, "Failed to compare pod and daemonset driver config digest")
 		return err
 	}
 	if !isPodSynced || isOrphaned {
@@ -558,13 +554,11 @@ func (m *ClusterUpgradeStateManagerImpl) isDriverPodFailing(pod *corev1.Pod) boo
 	return false
 }
 
-func (m *ClusterUpgradeStateManagerImpl) currentDSRevisionHash(
-	ctx context.Context, nodeState *NodeUpgradeState,
-) (string, error) {
+func (m *ClusterUpgradeStateManagerImpl) currentDriverConfigDigest(nodeState *NodeUpgradeState) (string, error) {
 	if nodeState.IsOrphanedPod() {
 		return "", nil
 	}
-	return m.podManager.GetDaemonsetControllerRevisionHash(ctx, nodeState.DriverDaemonSet)
+	return m.podManager.GetDaemonSetDriverConfigDigest(nodeState.DriverDaemonSet)
 }
 
 // clearParkedBookkeeping drops the attempt's judgement artifacts.
@@ -608,7 +602,7 @@ func (m *ClusterUpgradeStateManagerImpl) wakeParkedNode(
 func (m *ClusterUpgradeStateManagerImpl) newRevisionPushed(
 	ctx context.Context, nodeState *NodeUpgradeState,
 ) (bool, error) {
-	currentRevision, err := m.currentDSRevisionHash(ctx, nodeState)
+	currentRevision, err := m.currentDriverConfigDigest(nodeState)
 	if err != nil {
 		return false, err
 	}
@@ -716,7 +710,7 @@ func (m *ClusterUpgradeStateManagerImpl) processUpgradeSkippedNode(
 	// Stamp the attempt revision on first sight so the node never wakes on
 	// the very revision it was parked under.
 	if node.Annotations[UpgradeAttemptedRevisionAnnotationKey] == "" {
-		currentRevision, err := m.currentDSRevisionHash(ctx, nodeState)
+		currentRevision, err := m.currentDriverConfigDigest(nodeState)
 		if err != nil {
 			log.FromContext(ctx).Error(err, "Failed to resolve driver revision for skipped node", "node", node.Name)
 			return err

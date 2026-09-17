@@ -235,7 +235,8 @@ const (
 )
 
 // DefaultDRADeviceClass is the container-mode DRA DeviceClass name used when
-// draKubeletPlugin.driverName is unset.
+// draKubeletPlugin.driverName is unset. It is also the name k8s-driver-manager
+// falls back to, so the two must agree.
 const DefaultDRADeviceClass = "npu.rebellions.ai"
 
 // RBLNResourceNamePrefix is the domain every NPU resource name carries: the
@@ -243,3 +244,12 @@ const DefaultDRADeviceClass = "npu.rebellions.ai"
 // DeviceClass bridges to. A pod holding a resource under it is an NPU pod the
 // driver upgrade has to move off the node.
 const RBLNResourceNamePrefix = "rebellions.ai/"
+
+// DriverConfigDigestEnv is stamped by the driver reconciler into the
+// k8s-driver-manager init container of every driver DaemonSet: a hash of the
+// driver container only. k8s-driver-manager compares it with the value it
+// stored on the node to decide whether the loaded driver must be replaced, and
+// the upgrade controller compares pod and DaemonSet values to decide whether a
+// node needs a rollout. Init-container, volume and scheduling changes leave it
+// unchanged on purpose, so they update the DaemonSet without rolling the fleet.
+const DriverConfigDigestEnv = "DRIVER_CONFIG_DIGEST"

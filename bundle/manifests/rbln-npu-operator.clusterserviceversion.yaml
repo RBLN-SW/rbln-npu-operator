@@ -975,14 +975,6 @@ spec:
         - apiGroups:
           - apps
           resources:
-          - controllerrevisions
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
-          - apps
-          resources:
           - daemonsets
           - deployments
           - replicasets

@@ -1,5 +1,7 @@
 package components
 
+import "github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+
 const (
 	driverManagerName                         = "rbln-driver"
 	driverManagerAppNameLabelKey              = "app.kubernetes.io/name"
@@ -11,8 +13,9 @@ const (
 	driverManagerContainer                    = "rbln-driver-container"
 	driverManagerCommand                      = "driver-manager"
 	driverManagerSyncDriverLabel              = "reconcile-driver-state"
-	driverConfigDigestEnv                     = "DRIVER_CONFIG_DIGEST"
+	driverConfigDigestEnv                     = consts.DriverConfigDigestEnv
 	driverLastAppliedHashAnnotation           = "rebellions.ai/last-applied-hash"
+	driverLastAppliedTemplateHashAnnotation   = "rebellions.ai/last-applied-template-hash"
 	driverInstallerCommand                    = "/opt/rebellions/bin/rbln-driver"
 	driverInstallerInitArg                    = "init"
 	startupProbeConfigMapSuffix               = "startup-probe"
