@@ -119,7 +119,7 @@ func (h *draKubeletPluginPatcher) className() string {
 	if h.desiredSpec != nil && h.desiredSpec.DriverName != "" {
 		return h.desiredSpec.DriverName
 	}
-	return "npu.rebellions.ai"
+	return consts.DefaultDRADeviceClass
 }
 
 func (h *draKubeletPluginPatcher) handleDRAClass(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {

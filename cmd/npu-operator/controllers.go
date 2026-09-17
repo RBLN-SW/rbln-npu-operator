@@ -12,6 +12,7 @@ import (
 
 	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/controller"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
 )
@@ -102,11 +103,15 @@ func registerDriverController(mgr ctrl.Manager, clusterInfo *clusterinfo.Info, r
 	return nil
 }
 
+// npuPodSpecFilter reports whether the pod holds an NPU through a resource
+// request. It is only half the criterion: a pod that holds one through a DRA
+// ResourceClaim has no such request at all, and the upgrade package matches it
+// by DeviceClass instead (internal/upgrade/npu_claims.go).
 func npuPodSpecFilter(pod corev1.Pod) bool {
 	npuInResourceList := func(rl corev1.ResourceList) bool {
 		for resourceName := range rl {
 			str := string(resourceName)
-			if strings.HasPrefix(str, "rebellions.ai/") {
+			if strings.HasPrefix(str, consts.RBLNResourceNamePrefix) {
 				return true
 			}
 		}

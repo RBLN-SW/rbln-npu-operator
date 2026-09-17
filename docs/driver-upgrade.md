@@ -86,7 +86,7 @@ There is no limit on skipped nodes; a rollout that ends with skipped nodes repor
 
 ### Why a node is skipped
 
-Only NPU pods are ever evicted; every other pod on the node is left alone. A pod counts as an NPU pod when it requests a `rebellions.ai/*` resource. The skip reason names the NPU pods that blocked the eviction and how to clear them.
+Only NPU pods are ever evicted; every other pod on the node is left alone. A pod counts as an NPU pod when it requests a `rebellions.ai/*` resource, or when it holds a DRA `ResourceClaim` against a DeviceClass bridged to one — the class the DRA kubelet plugin registers for container mode. A `ResourceClaim` against the passthrough DeviceClass is not evicted: it carries no such bridge, and the device it holds is bound to `vfio-pci` rather than to the driver being replaced. The skip reason names the NPU pods that blocked the eviction and how to clear them.
 
 | Blocking NPU pod | Skip reason says | Remedy |
 |------------------|------------------|--------|

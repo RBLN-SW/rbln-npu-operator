@@ -54,6 +54,12 @@ type UpgradeReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
 // +kubebuilder:rbac:groups=rebellions.ai,resources=rblnclusterpolicies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rebellions.ai,resources=rblnclusterpolicies/status,verbs=get;update;patch
+// Pod eviction matches NPU pods that hold a DRA ResourceClaim instead of a
+// resource request, so it reads both the claims and the DeviceClasses that
+// mark one as an NPU. Declared here too, not only on the policy controller,
+// so the dependency survives a change there.
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=deviceclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims,verbs=get
 
 func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)

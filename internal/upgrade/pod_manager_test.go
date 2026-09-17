@@ -152,9 +152,17 @@ func TestSchedulePodEviction(t *testing.T) {
 		}
 		return pod
 	}
+	// A DRA pod holds its NPU through a ResourceClaim and carries no
+	// rebellions.ai/* resource request at all.
+	withClaim := func(pod *corev1.Pod, claimName string) *corev1.Pod {
+		pod.Spec.ResourceClaims = []corev1.PodResourceClaim{{Name: "npu", ResourceClaimName: &claimName}}
+		return pod
+	}
+
 	tests := map[string]struct {
 		spec        v1beta1.PodDeletionSpec
 		pods        []*corev1.Pod
+		draObjs     []runtime.Object
 		wantState   string
 		wantReason  []string
 		wantAbsent  []string
@@ -213,6 +221,42 @@ func TestSchedulePodEviction(t *testing.T) {
 			wantState: UpgradeStatePodRestartRequired,
 			wantKept:  []string{"sidecar"},
 		},
+		// Left behind, this pod keeps /dev/rbln* open and the driver pod that
+		// follows cannot unload the module, wedging the node.
+		"NPU pod holding only a DRA claim is evicted": {
+			spec: v1beta1.PodDeletionSpec{TimeoutSeconds: 5},
+			pods: []*corev1.Pod{withClaim(newPod("dra-vllm", false, false, rsOwner), "npu-claim")},
+			draObjs: []runtime.Object{
+				deviceClass(npuDeviceClass, strPtr("rebellions.ai/npu")),
+				claimForClass(ns, "npu-claim", npuDeviceClass),
+			},
+			wantState:   UpgradeStatePodRestartRequired,
+			wantDeleted: []string{"dra-vllm"},
+		},
+		// The passthrough class carries no extended-resource bridge, so a VM
+		// holding it is not a container-mode NPU pod to move.
+		"passthrough DRA claim is left alone": {
+			spec: v1beta1.PodDeletionSpec{TimeoutSeconds: 5},
+			pods: []*corev1.Pod{withClaim(newPod("virt-launcher", false, false, rsOwner), "vfio-claim")},
+			draObjs: []runtime.Object{
+				deviceClass(npuDeviceClass, strPtr("rebellions.ai/npu")),
+				deviceClass(vfioDeviceClass, nil),
+				claimForClass(ns, "vfio-claim", vfioDeviceClass),
+			},
+			wantState: UpgradeStatePodRestartRequired,
+			wantKept:  []string{"virt-launcher"},
+		},
+		"blocked DRA claim pod is named in the skip reason": {
+			spec: v1beta1.PodDeletionSpec{TimeoutSeconds: 5},
+			pods: []*corev1.Pod{withClaim(newPod("dra-vllm", false, true, rsOwner), "npu-claim")},
+			draObjs: []runtime.Object{
+				deviceClass(npuDeviceClass, strPtr("rebellions.ai/npu")),
+				claimForClass(ns, "npu-claim", npuDeviceClass),
+			},
+			wantState:  UpgradeStateSkipped,
+			wantReason: []string{"use emptyDir volumes", ns + "/dra-vllm"},
+			wantKept:   []string{"dra-vllm"},
+		},
 	}
 
 	for name, tc := range tests {
@@ -221,6 +265,7 @@ func TestSchedulePodEviction(t *testing.T) {
 			for _, pod := range tc.pods {
 				objs = append(objs, pod)
 			}
+			objs = append(objs, tc.draObjs...)
 			clientset := k8sfake.NewClientset(objs...)
 			// No eviction subresource is advertised, so the helper deletes
 			// pods directly instead of going through the eviction API.
