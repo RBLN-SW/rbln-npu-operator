@@ -49,6 +49,11 @@ The keys above are chart values. In a `RBLNClusterPolicy` manifest the same bloc
 | `npuPodDeletion.timeoutSeconds` | Maximum seconds for NPU pod eviction. `0` = wait indefinitely | `300` |
 | `npuPodDeletion.deleteEmptyDirData` | `true` = also evict NPU pods that mount `emptyDir` volumes; their contents are lost. `false` = such a pod parks the node in `upgrade-skipped`, named in the skip reason | `false` |
 
+> [!NOTE]
+> `npuPodDeletion.force` and `npuPodDeletion.deleteEmptyDirData` apply even with `autoUpgrade: false`. With the workflow off, `k8s-driver-manager` empties the node itself whenever a driver pod restarts while the module is still loaded, and it obeys the same two settings. `timeoutSeconds` is the exception: it bounds only the operator's eviction, which has `upgrade-skipped` to fall back to. `k8s-driver-manager` has no such state and waits instead of giving up.
+>
+> A node stuck this way shows up as a driver pod whose `k8s-driver-manager` init container is in `CrashLoopBackOff`, repeating `cannot proceed until all NPU pods are evicted from the node`. Its logs name the blocking pod.
+
 ------------------------------------------------------------------------
 
 ## Upgrade Flow

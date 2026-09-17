@@ -155,6 +155,8 @@ driver:
     waitForCompletion:
       timeoutSeconds: 0
       podSelector: ""
+    # Applies to both evictions: the operator's during an automatic upgrade,
+    # and k8s-driver-manager's own when autoUpgrade is off.
     npuPodDeletion:
       force: false
       timeoutSeconds: 300

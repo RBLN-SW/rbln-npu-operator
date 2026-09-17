@@ -15,6 +15,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
+	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/driver/components"
 )
 
@@ -172,5 +174,61 @@ func TestAssembleStatus_SumsPoolCounts(t *testing.T) {
 	}
 	if desired != 4 || ready != 3 {
 		t.Fatalf("desired/ready = %d/%d, want 4/3", desired, ready)
+	}
+}
+
+func TestNPUPodEvictionPolicy(t *testing.T) {
+	tests := map[string]struct {
+		policy *rblnv1beta1.RBLNClusterPolicy
+		want   components.NPUPodEvictionPolicy
+	}{
+		// The strictest behaviour is the default: nothing is force-evicted and
+		// no emptyDir contents are discarded without the user asking.
+		"no cluster policy": {
+			policy: nil,
+			want:   components.NPUPodEvictionPolicy{DeviceClass: consts.DefaultDRADeviceClass},
+		},
+		"no upgrade policy block": {
+			policy: &rblnv1beta1.RBLNClusterPolicy{},
+			want:   components.NPUPodEvictionPolicy{DeviceClass: consts.DefaultDRADeviceClass},
+		},
+		"podDeletion is mirrored": {
+			policy: &rblnv1beta1.RBLNClusterPolicy{Spec: rblnv1beta1.RBLNClusterPolicySpec{
+				Driver: rblnv1beta1.DriverSpec{UpgradePolicy: &rblnv1beta1.DriverUpgradePolicySpec{
+					PodDeletion: &rblnv1beta1.PodDeletionSpec{Force: true, DeleteEmptyDirData: true},
+				}},
+			}},
+			want: components.NPUPodEvictionPolicy{
+				Force: true, DeleteEmptyDirData: true, DeviceClass: consts.DefaultDRADeviceClass,
+			},
+		},
+		// autoUpgrade is deliberately not consulted: k8s-driver-manager evicts
+		// on its own only while auto-upgrade is off, so gating on it would make
+		// the knobs unreachable in exactly the case they exist for.
+		"podDeletion is mirrored even with autoUpgrade off": {
+			policy: &rblnv1beta1.RBLNClusterPolicy{Spec: rblnv1beta1.RBLNClusterPolicySpec{
+				Driver: rblnv1beta1.DriverSpec{UpgradePolicy: &rblnv1beta1.DriverUpgradePolicySpec{
+					AutoUpgrade: false,
+					PodDeletion: &rblnv1beta1.PodDeletionSpec{DeleteEmptyDirData: true},
+				}},
+			}},
+			want: components.NPUPodEvictionPolicy{
+				DeleteEmptyDirData: true, DeviceClass: consts.DefaultDRADeviceClass,
+			},
+		},
+		"driverName overrides the device class": {
+			policy: &rblnv1beta1.RBLNClusterPolicy{Spec: rblnv1beta1.RBLNClusterPolicySpec{
+				DRAKubeletPlugin: rblnv1beta1.RBLNDRAKubeletPluginSpec{DriverName: "npu.example.com"},
+			}},
+			want: components.NPUPodEvictionPolicy{DeviceClass: "npu.example.com"},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := npuPodEvictionPolicy(tc.policy); got != tc.want {
+				t.Fatalf("npuPodEvictionPolicy() = %+v, want %+v", got, tc.want)
+			}
+		})
 	}
 }
