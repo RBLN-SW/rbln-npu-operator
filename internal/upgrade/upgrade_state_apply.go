@@ -56,7 +56,7 @@ func (m *ClusterUpgradeStateManagerImpl) runApplyStateStep(ctx context.Context, 
 }
 
 func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
-	namespace string, currentState *ClusterUpgradeState, upgradePolicy *v1beta1.DriverUpgradePolicySpec,
+	currentState *ClusterUpgradeState, upgradePolicy *v1beta1.DriverUpgradePolicySpec,
 ) error {
 	log.FromContext(ctx).V(consts.VDebug).Info("State Manager, got state update")
 
@@ -70,8 +70,6 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 	}
 
 	drainEnabled := upgradePolicy.DrainSpec != nil && upgradePolicy.DrainSpec.Enable
-	rebootConfig := upgradePolicy.Reboot
-	rebootRequired := rebootConfig != nil && rebootConfig.Enable
 
 	m.logNodeStates(ctx, currentState)
 	recordNodeStateMetrics(currentState)
@@ -135,13 +133,7 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 			name:     UpgradeStatePodDeletionRequired,
 			errorMsg: "Failed to delete pods",
 			run: func() error {
-				return m.ProcessPodDeletionRequiredNodes(
-					ctx,
-					currentState,
-					upgradePolicy.PodDeletion,
-					drainEnabled,
-					rebootRequired,
-				)
+				return m.ProcessPodDeletionRequiredNodes(ctx, currentState, upgradePolicy.PodDeletion, drainEnabled)
 			},
 		},
 		{
@@ -155,29 +147,7 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 			name:     UpgradeStatePodRestartRequired,
 			errorMsg: "Failed for 'pod-restart-required' state",
 			run: func() error {
-				return m.ProcessPodRestartNodes(ctx, currentState, rebootRequired,
-					int64(upgradePolicy.PodRestartTimeoutSeconds))
-			},
-		},
-		{
-			name:     UpgradeStateRebootRequired,
-			errorMsg: "Failed for 'reboot-required' state",
-			run: func() error {
-				return m.ProcessRebootRequiredNodes(ctx, namespace, currentState, rebootConfig)
-			},
-		},
-		{
-			name:     UpgradeStateRebootValidationRequired,
-			errorMsg: "Failed for 'reboot-validation-required' state",
-			run: func() error {
-				return m.ProcessRebootValidationRequiredNodes(ctx, namespace, currentState, rebootConfig)
-			},
-		},
-		{
-			name:     UpgradeStateRebootPostRequired,
-			errorMsg: "Failed for 'reboot-post-required' state",
-			run: func() error {
-				return m.ProcessRebootPostRequiredNodes(ctx, namespace, currentState, rebootConfig)
+				return m.ProcessPodRestartNodes(ctx, currentState, int64(upgradePolicy.PodRestartTimeoutSeconds))
 			},
 		},
 		{

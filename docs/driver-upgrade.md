@@ -13,7 +13,7 @@ This document covers:
 
 ## Enabling Auto Upgrade
 
-The driver DaemonSet uses the `OnDelete` update strategy, so a new driver image changes nothing on a node until its driver pod is deleted. With `autoUpgrade: true` the operator deletes it: the node is cordoned, NPU workloads are moved off, the driver pod is replaced, the node is optionally rebooted, validated, and uncordoned. `maxParallelUpgrades` nodes go through this at a time.
+The driver DaemonSet uses the `OnDelete` update strategy, so a new driver image changes nothing on a node until its driver pod is deleted. With `autoUpgrade: true` the operator deletes it: the node is cordoned, NPU workloads are moved off, the driver pod is replaced, validated, and uncordoned. `maxParallelUpgrades` nodes go through this at a time.
 
 A node enters a rollout when the revision of its driver pod differs from the current revision of the driver DaemonSet, or when it carries the annotation `rebellions.ai/npu-driver-upgrade-requested=true`.
 
@@ -37,9 +37,6 @@ driver:
       deleteEmptyDirData: false
       podSelector: ""
       timeoutSeconds: 300
-    reboot:
-      enable: false
-      rebootTimeoutSeconds: 0
 ```
 
 ### Upgrade Policy Reference
@@ -53,16 +50,11 @@ driver:
 | `waitForCompletion.timeoutSeconds` | Maximum wait; on expiry the upgrade proceeds. `0` = wait indefinitely | `0` |
 | `npuPodDeletion.force` | `true` = also evict pods that have no controller | `false` |
 | `npuPodDeletion.timeoutSeconds` | Maximum seconds for NPU pod eviction. `0` = wait indefinitely | `300` |
-| `drain.enable` | `true` = drain the whole node after NPU pod eviction | `false` |
+| `drain.enable` | `true` = fall back to draining the whole node when NPU pod eviction fails. A successful eviction never drains | `false` |
 | `drain.force` | `true` = proceed even when pods block the drain | `false` |
 | `drain.deleteEmptyDirData` | `true` = also remove pods that use `emptyDir` storage | `false` |
 | `drain.podSelector` | Label selector restricting the drain. Empty = all pods | `""` |
 | `drain.timeoutSeconds` | Maximum seconds for the drain. `0` = wait indefinitely | `300` |
-| `reboot.enable` | `true` = reboot the node after the driver pod is replaced | `false` |
-| `reboot.rebootTimeoutSeconds` | Maximum seconds for the reboot and the post-reboot stabilization. `0` = no reboot timeout; stabilization then uses 600 | `0` |
-
-> [!WARNING]
-> **Enable drain together with reboot.** `reboot.enable` does not imply `drain.enable`. With `reboot.enable: true` and `drain.enable: false`, only pods that request an NPU are evicted, and the node reboots with every other pod still running on it, without eviction or PodDisruptionBudget checks.
 
 ------------------------------------------------------------------------
 
@@ -75,10 +67,9 @@ Each node advances through the states below one step at a time. The current stat
 | `upgrade-required` | Waits for a parallelism slot | N/A |
 | `cordon-required` | Cordons the node | retried |
 | `wait-for-jobs-required` | Waits until no pod matching `waitForCompletion.podSelector` is Running or Pending. Skipped when the selector is empty | proceeds on timeout |
-| `pod-deletion-required` | Evicts pods that request a `rebellions.ai/*` resource, then moves to `drain-required` when `reboot.enable` is set and to `pod-restart-required` otherwise | `upgrade-skipped`, or `drain-required` when `drain.enable` is set |
+| `pod-deletion-required` | Evicts pods that request a `rebellions.ai/*` resource, then moves to `pod-restart-required` | `upgrade-skipped`, or `drain-required` when `drain.enable` is set |
 | `drain-required` | Drains the node when `drain.enable` is set; otherwise passes through | `upgrade-skipped` |
 | `pod-restart-required` | Deletes the driver pod and waits for the replacement to become Ready | `upgrade-failed` |
-| `reboot-required`, `reboot-validation-required`, `reboot-post-required` | When `reboot.enable` is set: triggers the reboot, waits for the boot ID to change, then waits for the node and its DaemonSet pods to become Ready | `upgrade-failed` |
 | `validation-required` | Waits up to 600 seconds for the operator validator pod on the node to become Ready | `upgrade-failed` |
 | `uncordon-required` | Uncordons the node. A node that was already cordoned before the upgrade stays cordoned | retried |
 | `upgrade-done` | Terminal until the next driver revision | N/A |
@@ -93,7 +84,7 @@ A failed step parks the node in one of two states, chosen by where in the flow t
 
 | Aspect | `upgrade-skipped` | `upgrade-failed` |
 |--------|-------------------|------------------|
-| Failed step | Eviction or drain, before the driver is touched | Pod restart, reboot, or validation |
+| Failed step | Eviction or drain, before the driver is touched | Pod restart or validation |
 | Node | Uncordoned, back in service on the old driver | Stays cordoned |
 | Parallelism slot | Released | Held until the node leaves the state |
 | Reason | Annotation `rebellions.ai/npu-driver-upgrade-skip-reason` | Annotations `rebellions.ai/npu-driver-upgrade-failure-reason` and `rebellions.ai/npu-driver-upgrade-failure-step` |
@@ -112,7 +103,7 @@ During `pod-restart-required`, a driver pod in `ImagePullBackOff`, `ErrImagePull
     ```
 
 -   **New driver revision.** Publishing a new driver image starts a new rollout, and every skipped or failed node is retried once.
--   **Self-heal.** A node that failed in `pod-restart-required` resumes on its own once its driver pod becomes Ready. Reboot and validation failures never self-heal.
+-   **Self-heal.** A node that failed in `pod-restart-required` resumes on its own once its driver pod becomes Ready. Validation failures never self-heal.
 
 To exclude a node from rollouts, label it `rebellions.ai/npu-driver-upgrade.skip=true`; the node parks in `upgrade-required` until the label is removed.
 
@@ -220,3 +211,20 @@ $ kubectl get events -A \
 ### Metrics
 
 The gauge `rbln_operator_driver_upgrade_nodes{state=...}` reports the number of nodes per state label value; nodes without a label report as `unknown`. Every state is published on every reconcile, zeros included, so an alert on `rbln_operator_driver_upgrade_nodes{state="upgrade-skipped"} > 0` or `{state="upgrade-failed"} > 0` needs no special case for a missing series.
+
+------------------------------------------------------------------------
+
+## Upgrading the Operator from v0.5.x or Earlier
+
+Releases up to v0.5.0 accepted `upgradePolicy.reboot`. The block is gone: the operator never reboots a node.
+
+-   **Manifests.** Remove `reboot` from any `RBLNClusterPolicy` manifest you apply directly; once the new CRD is installed, `kubectl apply` rejects it as an unknown field. Helm-managed policies are unaffected, since the chart no longer renders the block.
+-   **Nodes mid-rollout.** Before upgrading the operator, finish or pause the rollout (`autoUpgrade: false`) so that no node is in `reboot-required`, `reboot-validation-required` or `reboot-post-required`. Uncordon those nodes by hand, and delete any leftover `rbln-reboot-*` pod in the operator namespace before it reboots the node. A node left in one of the removed states past the upgrade is re-evaluated by the new operator, but its cordon is not lifted and no event points at it.
+
+    ```bash
+    $ kubectl get nodes -l 'rebellions.ai/npu-driver-upgrade-state in (reboot-required,reboot-validation-required,reboot-post-required)'
+    $ kubectl uncordon <NODE_NAME>
+    $ kubectl -n <OPERATOR_NAMESPACE> delete pod -l app.kubernetes.io/name=rbln-node-reboot
+    ```
+
+    The annotations `rebellions.ai/npu-driver-upgrade-pre-reboot-boot-id`, `-reboot-requested-at`, `-reboot-pod-name` and `-reboot-post-start-time` are left on such nodes and can be removed.

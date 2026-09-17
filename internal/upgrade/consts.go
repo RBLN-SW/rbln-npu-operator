@@ -22,14 +22,6 @@ const (
 	UpgradeRequestorModeAnnotationKey = "rebellions.ai/npu-driver-upgrade-requestor-mode"
 	// UpgradeValidationStartTimeAnnotationKey stores the start time for validation-required state.
 	UpgradeValidationStartTimeAnnotationKey = "rebellions.ai/npu-driver-upgrade-validation-start-time"
-	// UpgradePreRebootBootIDAnnotationKey stores node bootID before reboot is requested.
-	UpgradePreRebootBootIDAnnotationKey = "rebellions.ai/npu-driver-upgrade-pre-reboot-boot-id"
-	// UpgradeRebootRequestedAtAnnotationKey stores reboot request timestamp.
-	UpgradeRebootRequestedAtAnnotationKey = "rebellions.ai/npu-driver-upgrade-reboot-requested-at"
-	// UpgradeRebootPodNameAnnotationKey stores created reboot pod name for cleanup/debug.
-	UpgradeRebootPodNameAnnotationKey = "rebellions.ai/npu-driver-upgrade-reboot-pod-name"
-	// UpgradeRebootPostStartTimeAnnotationKey stores the start time for post-reboot stabilization checks.
-	UpgradeRebootPostStartTimeAnnotationKey = "rebellions.ai/npu-driver-upgrade-reboot-post-start-time"
 	// UpgradeFailureReasonAnnotationKey records why the node was moved to upgrade-failed.
 	UpgradeFailureReasonAnnotationKey = "rebellions.ai/npu-driver-upgrade-failure-reason"
 	// UpgradeFailureStepAnnotationKey records the pipeline state the node failed in.
@@ -58,12 +50,6 @@ const (
 	UpgradeStateDrainRequired = "drain-required"
 	// UpgradeStatePodRestartRequired means the driver pod must be restarted.
 	UpgradeStatePodRestartRequired = "pod-restart-required"
-	// UpgradeStateRebootRequired means the node must be rebooted before validation.
-	UpgradeStateRebootRequired = "reboot-required"
-	// UpgradeStateRebootValidationRequired means reboot results must be validated.
-	UpgradeStateRebootValidationRequired = "reboot-validation-required"
-	// UpgradeStateRebootPostRequired means post-reboot pod stabilization is required.
-	UpgradeStateRebootPostRequired = "reboot-post-required"
 	// UpgradeStateValidationRequired means the new driver must be validated.
 	UpgradeStateValidationRequired = "validation-required"
 	// UpgradeStateUncordonRequired means the node is ready to be uncordoned.
@@ -89,17 +75,12 @@ var managedUpgradeStates = []string{
 	UpgradeStateSkipped,
 	UpgradeStateDrainRequired,
 	UpgradeStatePodRestartRequired,
-	UpgradeStateRebootRequired,
-	UpgradeStateRebootValidationRequired,
-	UpgradeStateRebootPostRequired,
 	UpgradeStateValidationRequired,
 	UpgradeStateUncordonRequired,
 }
 
 // Default timeout and threshold values used by the upgrade state machine.
 const (
-	// DefaultRebootPostTimeoutSeconds is the default timeout for post-reboot pod stabilization.
-	DefaultRebootPostTimeoutSeconds int64 = 600
 	// DefaultValidationTimeoutSeconds is the default timeout for driver validation readiness.
 	DefaultValidationTimeoutSeconds int64 = 600
 	// MaxPodRestartCount is the threshold above which a pod is considered crash-looping.

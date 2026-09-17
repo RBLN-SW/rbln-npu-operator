@@ -47,7 +47,6 @@ type PodManagerConfig struct {
 	DeletionSpec          *v1beta1.PodDeletionSpec
 	WaitForCompletionSpec *v1beta1.WaitForCompletionSpec
 	DrainEnabled          bool
-	RebootRequired        bool
 }
 
 type PodDeletionFilter func(corev1.Pod) bool
@@ -288,7 +287,7 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 
 				if numPodsToDelete == 0 {
 					log.FromContext(ctx).Info("No pods require deletion", "node", node.Name)
-					m.changeNodeUpgradeStateAsync(ctx, &node, m.nextStateAfterPodDeletion(config.RebootRequired))
+					m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStatePodRestartRequired)
 					return
 				}
 
@@ -322,20 +321,13 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 				}
 
 				log.FromContext(ctx).Info("Deleted pods on the node", "node", node.Name)
-				m.changeNodeUpgradeStateAsync(ctx, &node, m.nextStateAfterPodDeletion(config.RebootRequired))
+				m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStatePodRestartRequired)
 			}(*node)
 		} else {
 			log.FromContext(ctx).Info("Node is already getting pods deleted, skipping", "node", node.Name)
 		}
 	}
 	return nil
-}
-
-func (m *PodManager) nextStateAfterPodDeletion(rebootRequired bool) string {
-	if rebootRequired {
-		return UpgradeStateDrainRequired
-	}
-	return UpgradeStatePodRestartRequired
 }
 
 func (m *PodManager) updateNodeToDrainOrSkipped(ctx context.Context, node corev1.Node, drainEnabled bool, reason string) {

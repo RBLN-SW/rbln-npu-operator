@@ -84,10 +84,10 @@ jobs:
           VALUES_FILE: deployments/rbln-npu-operator/values.yaml
         run: |
           resolve() {
-            local path="$1" repo_key="${2:-repository}" tag_key="${3:-tag}"
+            local path="$1"
             local registry=$(yq "${path}.registry" "$VALUES_FILE")
-            local repository=$(yq "${path}.${repo_key}" "$VALUES_FILE")
-            local tag=$(yq "${path}.${tag_key}" "$VALUES_FILE")
+            local repository=$(yq "${path}.repository" "$VALUES_FILE")
+            local tag=$(yq "${path}.tag" "$VALUES_FILE")
             local image="${registry}/${repository}:${tag}"
             local digest=$(regctl image digest "${image}")
             echo "${image}@${digest}"
@@ -102,7 +102,6 @@ jobs:
           export CONTAINER_TOOLKIT_DIGEST=$(resolve .containerToolkit.image)
           export DRA_KUBELET_PLUGIN_DIGEST=$(resolve .draKubeletPlugin.image)
           export SANDBOX_DEVICE_PLUGIN_DIGEST=$(resolve .sandboxDevicePlugin.image)
-          export NODE_REBOOT_DIGEST=$(resolve .driver.upgradePolicy.reboot.image image version)
           export DRIVER_MANAGER_DIGEST=$(resolve .driver.manager.image)
 
           FILE=config/manager/manager.yaml
@@ -115,7 +114,6 @@ jobs:
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_CONTAINER_TOOLKIT")).value = env(CONTAINER_TOOLKIT_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_DRA_KUBELET_PLUGIN")).value = env(DRA_KUBELET_PLUGIN_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN")).value = env(SANDBOX_DEVICE_PLUGIN_DIGEST)' "$FILE"
-          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_NODE_REBOOT")).value = env(NODE_REBOOT_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_DRIVER_MANAGER")).value = env(DRIVER_MANAGER_DIGEST)' "$FILE"
       - name: Build and push OLM bundle + catalog (dev)
         env:

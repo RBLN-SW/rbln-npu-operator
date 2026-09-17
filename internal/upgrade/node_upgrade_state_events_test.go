@@ -81,10 +81,10 @@ func TestChangeNodeUpgradeStateEventTable(t *testing.T) {
 
 func TestMarkNodeUpgradeFailedRecordsDiagnosisAndEvent(t *testing.T) {
 	p, rec := newEventTestProvider(t, interceptor.Funcs{})
-	node := createStateNode(t, p, UpgradeStateRebootRequired)
+	node := createStateNode(t, p, UpgradeStateValidationRequired)
 
 	err := markNodeUpgradeFailed(context.Background(), p, node,
-		UpgradeStateRebootRequired, "reboot trigger failed: pod create rejected")
+		UpgradeStateValidationRequired, "validation timed out after 600 seconds")
 	if err != nil {
 		t.Fatalf("markNodeUpgradeFailed: %v", err)
 	}
@@ -96,14 +96,14 @@ func TestMarkNodeUpgradeFailedRecordsDiagnosisAndEvent(t *testing.T) {
 	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateFailed {
 		t.Fatalf("state = %q, want %q", got, UpgradeStateFailed)
 	}
-	if got := updated.Annotations[UpgradeFailureReasonAnnotationKey]; got != "reboot trigger failed: pod create rejected" {
+	if got := updated.Annotations[UpgradeFailureReasonAnnotationKey]; got != "validation timed out after 600 seconds" {
 		t.Fatalf("failure reason = %q", got)
 	}
-	if got := updated.Annotations[UpgradeFailureStepAnnotationKey]; got != UpgradeStateRebootRequired {
-		t.Fatalf("failure step = %q, want %q", got, UpgradeStateRebootRequired)
+	if got := updated.Annotations[UpgradeFailureStepAnnotationKey]; got != UpgradeStateValidationRequired {
+		t.Fatalf("failure step = %q, want %q", got, UpgradeStateValidationRequired)
 	}
 	expectEvent(t, rec, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeFailed,
-		"reboot trigger failed: pod create rejected")
+		"validation timed out after 600 seconds")
 }
 
 func TestChangeNodeUpgradeStateSameStateIsNoOp(t *testing.T) {

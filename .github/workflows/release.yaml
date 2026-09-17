@@ -147,12 +147,10 @@ jobs:
           VALUES_FILE: deployments/rbln-npu-operator/values.yaml
         run: |
           set -euo pipefail
-          # resolve <key> <yq path> [repo key] [tag key] — node-reboot's block
-          # follows the CRD ImageSpec convention (image/version), the others the
-          # Helm convention (repository/tag).
+          # resolve <key> <yq path>
           resolve() {
-            local key=$1 path=$2 repo_key=${3:-repository} tag_key=${4:-tag} image
-            image="$(yq "${path}.registry" "$VALUES_FILE")/$(yq "${path}.${repo_key}" "$VALUES_FILE"):$(yq "${path}.${tag_key}" "$VALUES_FILE")"
+            local key=$1 path=$2 image
+            image="$(yq "${path}.registry" "$VALUES_FILE")/$(yq "${path}.repository" "$VALUES_FILE"):$(yq "${path}.tag" "$VALUES_FILE")"
             echo "$key=$image@$(regctl image digest "$image")"
           }
           mkdir -p digests
@@ -166,7 +164,6 @@ jobs:
             resolve CONTAINER_TOOLKIT .containerToolkit.image
             resolve DRA_KUBELET_PLUGIN .draKubeletPlugin.image
             resolve SANDBOX_DEVICE_PLUGIN .sandboxDevicePlugin.image
-            resolve NODE_REBOOT .driver.upgradePolicy.reboot.image image version
             resolve DRIVER_MANAGER .driver.manager.image
           } > digests/component-digests.env
           cat digests/component-digests.env
@@ -346,7 +343,6 @@ jobs:
             echo "container_toolkit=$CONTAINER_TOOLKIT"
             echo "dra_kubelet_plugin=$DRA_KUBELET_PLUGIN"
             echo "sandbox_device_plugin=$SANDBOX_DEVICE_PLUGIN"
-            echo "node_reboot=$NODE_REBOOT"
             echo "driver_manager=$DRIVER_MANAGER"
           } | tee -a "$GITHUB_OUTPUT"
       - name: Update image digests in manager config
@@ -360,7 +356,6 @@ jobs:
           CONTAINER_TOOLKIT_DIGEST: ${{ steps.digests.outputs.container_toolkit }}
           DRA_KUBELET_PLUGIN_DIGEST: ${{ steps.digests.outputs.dra_kubelet_plugin }}
           SANDBOX_DEVICE_PLUGIN_DIGEST: ${{ steps.digests.outputs.sandbox_device_plugin }}
-          NODE_REBOOT_DIGEST: ${{ steps.digests.outputs.node_reboot }}
           DRIVER_MANAGER_DIGEST: ${{ steps.digests.outputs.driver_manager }}
         run: |
           FILE=config/manager/manager.yaml
@@ -373,7 +368,6 @@ jobs:
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_CONTAINER_TOOLKIT")).value = env(CONTAINER_TOOLKIT_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_DRA_KUBELET_PLUGIN")).value = env(DRA_KUBELET_PLUGIN_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN")).value = env(SANDBOX_DEVICE_PLUGIN_DIGEST)' "$FILE"
-          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_NODE_REBOOT")).value = env(NODE_REBOOT_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_DRIVER_MANAGER")).value = env(DRIVER_MANAGER_DIGEST)' "$FILE"
       - name: Generate bundle
         env:

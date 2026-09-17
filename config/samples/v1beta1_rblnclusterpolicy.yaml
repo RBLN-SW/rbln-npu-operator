@@ -37,13 +37,6 @@ spec:
         force: false
         deleteEmptyDirData: false
         timeoutSeconds: 300
-      reboot:
-        enable: false
-        rebootTimeoutSeconds: 0
-        image:
-          registry: docker.io
-          image: rebellions/rbln-node-reboot
-          version: v1.0.1
   devicePlugin:
     enabled: true
     registry: docker.io
