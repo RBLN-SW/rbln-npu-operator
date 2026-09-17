@@ -50,7 +50,7 @@ driver:
 | `waitForCompletion.timeoutSeconds` | Maximum wait; on expiry the upgrade proceeds. `0` = wait indefinitely | `0` |
 | `npuPodDeletion.force` | `true` = also evict pods that have no controller | `false` |
 | `npuPodDeletion.timeoutSeconds` | Maximum seconds for NPU pod eviction. `0` = wait indefinitely | `300` |
-| `drain.enable` | `true` = drain the whole node after NPU pod eviction | `false` |
+| `drain.enable` | `true` = fall back to draining the whole node when NPU pod eviction fails. A successful eviction never drains | `false` |
 | `drain.force` | `true` = proceed even when pods block the drain | `false` |
 | `drain.deleteEmptyDirData` | `true` = also remove pods that use `emptyDir` storage | `false` |
 | `drain.podSelector` | Label selector restricting the drain. Empty = all pods | `""` |

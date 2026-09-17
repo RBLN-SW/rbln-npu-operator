@@ -682,8 +682,8 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessUpgradeFailedNodes(
 }
 
 // Self-heal is allowed only for pod-restart failures: the replacement pod
-// becoming in-sync and Ready is recovery evidence there, while for reboot and
-// validation failures a Ready pod is only the entry condition.
+// becoming in-sync and Ready is recovery evidence there, while for validation
+// failures a Ready pod is only the entry condition.
 func (m *ClusterUpgradeStateManagerImpl) processUpgradeFailedNode(
 	ctx context.Context, nodeState *NodeUpgradeState,
 ) error {
