@@ -31,13 +31,10 @@ driver:
     npuPodDeletion:
       force: false
       timeoutSeconds: 300
-    drain:
-      enable: false
-      force: false
       deleteEmptyDirData: false
-      podSelector: ""
-      timeoutSeconds: 300
 ```
+
+The keys above are chart values. In a `RBLNClusterPolicy` manifest the same block is `spec.driver.upgradePolicy`, where `npuPodDeletion` is named `podDeletion` — the name the operator uses when it names a knob in a skip reason.
 
 ### Upgrade Policy Reference
 
@@ -50,11 +47,7 @@ driver:
 | `waitForCompletion.timeoutSeconds` | Maximum wait; on expiry the upgrade proceeds. `0` = wait indefinitely | `0` |
 | `npuPodDeletion.force` | `true` = also evict pods that have no controller | `false` |
 | `npuPodDeletion.timeoutSeconds` | Maximum seconds for NPU pod eviction. `0` = wait indefinitely | `300` |
-| `drain.enable` | `true` = fall back to draining the whole node when NPU pod eviction fails. A successful eviction never drains | `false` |
-| `drain.force` | `true` = proceed even when pods block the drain | `false` |
-| `drain.deleteEmptyDirData` | `true` = also remove pods that use `emptyDir` storage | `false` |
-| `drain.podSelector` | Label selector restricting the drain. Empty = all pods | `""` |
-| `drain.timeoutSeconds` | Maximum seconds for the drain. `0` = wait indefinitely | `300` |
+| `npuPodDeletion.deleteEmptyDirData` | `true` = also evict NPU pods that mount `emptyDir` volumes; their contents are lost. `false` = such a pod parks the node in `upgrade-skipped`, named in the skip reason | `false` |
 
 ------------------------------------------------------------------------
 
@@ -67,8 +60,7 @@ Each node advances through the states below one step at a time. The current stat
 | `upgrade-required` | Waits for a parallelism slot | N/A |
 | `cordon-required` | Cordons the node | retried |
 | `wait-for-jobs-required` | Waits until no pod matching `waitForCompletion.podSelector` is Running or Pending. Skipped when the selector is empty | proceeds on timeout |
-| `pod-deletion-required` | Evicts pods that request a `rebellions.ai/*` resource, then moves to `pod-restart-required` | `upgrade-skipped`, or `drain-required` when `drain.enable` is set |
-| `drain-required` | Drains the node when `drain.enable` is set; otherwise passes through | `upgrade-skipped` |
+| `pod-deletion-required` | Evicts the node's NPU pods, then moves to `pod-restart-required`. A pod the eviction cannot remove parks the node; see [Why a node is skipped](#why-a-node-is-skipped) | `upgrade-skipped` |
 | `pod-restart-required` | Deletes the driver pod and waits for the replacement to become Ready | `upgrade-failed` |
 | `validation-required` | Waits up to 600 seconds for the operator validator pod on the node to become Ready | `upgrade-failed` |
 | `uncordon-required` | Uncordons the node. A node that was already cordoned before the upgrade stays cordoned | retried |
@@ -84,13 +76,28 @@ A failed step parks the node in one of two states, chosen by where in the flow t
 
 | Aspect | `upgrade-skipped` | `upgrade-failed` |
 |--------|-------------------|------------------|
-| Failed step | Eviction or drain, before the driver is touched | Pod restart or validation |
+| Failed step | Eviction, before the driver is touched | Pod restart or validation |
 | Node | Uncordoned, back in service on the old driver | Stays cordoned |
 | Parallelism slot | Released | Held until the node leaves the state |
 | Reason | Annotation `rebellions.ai/npu-driver-upgrade-skip-reason` | Annotations `rebellions.ai/npu-driver-upgrade-failure-reason` and `rebellions.ai/npu-driver-upgrade-failure-step` |
 | Event | `DriverUpgradeSkipped` (Warning) | `DriverUpgradeFailed` (Warning) |
 
 There is no limit on skipped nodes; a rollout that ends with skipped nodes reports `PartiallyComplete`. Failed nodes reduce the effective parallelism by one each, and once `maxParallelUpgrades` of them accumulate no further node is admitted until one is resolved.
+
+### Why a node is skipped
+
+Only NPU pods are ever evicted; every other pod on the node is left alone. A pod counts as an NPU pod when it requests a `rebellions.ai/*` resource. The skip reason names the NPU pods that blocked the eviction and how to clear them.
+
+| Blocking NPU pod | Skip reason says | Remedy |
+|------------------|------------------|--------|
+| Mounts an `emptyDir` volume (for example `/dev/shm` for an inference server) | `use emptyDir volumes` | Set `npuPodDeletion.deleteEmptyDirData: true` to evict such pods (their `emptyDir` contents are lost), or move the workload and retry |
+| Declares no controller | `declare no controller` | Set `npuPodDeletion.force: true`, or delete the pod and retry |
+| Managed by a DaemonSet | `DaemonSet-managed` | Exclude the node from that DaemonSet and retry; an evicted DaemonSet pod is recreated on the node immediately, so no setting evicts it |
+| Protected by a PodDisruptionBudget | `pod eviction failed: ... global timeout reached`, naming the pod | Adjust the budget or scale the workload, then retry |
+
+A budget-blocked eviction is the one case the reason cannot explain: the eviction API is retried until `npuPodDeletion.timeoutSeconds` elapses, and only the timeout reaches the annotation. The rejection that names the budget goes to the operator's standard error stream, not to the structured log.
+
+Each clause names at most three pods and summarizes the rest as `and N more`. One clause and its remedy fit the 400-character limit on the skip-reason annotation; when several kinds block the same node at once the tail is still truncated, and the operator log holds the full list.
 
 During `pod-restart-required`, a driver pod in `ImagePullBackOff`, `ErrImagePull`, `CrashLoopBackOff`, or a similar waiting state raises a `DriverUpgradePodStuck` Warning event immediately. The node is marked `upgrade-failed` only when `podRestartTimeoutSeconds` elapses or the pod restarts ten times, so a transient registry outage recovers on its own.
 
@@ -185,7 +192,7 @@ All keys are prefixed `rebellions.ai/`. The operator writes the first three; `np
 |------------|-----|---------|
 | `npu-driver-upgrade-failure-reason` | On the transition to `upgrade-failed`: the failure message, truncated to 400 characters | When the node is retried or self-heals |
 | `npu-driver-upgrade-failure-step` | On the transition to `upgrade-failed`: the state the node failed in | When the node is retried or self-heals |
-| `npu-driver-upgrade-skip-reason` | On the transition to `upgrade-skipped`: the eviction or drain error, truncated to 400 characters | When the node is retried |
+| `npu-driver-upgrade-skip-reason` | On the transition to `upgrade-skipped`: the eviction error, truncated to 400 characters | When the node is retried |
 | `npu-driver-upgrade-requested` | `true`, by you, to request one attempt for a done, skipped, or failed node | By the operator when it re-admits the node |
 
 ### Events
@@ -195,8 +202,6 @@ Upgrade events are recorded on the node with a stable `reason`. Where a reason a
 | Reason | Type | When |
 |--------|:----:|------|
 | `DriverUpgradeStarted` | Normal | `upgrade-required` → `cordon-required` |
-| `NodeDrained` | Normal | Drain succeeded |
-| `NodeDrainFailed` | Warning | Cordon or drain failed |
 | `DriverUpgradeSkipped` | Warning | Node moved to `upgrade-skipped`; the message carries the skip reason |
 | `DriverUpgradeFailed` | Warning | Node moved to `upgrade-failed`; the message carries the failure reason |
 | `DriverUpgradePodStuck` | Warning | Driver pod replacement is not progressing; repeats every reconcile while stuck |
@@ -216,13 +221,13 @@ The gauge `rbln_operator_driver_upgrade_nodes{state=...}` reports the number of 
 
 ## Upgrading the Operator from v0.5.x or Earlier
 
-Releases up to v0.5.0 accepted `upgradePolicy.reboot`. The block is gone: the operator never reboots a node.
+Releases up to v0.5.0 accepted `upgradePolicy.drain` and `upgradePolicy.reboot`. Both blocks are gone: the operator evicts only the node's NPU pods and never reboots a node.
 
--   **Manifests.** Remove `reboot` from any `RBLNClusterPolicy` manifest you apply directly; once the new CRD is installed, `kubectl apply` rejects it as an unknown field. Helm-managed policies are unaffected, since the chart no longer renders the block.
--   **Nodes mid-rollout.** Before upgrading the operator, finish or pause the rollout (`autoUpgrade: false`) so that no node is in `reboot-required`, `reboot-validation-required` or `reboot-post-required`. Uncordon those nodes by hand, and delete any leftover `rbln-reboot-*` pod in the operator namespace before it reboots the node. A node left in one of the removed states past the upgrade is re-evaluated by the new operator, but its cordon is not lifted and no event points at it.
+-   **Manifests.** Remove `drain` and `reboot` from any `RBLNClusterPolicy` manifest you apply directly; once the new CRD is installed, `kubectl apply` rejects them as unknown fields. If you relied on `drain.deleteEmptyDirData`, set `podDeletion.deleteEmptyDirData` instead. Helm-managed policies no longer render either block, and a `drain` block left in your values file fails the install with the same instruction (chart key: `npuPodDeletion.deleteEmptyDirData`); a leftover `reboot` block is ignored silently.
+-   **Nodes mid-rollout.** Before upgrading the operator, finish or pause the rollout (`autoUpgrade: false`) so that no node is in `drain-required`, `reboot-required`, `reboot-validation-required` or `reboot-post-required`. Uncordon those nodes by hand, and delete any leftover `rbln-reboot-*` pod in the operator namespace before it reboots the node. A node left in one of the removed states past the upgrade is re-evaluated by the new operator, but its cordon is not lifted and no event points at it.
 
     ```bash
-    $ kubectl get nodes -l 'rebellions.ai/npu-driver-upgrade-state in (reboot-required,reboot-validation-required,reboot-post-required)'
+    $ kubectl get nodes -l 'rebellions.ai/npu-driver-upgrade-state in (drain-required,reboot-required,reboot-validation-required,reboot-post-required)'
     $ kubectl uncordon <NODE_NAME>
     $ kubectl -n <OPERATOR_NAMESPACE> delete pod -l app.kubernetes.io/name=rbln-node-reboot
     ```

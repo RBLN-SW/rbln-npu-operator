@@ -58,7 +58,7 @@ func TestBuildUpgradeConditions(t *testing.T) {
 				Total: 5, Done: 3, Skipped: 2,
 				SkippedNodes: []string{"node-a3", "node-b7"},
 				SkippedNodeReasons: map[string]string{
-					"node-a3": "node drain failed: PDB webapp-pdb",
+					"node-a3": "pod eviction failed: PDB webapp-pdb",
 				},
 			},
 			lastTransit: now,
@@ -127,7 +127,7 @@ func TestUpgradeConditionMessagesCarryTheRunbook(t *testing.T) {
 		Total: 4, Done: 1, Skipped: 2, Failed: 1,
 		SkippedNodes: []string{"node-a3", "node-b7"},
 		SkippedNodeReasons: map[string]string{
-			"node-a3": "node drain failed: PDB webapp-pdb",
+			"node-a3": "pod eviction failed: PDB webapp-pdb",
 		},
 		FailedNodes:       []string{"node-a17"},
 		FailedNodeReasons: map[string]string{"node-a17": "pod-restart timeout (ImagePullBackOff)"},
@@ -148,7 +148,7 @@ func TestUpgradeConditionMessagesCarryTheRunbook(t *testing.T) {
 	incomplete := incompleteMessage(summary)
 	for _, want := range []string{
 		"2 node(s) skipped this rollout",
-		"node-a3 (node drain failed: PDB webapp-pdb)", "node-b7",
+		"node-a3 (pod eviction failed: PDB webapp-pdb)", "node-b7",
 		"Retry: kubectl annotate node <name> " + upgrade.UpgradeRequestedAnnotationKey + "=true",
 	} {
 		if !strings.Contains(incomplete, want) {

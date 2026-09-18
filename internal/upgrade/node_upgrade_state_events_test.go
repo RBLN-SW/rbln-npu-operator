@@ -51,10 +51,10 @@ func TestChangeNodeUpgradeStateEventTable(t *testing.T) {
 	}{
 		{"started", UpgradeStateUpgradeRequired, UpgradeStateCordonRequired, corev1.EventTypeNormal, consts.RBLNEventReasonDriverUpgradeStarted},
 		{"completed from in-progress", UpgradeStateUncordonRequired, UpgradeStateDone, corev1.EventTypeNormal, consts.RBLNEventReasonDriverUpgradeCompleted},
-		{"failed from drain", UpgradeStateDrainRequired, UpgradeStateFailed, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeFailed},
-		{"skipped from drain", UpgradeStateDrainRequired, UpgradeStateSkipped, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeSkipped},
+		{"failed from pod restart", UpgradeStatePodRestartRequired, UpgradeStateFailed, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeFailed},
+		{"skipped from pod deletion", UpgradeStatePodDeletionRequired, UpgradeStateSkipped, corev1.EventTypeWarning, consts.RBLNEventReasonDriverUpgradeSkipped},
 		{"initial unknown to done", "", UpgradeStateDone, "", ""},
-		{"uncontracted transition", UpgradeStateWaitForJobsRequired, UpgradeStateDrainRequired, "", ""},
+		{"uncontracted transition", UpgradeStateWaitForJobsRequired, UpgradeStatePodDeletionRequired, "", ""},
 		{"failed recovery counts as completed", UpgradeStateFailed, UpgradeStateDone, corev1.EventTypeNormal, consts.RBLNEventReasonDriverUpgradeCompleted},
 		{"skipped to done stays silent", UpgradeStateSkipped, UpgradeStateDone, "", ""},
 	}

@@ -32,11 +32,7 @@ spec:
       podDeletion:
         force: false
         timeoutSeconds: 300
-      drain:
-        enable: false
-        force: false
         deleteEmptyDirData: false
-        timeoutSeconds: 300
   devicePlugin:
     enabled: true
     registry: docker.io

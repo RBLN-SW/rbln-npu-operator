@@ -267,9 +267,6 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessWaitForJobsRequiredNodes(
 		if waitForCompletionSpec == nil || waitForCompletionSpec.PodSelector == "" {
 			log.FromContext(ctx).Info("No jobs to wait for as no pod selector was provided. Moving to next state.")
 			nextState := UpgradeStatePodDeletionRequired
-			if !m.IsPodDeletionEnabled() {
-				nextState = UpgradeStateDrainRequired
-			}
 			if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, nextState); err != nil {
 				log.FromContext(ctx).Info("Failed to change node upgrade state, will retry next cycle", "error", err,
 					"node", nodeState.Node.Name, "state", nextState)
@@ -296,16 +293,15 @@ func (m *ClusterUpgradeStateManagerImpl) IsPodDeletionEnabled() bool {
 
 func (m *ClusterUpgradeStateManagerImpl) ProcessPodDeletionRequiredNodes(
 	ctx context.Context, currentClusterState *ClusterUpgradeState, podDeletionSpec *v1beta1.PodDeletionSpec,
-	drainEnabled bool,
 ) error {
 	log.FromContext(ctx).V(consts.VDebug).Info("ProcessPodDeletionRequiredNodes")
 
 	if !m.IsPodDeletionEnabled() {
 		log.FromContext(ctx).Info("PodDeletion is not enabled, proceeding straight to the next state")
 		for _, nodeState := range currentClusterState.NodeStates[UpgradeStatePodDeletionRequired] {
-			if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, UpgradeStateDrainRequired); err != nil {
+			if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, UpgradeStatePodRestartRequired); err != nil {
 				log.FromContext(ctx).Info("Failed to change node upgrade state, will retry next cycle", "error", err,
-					"node", nodeState.Node.Name, "state", UpgradeStateDrainRequired)
+					"node", nodeState.Node.Name, "state", UpgradeStatePodRestartRequired)
 				continue
 			}
 		}
@@ -314,7 +310,6 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessPodDeletionRequiredNodes(
 
 	podManagerConfig := PodManagerConfig{
 		DeletionSpec: podDeletionSpec,
-		DrainEnabled: drainEnabled,
 		Nodes:        make([]*corev1.Node, 0, len(currentClusterState.NodeStates[UpgradeStatePodDeletionRequired])),
 	}
 
@@ -327,39 +322,6 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessPodDeletionRequiredNodes(
 	}
 
 	return m.podManager.SchedulePodEviction(ctx, &podManagerConfig)
-}
-
-func (m *ClusterUpgradeStateManagerImpl) ProcessDrainNodes(
-	ctx context.Context, currentClusterState *ClusterUpgradeState, drainSpec *v1beta1.DrainSpec,
-) error {
-	log.FromContext(ctx).V(consts.VDebug).Info("ProcessDrainNodes")
-	if drainSpec == nil || !drainSpec.Enable {
-		log.FromContext(ctx).Info("Node drain is disabled by policy, skipping this step")
-		var errs []error
-		for _, nodeState := range currentClusterState.NodeStates[UpgradeStateDrainRequired] {
-			err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, UpgradeStatePodRestartRequired)
-			if err != nil {
-				log.FromContext(ctx).Error(err, "Failed to change node upgrade state", "state", UpgradeStatePodRestartRequired)
-				errs = append(errs, err)
-			}
-		}
-		return errors.Join(errs...)
-	}
-
-	drainConfig := DrainConfiguration{
-		Spec:  drainSpec,
-		Nodes: make([]*corev1.Node, 0, len(currentClusterState.NodeStates[UpgradeStateDrainRequired])),
-	}
-	nodeNames := make([]string, 0, cap(drainConfig.Nodes))
-	for _, nodeState := range currentClusterState.NodeStates[UpgradeStateDrainRequired] {
-		drainConfig.Nodes = append(drainConfig.Nodes, nodeState.Node)
-		nodeNames = append(nodeNames, nodeState.Node.Name)
-	}
-
-	log.FromContext(ctx).Info("Scheduling nodes drain", "nodes", nodeNames,
-		"force", drainSpec.Force, "deleteEmptyDirData", drainSpec.DeleteEmptyDirData)
-
-	return m.drainManager.ScheduleNodesDrain(ctx, &drainConfig)
 }
 
 func (m *ClusterUpgradeStateManagerImpl) isDriverPodInSync(ctx context.Context,

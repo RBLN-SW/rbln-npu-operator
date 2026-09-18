@@ -17,7 +17,9 @@ spec:
     {{- with $upgradePolicy }}
     {{- $waitForCompletion := default (dict) .waitForCompletion }}
     {{- $npuPodDeletion := default (dict) .npuPodDeletion }}
-    {{- $drain := default (dict) .drain }}
+    {{- if .drain }}
+    {{- fail "driver.upgradePolicy.drain was removed: the rollout evicts only the node's NPU pods and never drains the node. Move drain.deleteEmptyDirData to driver.upgradePolicy.npuPodDeletion.deleteEmptyDirData; the other drain fields have no successor. Leaving the block in values silently dropped it." }}
+    {{- end }}
     upgradePolicy:
       autoUpgrade: {{ .autoUpgrade | default false }}
       maxParallelUpgrades: {{ .maxParallelUpgrades | default 1 }}
@@ -30,14 +32,7 @@ spec:
       podDeletion:
         force: {{ $npuPodDeletion.force | default false }}
         timeoutSeconds: {{ $npuPodDeletion.timeoutSeconds | default 300 }}
-      drain:
-        enable: {{ $drain.enable | default false }}
-        force: {{ $drain.force | default false }}
-        deleteEmptyDirData: {{ $drain.deleteEmptyDirData | default false }}
-        {{- if $drain.podSelector }}
-        podSelector: {{ $drain.podSelector | quote }}
-        {{- end }}
-        timeoutSeconds: {{ $drain.timeoutSeconds | default 300 }}
+        deleteEmptyDirData: {{ $npuPodDeletion.deleteEmptyDirData | default false }}
     {{- end }}
   {{- $pd := .Values.podDefaults }}
   {{- if and $pd (or $pd.labels $pd.annotations $pd.tolerations $pd.priorityClassName) }}

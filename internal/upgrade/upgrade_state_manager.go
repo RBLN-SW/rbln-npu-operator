@@ -51,7 +51,6 @@ type ClusterUpgradeStateManagerImpl struct {
 	podManager               PodManagerInterface
 	safeDriverLoadManager    SafeDriverLoadManagerInterface
 	cordonManager            CordonManagerInterface
-	drainManager             DrainManagerInterface
 	validationManager        ValidationManagerInterface
 
 	// optional states
@@ -81,7 +80,6 @@ func NewClusterUpgradeStateManager(
 		k8sClient:                k8sClient,
 		k8sInterface:             k8sInterface,
 		eventRecorder:            eventRecorder,
-		drainManager:             NewDrainManager(k8sInterface, nodeUpgradeStateProvider, eventRecorder),
 		podManager:               NewPodManager(k8sInterface, nodeUpgradeStateProvider, nil),
 		cordonManager:            NewCordonManager(k8sInterface),
 		nodeUpgradeStateProvider: nodeUpgradeStateProvider,

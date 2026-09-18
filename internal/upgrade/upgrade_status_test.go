@@ -9,7 +9,7 @@ import (
 func TestSummarizeClusterUpgrade_CountsAndReasons(t *testing.T) {
 	skipped := newNodeUpgradeState("skipped1", UpgradeStateSkipped, "rev0")
 	skipped.Node.Annotations = map[string]string{
-		UpgradeSkipReasonAnnotationKey: "node drain failed: PDB webapp-pdb",
+		UpgradeSkipReasonAnnotationKey: "pod eviction blocked: PDB webapp-pdb",
 	}
 	failed := newNodeUpgradeState("failed1", UpgradeStateFailed, "rev0")
 	failed.Node.Annotations = map[string]string{
@@ -77,15 +77,15 @@ func TestSummarizeClusterUpgrade_StateDerivation(t *testing.T) {
 		},
 		"moving nodes are InProgress": {
 			states: map[string][]*NodeUpgradeState{
-				UpgradeStateDrainRequired: {newNodeUpgradeState("n1", UpgradeStateDrainRequired, "rev0")},
+				UpgradeStatePodDeletionRequired: {newNodeUpgradeState("n1", UpgradeStatePodDeletionRequired, "rev0")},
 			},
 			want: v1beta1.DriverUpgradeStateInProgress,
 		},
 		"failed dominates everything": {
 			states: map[string][]*NodeUpgradeState{
-				UpgradeStateDrainRequired: {newNodeUpgradeState("n1", UpgradeStateDrainRequired, "rev0")},
-				UpgradeStateSkipped:       {newNodeUpgradeState("n2", UpgradeStateSkipped, "rev0")},
-				UpgradeStateFailed:        {newNodeUpgradeState("n3", UpgradeStateFailed, "rev0")},
+				UpgradeStatePodDeletionRequired: {newNodeUpgradeState("n1", UpgradeStatePodDeletionRequired, "rev0")},
+				UpgradeStateSkipped:             {newNodeUpgradeState("n2", UpgradeStateSkipped, "rev0")},
+				UpgradeStateFailed:              {newNodeUpgradeState("n3", UpgradeStateFailed, "rev0")},
 			},
 			want: v1beta1.DriverUpgradeStateDegraded,
 		},

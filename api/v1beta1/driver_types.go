@@ -34,11 +34,10 @@ type DriverUpgradePolicySpec struct {
 	PodDeletion *PodDeletionSpec `json:"podDeletion,omitempty"`
 	// +optional
 	WaitForCompletion *WaitForCompletionSpec `json:"waitForCompletion,omitempty"`
-	// +optional
-	DrainSpec *DrainSpec `json:"drain,omitempty"`
 }
 
-// PodDeletionSpec describes pod deletion behavior during automatic upgrade.
+// PodDeletionSpec describes how NPU pods are evicted from a node before its
+// driver is replaced. Pods that do not hold an NPU are never evicted.
 type PodDeletionSpec struct {
 	// Force indicates if force deletion is allowed
 	// +optional
@@ -50,6 +49,14 @@ type PodDeletionSpec struct {
 	// +kubebuilder:default:=300
 	// +kubebuilder:validation:Minimum:=0
 	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
+	// DeleteEmptyDirData allows evicting NPU pods that mount emptyDir volumes,
+	// whose contents are lost with the pod. Off by default: such a pod blocks
+	// the eviction and parks the node in upgrade-skipped with the pod named in
+	// the skip reason. Pods that do not request an NPU are never evicted
+	// regardless of this setting.
+	// +optional
+	// +kubebuilder:default:=false
+	DeleteEmptyDirData bool `json:"deleteEmptyDirData,omitempty"`
 }
 
 // WaitForCompletionSpec describes the configuration for waiting on job completions
@@ -63,33 +70,6 @@ type WaitForCompletionSpec struct {
 	// infinite
 	// +optional
 	// +kubebuilder:default:=0
-	// +kubebuilder:validation:Minimum:=0
-	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
-}
-
-// DrainSpec describes configuration for node drain during automatic upgrade
-type DrainSpec struct {
-	// Enable indicates if node draining is allowed during upgrade
-	// +optional
-	// +kubebuilder:default:=false
-	Enable bool `json:"enable,omitempty"`
-	// Force indicates if force draining is allowed
-	// +optional
-	// +kubebuilder:default:=false
-	Force bool `json:"force,omitempty"`
-	// DeleteEmptyDirData indicates whether to allow deleting pods that use emptyDir/local ephemeral storage
-	// during drain.
-	// +optional
-	// +kubebuilder:default:=false
-	DeleteEmptyDirData bool `json:"deleteEmptyDirData,omitempty"`
-	// PodSelector specifies a label selector to filter pods on the node that need to be drained
-	// For more details on label selectors, see:
-	// https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors
-	// +optional
-	PodSelector string `json:"podSelector,omitempty"`
-	// TimeoutSeconds specifies the length of time in seconds to wait before giving up drain, zero means infinite
-	// +optional
-	// +kubebuilder:default:=300
 	// +kubebuilder:validation:Minimum:=0
 	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
 }

@@ -69,8 +69,6 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 		return nil
 	}
 
-	drainEnabled := upgradePolicy.DrainSpec != nil && upgradePolicy.DrainSpec.Enable
-
 	m.logNodeStates(ctx, currentState)
 	recordNodeStateMetrics(currentState)
 
@@ -133,14 +131,7 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 			name:     UpgradeStatePodDeletionRequired,
 			errorMsg: "Failed to delete pods",
 			run: func() error {
-				return m.ProcessPodDeletionRequiredNodes(ctx, currentState, upgradePolicy.PodDeletion, drainEnabled)
-			},
-		},
-		{
-			name:     UpgradeStateDrainRequired,
-			errorMsg: "Failed to schedule nodes drain",
-			run: func() error {
-				return m.ProcessDrainNodes(ctx, currentState, upgradePolicy.DrainSpec)
+				return m.ProcessPodDeletionRequiredNodes(ctx, currentState, upgradePolicy.PodDeletion)
 			},
 		},
 		{

@@ -46,7 +46,6 @@ type PodManagerConfig struct {
 	Nodes                 []*corev1.Node
 	DeletionSpec          *v1beta1.PodDeletionSpec
 	WaitForCompletionSpec *v1beta1.WaitForCompletionSpec
-	DrainEnabled          bool
 }
 
 type PodDeletionFilter func(corev1.Pod) bool
@@ -242,26 +241,6 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 		return fmt.Errorf("pod deletion spec should not be empty")
 	}
 
-	customDrainFilter := func(pod corev1.Pod) drain.PodDeleteStatus {
-		deleteFunc := m.podDeletionFilter(pod)
-		if !deleteFunc {
-			return drain.MakePodDeleteStatusSkip()
-		}
-		return drain.MakePodDeleteStatusOkay()
-	}
-
-	drainHelper := drain.Helper{
-		Ctx:                 ctx,
-		Client:              m.k8sInterface,
-		Out:                 os.Stdout,
-		ErrOut:              os.Stderr,
-		GracePeriodSeconds:  -1,
-		IgnoreAllDaemonSets: true,
-		Force:               podDeletionSpec.Force,
-		Timeout:             time.Duration(podDeletionSpec.TimeoutSeconds) * time.Second,
-		AdditionalFilters:   []drain.PodFilter{customDrainFilter},
-	}
-
 	for _, node := range config.Nodes {
 		if !m.nodesInProgress.Has(node.Name) {
 			log.FromContext(ctx).Info("Deleting pods on node", "node", node.Name)
@@ -278,30 +257,53 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 					return
 				}
 
-				numPodsToDelete := 0
+				npuPods := make([]corev1.Pod, 0, len(podList.Items))
 				for _, pod := range podList.Items {
 					if m.podDeletionFilter(pod) {
-						numPodsToDelete++
+						npuPods = append(npuPods, pod)
 					}
 				}
 
-				if numPodsToDelete == 0 {
+				if len(npuPods) == 0 {
 					log.FromContext(ctx).Info("No pods require deletion", "node", node.Name)
 					m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStatePodRestartRequired)
 					return
 				}
 
+				drainHelper := drain.Helper{
+					Ctx:                 ctx,
+					Client:              m.k8sInterface,
+					Out:                 os.Stdout,
+					ErrOut:              os.Stderr,
+					GracePeriodSeconds:  -1,
+					IgnoreAllDaemonSets: true,
+					Force:               podDeletionSpec.Force,
+					DeleteEmptyDirData:  podDeletionSpec.DeleteEmptyDirData,
+					Timeout:             time.Duration(podDeletionSpec.TimeoutSeconds) * time.Second,
+					AdditionalFilters: []drain.PodFilter{func(pod corev1.Pod) drain.PodDeleteStatus {
+						if !m.podDeletionFilter(pod) {
+							return drain.MakePodDeleteStatusSkip()
+						}
+						return drain.MakePodDeleteStatusOkay()
+					}},
+				}
+
 				log.FromContext(ctx).Info("Identifying which pods can be deleted", "node", node.Name)
 				podDeleteList, errs := drainHelper.GetPodsForDeletion(node.Name)
+				if podDeleteList == nil {
+					log.FromContext(ctx).Error(errors.Join(errs...), "Failed to list pods for eviction; will retry next cycle",
+						"node", node.Name)
+					return
+				}
 
-				numPodsCanDelete := len(podDeleteList.Pods())
-				if numPodsCanDelete != numPodsToDelete {
-					log.FromContext(ctx).Error(nil, "Cannot delete all required pods", "node", node.Name)
+				if blocked := blockedNPUPods(npuPods, podDeleteList.Pods()); len(blocked) > 0 {
+					log.FromContext(ctx).Error(nil, "Cannot delete all required pods",
+						"node", node.Name, "blockedPods", podKeys(blocked))
 					for _, err := range errs {
 						log.FromContext(ctx).Error(err, "Error reported by drain helper", "node", node.Name)
 					}
-					m.updateNodeToDrainOrSkipped(ctx, node, config.DrainEnabled,
-						fmt.Sprintf("pod eviction blocked: %v", errors.Join(errs...)))
+					m.markNodeUpgradeSkippedAsync(ctx, node,
+						"pod eviction blocked: "+evictionBlockReason(blocked, podDeletionSpec, errs))
 					return
 				}
 
@@ -315,7 +317,7 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 				err = drainHelper.DeleteOrEvictPods(podDeleteList.Pods())
 				if err != nil {
 					log.FromContext(ctx).Error(err, "Failed to delete pods on the node", "node", node.Name)
-					m.updateNodeToDrainOrSkipped(ctx, node, config.DrainEnabled,
+					m.markNodeUpgradeSkippedAsync(ctx, node,
 						fmt.Sprintf("pod eviction failed: %v", err))
 					return
 				}
@@ -330,13 +332,7 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 	return nil
 }
 
-func (m *PodManager) updateNodeToDrainOrSkipped(ctx context.Context, node corev1.Node, drainEnabled bool, reason string) {
-	if drainEnabled {
-		log.FromContext(ctx).Info("Pod deletion failed but drain is enabled in spec. Will attempt a node drain",
-			"node", node.Name)
-		m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStateDrainRequired)
-		return
-	}
+func (m *PodManager) markNodeUpgradeSkippedAsync(ctx context.Context, node corev1.Node, reason string) {
 	stateCtx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:contextcheck // intentional short-lived timeout for goroutine state transition
 	defer cancel()
 	if err := markNodeUpgradeSkipped(stateCtx, m.nodeUpgradeStateProvider, &node, reason); err != nil {

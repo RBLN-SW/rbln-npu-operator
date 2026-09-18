@@ -141,8 +141,6 @@ const (
 // one thing across both CRs.
 const (
 	RBLNEventReasonDriverUpgradeStarted   = "DriverUpgradeStarted"
-	RBLNEventReasonNodeDrained            = "NodeDrained"
-	RBLNEventReasonNodeDrainFailed        = "NodeDrainFailed"
 	RBLNEventReasonDriverUpgradeCompleted = "DriverUpgradeCompleted"
 	RBLNEventReasonDriverUpgradeFailed    = "DriverUpgradeFailed"
 	RBLNEventReasonDriverUpgradeSkipped   = "DriverUpgradeSkipped"

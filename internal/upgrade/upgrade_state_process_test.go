@@ -356,72 +356,6 @@ func TestProcessUncordonRequiredNodes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ProcessDrainNodes
-// ---------------------------------------------------------------------------
-
-func TestProcessDrainNodes(t *testing.T) {
-	tests := map[string]struct {
-		drainSpec *v1beta1.DrainSpec
-		drainErr  error
-		wantState string
-		wantErr   bool
-	}{
-		"nil drain spec skips to PodRestartRequired": {
-			drainSpec: nil,
-			wantState: UpgradeStatePodRestartRequired,
-		},
-		"disabled drain spec skips to PodRestartRequired": {
-			drainSpec: &v1beta1.DrainSpec{Enable: false},
-			wantState: UpgradeStatePodRestartRequired,
-		},
-		"enabled drain spec calls drain manager": {
-			drainSpec: &v1beta1.DrainSpec{Enable: true},
-			wantState: UpgradeStateDrainRequired, // drain is async, state stays
-		},
-		"drain manager error propagates": {
-			drainSpec: &v1beta1.DrainSpec{Enable: true},
-			drainErr:  fmt.Errorf("drain failed"),
-			wantErr:   true,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			dm := &mockDrainManager{err: tc.drainErr}
-			mgr := newTestManager(t, withDrainManager(dm))
-
-			ns := newNodeUpgradeState("node-1", UpgradeStateDrainRequired, "rev1")
-			registerNodes(t, mgr, ns.Node)
-
-			state := newClusterState(map[string][]*NodeUpgradeState{
-				UpgradeStateDrainRequired: {ns},
-			})
-
-			err := mgr.ProcessDrainNodes(context.Background(), state, tc.drainSpec)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			if tc.drainSpec == nil || !tc.drainSpec.Enable {
-				var updated corev1.Node
-				if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
-					t.Fatalf("get node: %v", err)
-				}
-				if got := updated.Labels[UpgradeStateLabelKey]; got != tc.wantState {
-					t.Fatalf("node state = %q, want %q", got, tc.wantState)
-				}
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
 // ProcessValidationRequiredNodes
 // ---------------------------------------------------------------------------
 
@@ -718,7 +652,7 @@ func TestProcessUpgradeSkippedNodes_WakesOnOperatorRequest(t *testing.T) {
 	ns := newNodeUpgradeState("node-1", UpgradeStateSkipped, "rev1")
 	ns.Node.Annotations = map[string]string{
 		UpgradeRequestedAnnotationKey:         trueString,
-		UpgradeSkipReasonAnnotationKey:        "node drain failed",
+		UpgradeSkipReasonAnnotationKey:        "pod eviction blocked",
 		UpgradeAttemptedRevisionAnnotationKey: "rev1",
 	}
 	registerNodes(t, mgr, ns.Node)
