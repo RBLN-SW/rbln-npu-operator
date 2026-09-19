@@ -125,25 +125,9 @@ func (m *PodManager) ListPods(ctx context.Context, selector string, nodeName str
 }
 
 func (m *PodManager) IsPodRunningOrPending(ctx context.Context, pod corev1.Pod) bool {
-	switch pod.Status.Phase {
-	case corev1.PodRunning:
-		log.FromContext(ctx).Info("Pod status", "pod", pod.Name, "node", pod.Spec.NodeName,
-			"state", corev1.PodRunning)
-		return true
-	case corev1.PodPending:
-		log.FromContext(ctx).Info("Pod status", "pod", pod.Name, "node", pod.Spec.NodeName,
-			"state", corev1.PodPending)
-		return true
-	case corev1.PodFailed:
-		log.FromContext(ctx).Info("Pod status", "pod", pod.Name, "node", pod.Spec.NodeName,
-			"state", corev1.PodFailed)
-		return false
-	case corev1.PodSucceeded:
-		log.FromContext(ctx).Info("Pod status", "pod", pod.Name, "node", pod.Spec.NodeName,
-			"state", corev1.PodSucceeded)
-		return false
-	}
-	return false
+	log.FromContext(ctx).Info("Pod status", "pod", pod.Name, "node", pod.Spec.NodeName,
+		"state", pod.Status.Phase)
+	return podRunningOrPending(&pod)
 }
 
 func (m *PodManager) HandleTimeoutOnPodCompletions(ctx context.Context, node *corev1.Node,
@@ -241,6 +225,8 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 		return fmt.Errorf("pod deletion spec should not be empty")
 	}
 
+	deviceClasses := npuDeviceClassesOrNone(ctx, m.k8sInterface)
+
 	for _, node := range config.Nodes {
 		if !m.nodesInProgress.Has(node.Name) {
 			log.FromContext(ctx).Info("Deleting pods on node", "node", node.Name)
@@ -257,9 +243,17 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 					return
 				}
 
+				// The pod-spec filter alone cannot see a pod whose only NPU
+				// reference is a ResourceClaim. One matcher per node, so both
+				// passes over the node's pods share its claim verdicts.
+				claims := newNPUClaimMatcher(m.k8sInterface, deviceClasses)
+				isNPUPod := func(pod corev1.Pod) bool {
+					return m.podDeletionFilter(pod) || claims.holdsNPUClaim(ctx, &pod)
+				}
+
 				npuPods := make([]corev1.Pod, 0, len(podList.Items))
 				for _, pod := range podList.Items {
-					if m.podDeletionFilter(pod) {
+					if isNPUPod(pod) {
 						npuPods = append(npuPods, pod)
 					}
 				}
@@ -281,7 +275,7 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 					DeleteEmptyDirData:  podDeletionSpec.DeleteEmptyDirData,
 					Timeout:             time.Duration(podDeletionSpec.TimeoutSeconds) * time.Second,
 					AdditionalFilters: []drain.PodFilter{func(pod corev1.Pod) drain.PodDeleteStatus {
-						if !m.podDeletionFilter(pod) {
+						if !isNPUPod(pod) {
 							return drain.MakePodDeleteStatusSkip()
 						}
 						return drain.MakePodDeleteStatusOkay()

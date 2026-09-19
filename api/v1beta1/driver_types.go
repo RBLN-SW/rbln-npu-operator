@@ -10,7 +10,9 @@ type DriverSpec struct {
 // DriverUpgradePolicySpec describes policy configuration for automatic upgrades
 type DriverUpgradePolicySpec struct {
 	// AutoUpgrade enables/disables the automatic upgrade workflow.
-	// If false, other upgrade policy fields are ignored.
+	// If false, other upgrade policy fields are ignored, except podDeletion:
+	// with the workflow off, k8s-driver-manager empties the node itself on a
+	// driver pod restart and obeys that block.
 	// +optional
 	// +kubebuilder:default:=false
 	AutoUpgrade bool `json:"autoUpgrade,omitempty"`
@@ -37,7 +39,10 @@ type DriverUpgradePolicySpec struct {
 }
 
 // PodDeletionSpec describes how NPU pods are evicted from a node before its
-// driver is replaced. Pods that do not hold an NPU are never evicted.
+// driver is replaced. It governs both evictions: the operator's own during an
+// automatic upgrade, and k8s-driver-manager's when autoUpgrade is off. Only
+// TimeoutSeconds is operator-only — k8s-driver-manager has no park state to
+// fall back to, so it waits instead of giving up.
 type PodDeletionSpec struct {
 	// Force indicates if force deletion is allowed
 	// +optional

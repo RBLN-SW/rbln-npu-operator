@@ -69,8 +69,17 @@ func TestVFIOManagerPatch(t *testing.T) {
 	assertContainerHasVolumeMount(t, initContainer, "host-sys")
 	assertContainerHasVolumeMount(t, initContainer, "host-root")
 	if envValue(initContainer.Env, "ENABLE_NPU_POD_EVICTION") != "false" {
-		t.Fatalf("ENABLE_NPU_POD_EVICTION = %q, want false (would cordon+drain own host)",
+		t.Fatalf("ENABLE_NPU_POD_EVICTION = %q, want false (the vfio-manager ServiceAccount lacks the cluster-wide eviction RBAC)",
 			envValue(initContainer.Env, "ENABLE_NPU_POD_EVICTION"))
+	}
+	// k8s-driver-manager binds none of these since the full-node drain was
+	// dropped, and warns on every run that still renders them.
+	for _, env := range initContainer.Env {
+		switch env.Name {
+		case "ENABLE_AUTO_DRAIN", "DRAIN_USE_FORCE", "DRAIN_POD_SELECTOR_LABEL",
+			"DRAIN_TIMEOUT_SECONDS", "DRAIN_DELETE_EMPTYDIR_DATA":
+			t.Fatalf("env var %q is not bound by k8s-driver-manager and must not be rendered", env.Name)
+		}
 	}
 	if envValue(initContainer.Env, "PROC_ROOT") != "/host/proc" {
 		t.Fatalf("PROC_ROOT = %q, want /host/proc (fd-scanner needs host procfs view)",

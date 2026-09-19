@@ -371,6 +371,13 @@ the `rbln-daemon` → `rbln-smd` rename never flips it — smd pods then sit on
 a stale image across driver upgrades with nothing reporting it. The two
 therefore ship as a version pair; the chart's `driver.manager.image.tag` is
 the authority on which driver-manager this operator expects.
+
+That pair is a hard floor, not a recommendation. The operator renders the
+NPU pod eviction policy as `NPU_POD_EVICTION_*` env vars and no longer
+renders `ENABLE_AUTO_DRAIN=false`. A driver-manager that predates the
+NPU-only eviction contract, every release up to v0.2.2, binds none of the new
+names and defaults the retired flag to true, so on every driver change it
+drains the whole node instead of evicting only NPU pods.
 Readiness is reported in `status.smd` (`desired`/`ready`/`state`) and gates
 the CR's `Ready` condition (`SmdNotReady` while catching up, no event —
 ordinary rollout progress); `status.desiredNodes`/`readyNodes` stay

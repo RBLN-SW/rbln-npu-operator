@@ -233,3 +233,13 @@ const (
 	ValidationsVolumeName = "run-rbln-validations"
 	ValidationsMountPath  = "/run/rbln/validations"
 )
+
+// DefaultDRADeviceClass is the container-mode DRA DeviceClass name used when
+// draKubeletPlugin.driverName is unset.
+const DefaultDRADeviceClass = "npu.rebellions.ai"
+
+// RBLNResourceNamePrefix is the domain every NPU resource name carries: the
+// device plugin's advertised names, and the extended resource the DRA
+// DeviceClass bridges to. A pod holding a resource under it is an NPU pod the
+// driver upgrade has to move off the node.
+const RBLNResourceNamePrefix = "rebellions.ai/"

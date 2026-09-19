@@ -225,8 +225,8 @@ func TestPatch_RendersRDSBindConfigMap(t *testing.T) {
 	owner := newTestOwner()
 	c := newFakeClient(t, scheme, owner)
 
-	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", nil, true,
-		map[string][]string{"udc-06": {"0000:d8:00.0"}})
+	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", nil,
+		NPUPodEvictionPolicy{}, true, map[string][]string{"udc-06": {"0000:d8:00.0"}})
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestPatch_RendersRDSBindConfigMap(t *testing.T) {
 	}
 
 	// Disabling RDS on a later pass must remove the ConfigMap again.
-	p, err = NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", nil, false, nil)
+	p, err = NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", nil, NPUPodEvictionPolicy{}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}

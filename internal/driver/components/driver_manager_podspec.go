@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -225,12 +226,13 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 			{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "spec.nodeName"},
 			}},
+			// Consulted only while driver auto-upgrade is off: with it on,
+			// k8s-driver-manager defers the whole cordon-and-evict to the
+			// upgrade controller and these have no effect.
 			{Name: "ENABLE_NPU_POD_EVICTION", Value: "true"},
-			{Name: "ENABLE_AUTO_DRAIN", Value: "false"},
-			{Name: "DRAIN_USE_FORCE", Value: "false"},
-			{Name: "DRAIN_POD_SELECTOR_LABEL", Value: ""},
-			{Name: "DRAIN_TIMEOUT_SECONDS", Value: "0s"},
-			{Name: "DRAIN_DELETE_EMPTYDIR_DATA", Value: "false"},
+			{Name: "NPU_POD_EVICTION_FORCE", Value: strconv.FormatBool(h.evictionPolicy.Force)},
+			{Name: "NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA", Value: strconv.FormatBool(h.evictionPolicy.DeleteEmptyDirData)},
+			{Name: "NPU_POD_EVICTION_DEVICE_CLASS", Value: h.evictionPolicy.DeviceClass},
 			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "metadata.namespace"},
 			}},

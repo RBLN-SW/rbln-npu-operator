@@ -170,6 +170,17 @@ func TestBuildDriverManagerInitContainer(t *testing.T) {
 		t.Fatalf("PROC_ROOT = %q, want /host/proc (fd-scanner needs host procfs view)", got)
 	}
 
+	// k8s-driver-manager binds none of these, so leaving them rendered is a
+	// setting that silently does nothing.
+	for _, retired := range []string{
+		"ENABLE_AUTO_DRAIN", "DRAIN_USE_FORCE", "DRAIN_POD_SELECTOR_LABEL",
+		"DRAIN_TIMEOUT_SECONDS", "DRAIN_DELETE_EMPTYDIR_DATA",
+	} {
+		if _, ok := envByName[retired]; ok {
+			t.Fatalf("env var %q is not bound by k8s-driver-manager and must not be rendered", retired)
+		}
+	}
+
 	// Downward-API env vars must set APIVersion explicitly. The kube-apiserver
 	// defaults it to "v1" on persist, so omitting it triggers a perpetual
 	// reconcile/patch loop (operator submits "", server stores "v1", diff, repeat).
@@ -557,3 +568,47 @@ func TestHandleConfigMap_Idempotent(t *testing.T) {
 
 // Dummy to avoid import issues
 var _ = metav1.ObjectMeta{}
+
+// The eviction knobs must reach k8s-driver-manager: it evicts NPU pods itself
+// whenever driver auto-upgrade is off, and without them it is stuck at the
+// strictest policy with no way for the user to relax it.
+func TestBuildDriverManagerInitContainerRendersEvictionPolicy(t *testing.T) {
+	tests := map[string]struct {
+		policy NPUPodEvictionPolicy
+		want   map[string]string
+	}{
+		"defaults": {
+			policy: NPUPodEvictionPolicy{DeviceClass: consts.DefaultDRADeviceClass},
+			want: map[string]string{
+				"NPU_POD_EVICTION_FORCE":                "false",
+				"NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA": "false",
+				"NPU_POD_EVICTION_DEVICE_CLASS":         consts.DefaultDRADeviceClass,
+			},
+		},
+		"relaxed policy with a custom device class": {
+			policy: NPUPodEvictionPolicy{Force: true, DeleteEmptyDirData: true, DeviceClass: "npu.example.com"},
+			want: map[string]string{
+				"NPU_POD_EVICTION_FORCE":                "true",
+				"NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA": "true",
+				"NPU_POD_EVICTION_DEVICE_CLASS":         "npu.example.com",
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			h := newTestPatcher(t, "")
+			h.evictionPolicy = tc.policy
+
+			envByName := make(map[string]string)
+			for _, env := range h.buildDriverManagerInitContainer().Env {
+				envByName[env.Name] = env.Value
+			}
+			for key, want := range tc.want {
+				if got := envByName[key]; got != want {
+					t.Errorf("env %q = %q, want %q", key, got, want)
+				}
+			}
+		})
+	}
+}
