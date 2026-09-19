@@ -96,6 +96,17 @@ func TestPodResourceClaimNames(t *testing.T) {
 			pod:  *claimingPod("ns", "pod", "shared-claim"),
 			want: []string{"shared-claim"},
 		},
+		// A nameless status entry must not erase a direct reference: only a
+		// template-generated claim takes its name from the status.
+		"direct reference wins over a nameless status entry": {
+			pod: corev1.Pod{
+				Spec: corev1.PodSpec{ResourceClaims: []corev1.PodResourceClaim{{
+					Name: "npu", ResourceClaimName: strPtr("shared-claim"),
+				}}},
+				Status: corev1.PodStatus{ResourceClaimStatuses: []corev1.PodResourceClaimStatus{{Name: "npu"}}},
+			},
+			want: []string{"shared-claim"},
+		},
 		// A template-generated claim has no name in the spec; the kubelet
 		// records the generated one in the pod status.
 		"template-generated claim is named only in the status": {

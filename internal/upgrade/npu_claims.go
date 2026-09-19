@@ -88,16 +88,23 @@ func podsHoldingNPUDeviceClaim(
 }
 
 // podResourceClaimNames resolves the ResourceClaim objects a pod refers to. A
-// template-generated claim is named only in the pod status, and a status entry
+// direct spec reference is the name outright; the pod status is consulted only
+// for a template-generated claim, whose real name lives there and nowhere else.
+// That is the precedence k8s.io/dynamic-resource-allocation's resourceclaim.Name
+// applies. Letting the status win instead would drop a named claim the moment
+// anything wrote a nameless status entry for it, and a dropped claim here is an
+// NPU pod that survives the eviction still holding /dev/rbln*. A status entry
 // with no name means that entry needed no claim.
 func podResourceClaimNames(pod *corev1.Pod) []string {
 	names := make([]string, 0, len(pod.Spec.ResourceClaims))
 	for _, claim := range pod.Spec.ResourceClaims {
 		name := claim.ResourceClaimName
-		for _, status := range pod.Status.ResourceClaimStatuses {
-			if status.Name == claim.Name {
-				name = status.ResourceClaimName
-				break
+		if name == nil {
+			for _, status := range pod.Status.ResourceClaimStatuses {
+				if status.Name == claim.Name {
+					name = status.ResourceClaimName
+					break
+				}
 			}
 		}
 		if name != nil && *name != "" {
