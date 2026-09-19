@@ -452,12 +452,12 @@ func (h *vfioManagerPatcher) buildDriverUninstallInitContainer() *corev1.Contain
 		WithEnvs(append([]corev1.EnvVar{
 			{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "spec.nodeName"}}},
 			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "metadata.namespace"}}},
+			// Off on purpose: the vfio run's own NPU pod eviction needs
+			// cluster-wide pods and pods/eviction access that this
+			// ServiceAccount's namespaced Role does not grant. With it off, a
+			// workload still holding /dev/rbln* fails the vfio-mode readiness
+			// check, which names the holding process.
 			{Name: "ENABLE_NPU_POD_EVICTION", Value: "false"},
-			{Name: "ENABLE_AUTO_DRAIN", Value: "false"},
-			{Name: "DRAIN_USE_FORCE", Value: "false"},
-			{Name: "DRAIN_POD_SELECTOR_LABEL", Value: ""},
-			{Name: "DRAIN_TIMEOUT_SECONDS", Value: "0s"},
-			{Name: "DRAIN_DELETE_EMPTYDIR_DATA", Value: "false"},
 			{Name: "PROC_ROOT", Value: "/host/proc"},
 		}, dm.Env...)).
 		WithSecurityContext(&corev1.SecurityContext{
