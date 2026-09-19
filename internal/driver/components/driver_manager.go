@@ -19,10 +19,23 @@ import (
 
 // ─── Struct ──────────────────────────────────────────────────────────────────
 
+// NPUPodEvictionPolicy is what k8s-driver-manager is allowed to do when it has
+// to empty a node itself. That happens only while driver auto-upgrade is off:
+// with it on, the binary defers to the upgrade controller and evicts nothing.
+// The values mirror upgradePolicy.podDeletion so both evictions obey one policy.
+type NPUPodEvictionPolicy struct {
+	Force              bool
+	DeleteEmptyDirData bool
+	// DeviceClass names the container-mode DRA DeviceClass whose claims mark a
+	// pod as an NPU consumer, tracking draKubeletPlugin.driverName.
+	DeviceClass string
+}
+
 type driverManagerPatcher struct {
 	basePatcher
 	desiredSpec        *rebellionsaiv1alpha1.RBLNDriverSpec
 	checker            ImageChecker
+	evictionPolicy     NPUPodEvictionPolicy
 	rdsBindingEnabled  bool
 	rdsDeviceSelection map[string][]string
 	// ownedNodes is the owner resolver's node snapshot for this instance
@@ -45,6 +58,7 @@ func NewDriverManagerPatcher(
 	checker ImageChecker,
 	openshiftVersion string,
 	ownedNodes []corev1.Node,
+	evictionPolicy NPUPodEvictionPolicy,
 	rdsBindingEnabled bool,
 	rdsDeviceSelection map[string][]string,
 ) (DriverPatcher, error) {
@@ -67,6 +81,7 @@ func NewDriverManagerPatcher(
 		},
 		desiredSpec:        &driver.Spec,
 		checker:            checker,
+		evictionPolicy:     evictionPolicy,
 		ownedNodes:         ownedNodes,
 		rdsBindingEnabled:  rdsBindingEnabled,
 		rdsDeviceSelection: rdsDeviceSelection,

@@ -36,6 +36,15 @@ func (h *driverManagerPatcher) handleClusterRole(ctx context.Context, owner *reb
 				Resources: []string{"daemonsets"},
 				Verbs:     []string{"get"},
 			},
+			{
+				// k8s-driver-manager reads a pod's ResourceClaims to find the
+				// NPU pods it must evict before unloading the module: a pod
+				// holding an NPU through DRA has no rebellions.ai/* resource
+				// request to match on.
+				APIGroups: []string{"resource.k8s.io"},
+				Resources: []string{"resourceclaims"},
+				Verbs:     []string{"get"},
+			},
 		}
 		return controllerutil.SetOwnerReference(owner, role, h.scheme)
 	})
