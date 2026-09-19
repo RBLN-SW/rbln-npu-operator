@@ -125,25 +125,9 @@ func (m *PodManager) ListPods(ctx context.Context, selector string, nodeName str
 }
 
 func (m *PodManager) IsPodRunningOrPending(ctx context.Context, pod corev1.Pod) bool {
-	switch pod.Status.Phase {
-	case corev1.PodRunning:
-		log.FromContext(ctx).Info("Pod status", "pod", pod.Name, "node", pod.Spec.NodeName,
-			"state", corev1.PodRunning)
-		return true
-	case corev1.PodPending:
-		log.FromContext(ctx).Info("Pod status", "pod", pod.Name, "node", pod.Spec.NodeName,
-			"state", corev1.PodPending)
-		return true
-	case corev1.PodFailed:
-		log.FromContext(ctx).Info("Pod status", "pod", pod.Name, "node", pod.Spec.NodeName,
-			"state", corev1.PodFailed)
-		return false
-	case corev1.PodSucceeded:
-		log.FromContext(ctx).Info("Pod status", "pod", pod.Name, "node", pod.Spec.NodeName,
-			"state", corev1.PodSucceeded)
-		return false
-	}
-	return false
+	log.FromContext(ctx).Info("Pod status", "pod", pod.Name, "node", pod.Spec.NodeName,
+		"state", pod.Status.Phase)
+	return podRunningOrPending(&pod)
 }
 
 func (m *PodManager) HandleTimeoutOnPodCompletions(ctx context.Context, node *corev1.Node,
