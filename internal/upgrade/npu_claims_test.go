@@ -186,7 +186,7 @@ func TestClaimRequestsDeviceClass(t *testing.T) {
 	}
 }
 
-func TestPodsHoldingNPUDeviceClaim(t *testing.T) {
+func TestNPUClaimMatcher(t *testing.T) {
 	const ns = "workloads"
 
 	finished := claimingPod(ns, "completed", "npu-claim")
@@ -196,35 +196,51 @@ func TestPodsHoldingNPUDeviceClaim(t *testing.T) {
 		claimForClass(ns, "npu-claim", npuDeviceClass),
 		claimForClass(ns, "vfio-claim", vfioDeviceClass),
 	)
+	claimReads := 0
+	clientset.PrependReactor("get", "resourceclaims",
+		func(k8stesting.Action) (bool, runtime.Object, error) {
+			claimReads++
+			return false, nil, nil
+		})
 
-	pods := []corev1.Pod{
-		*claimingPod(ns, "vllm", "npu-claim"),
-		*claimingPod(ns, "vllm-replica", "npu-claim"),
-		*claimingPod(ns, "virt-launcher", "vfio-claim"),
-		*claimingPod(ns, "dangling", "deleted-claim"),
-		*finished,
-		{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "plain"}, Status: corev1.PodStatus{Phase: corev1.PodRunning}},
-	}
-
-	holders := podsHoldingNPUDeviceClaim(context.Background(), clientset, pods, []string{npuDeviceClass})
-
-	for _, want := range []string{ns + "/vllm", ns + "/vllm-replica"} {
-		if _, ok := holders[want]; !ok {
-			t.Errorf("pod %q holds an NPU claim but was not detected: %v", want, holders)
-		}
-	}
 	// A passthrough VM, a pod whose claim is gone, a finished pod and a pod
 	// with no claim at all must not be pulled into the eviction.
-	for _, absent := range []string{ns + "/virt-launcher", ns + "/dangling", ns + "/completed", ns + "/plain"} {
-		if _, ok := holders[absent]; ok {
-			t.Errorf("pod %q must not be treated as an NPU claim holder: %v", absent, holders)
-		}
+	tests := map[string]struct {
+		pod  *corev1.Pod
+		want bool
+	}{
+		"claim on the NPU class":        {pod: claimingPod(ns, "vllm", "npu-claim"), want: true},
+		"second pod sharing that claim": {pod: claimingPod(ns, "vllm-replica", "npu-claim"), want: true},
+		"passthrough claim":             {pod: claimingPod(ns, "virt-launcher", "vfio-claim"), want: false},
+		"claim that no longer exists":   {pod: claimingPod(ns, "dangling", "deleted-claim"), want: false},
+		"finished pod":                  {pod: finished, want: false},
+		"no claim at all": {
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "plain"},
+				Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+			},
+			want: false,
+		},
+	}
+
+	matcher := newNPUClaimMatcher(clientset, []string{npuDeviceClass})
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := matcher.holdsNPUClaim(context.Background(), tc.pod); got != tc.want {
+				t.Fatalf("holdsNPUClaim(%s) = %v, want %v", tc.pod.Name, got, tc.want)
+			}
+		})
+	}
+	// One Get per distinct claim, not per pod: three claims are referenced
+	// by five pods, and the finished pod is gated before any read.
+	if claimReads != 3 {
+		t.Fatalf("resource claim reads = %d, want 3", claimReads)
 	}
 }
 
 // Without device classes there is nothing to match, and the lookup must not
 // issue a single API call.
-func TestPodsHoldingNPUDeviceClaimSkipsLookupWithoutDeviceClasses(t *testing.T) {
+func TestNPUClaimMatcherSkipsLookupWithoutDeviceClasses(t *testing.T) {
 	clientset := k8sfake.NewClientset()
 	clientset.PrependReactor("get", "resourceclaims",
 		func(k8stesting.Action) (bool, runtime.Object, error) {
@@ -232,15 +248,15 @@ func TestPodsHoldingNPUDeviceClaimSkipsLookupWithoutDeviceClasses(t *testing.T) 
 			return true, nil, errors.New("unexpected call")
 		})
 
-	pods := []corev1.Pod{*claimingPod("ns", "vllm", "npu-claim")}
-	if got := podsHoldingNPUDeviceClaim(context.Background(), clientset, pods, nil); len(got) != 0 {
-		t.Fatalf("holders = %v, want none", got)
+	matcher := newNPUClaimMatcher(clientset, nil)
+	if matcher.holdsNPUClaim(context.Background(), claimingPod("ns", "vllm", "npu-claim")) {
+		t.Fatal("holdsNPUClaim() = true, want false without device classes")
 	}
 }
 
 // One missing RBAC rule or a flaky read must not park every node in the
 // cluster: an unreadable claim counts as not holding an NPU.
-func TestPodsHoldingNPUDeviceClaimTreatsUnreadableClaimAsAbsent(t *testing.T) {
+func TestNPUClaimMatcherTreatsUnreadableClaimAsAbsent(t *testing.T) {
 	clientset := k8sfake.NewClientset()
 	clientset.PrependReactor("get", "resourceclaims",
 		func(k8stesting.Action) (bool, runtime.Object, error) {
@@ -249,8 +265,8 @@ func TestPodsHoldingNPUDeviceClaimTreatsUnreadableClaimAsAbsent(t *testing.T) {
 				errors.New("no permission"))
 		})
 
-	pods := []corev1.Pod{*claimingPod("ns", "vllm", "npu-claim")}
-	if got := podsHoldingNPUDeviceClaim(context.Background(), clientset, pods, []string{npuDeviceClass}); len(got) != 0 {
-		t.Fatalf("holders = %v, want none", got)
+	matcher := newNPUClaimMatcher(clientset, []string{npuDeviceClass})
+	if matcher.holdsNPUClaim(context.Background(), claimingPod("ns", "vllm", "npu-claim")) {
+		t.Fatal("holdsNPUClaim() = true, want false for a claim that cannot be read")
 	}
 }

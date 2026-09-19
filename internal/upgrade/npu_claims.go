@@ -43,48 +43,73 @@ func npuDeviceClassNames(ctx context.Context, k8sInterface kubernetes.Interface)
 	return names, nil
 }
 
-// podsHoldingNPUDeviceClaim returns the pods that hold an NPU through a DRA
+// npuDeviceClassesOrNone resolves the NPU DeviceClasses for one eviction pass.
+// A failure is not fatal either way: a cluster that does not serve the DRA API
+// answers 404 and has no claims to find, and a transient read failure must not
+// stop the rollout. Eviction then falls back to the pod-spec filter, and a pod
+// it misses surfaces as a driver pod that cannot unload the module.
+func npuDeviceClassesOrNone(ctx context.Context, k8sInterface kubernetes.Interface) []string {
+	names, err := npuDeviceClassNames(ctx, k8sInterface)
+	switch {
+	case err == nil:
+		return names
+	case apierrors.IsNotFound(err):
+		log.FromContext(ctx).V(consts.VDebug).Info(
+			"DRA device classes are not served; NPU pods holding a ResourceClaim will not be evicted")
+	default:
+		log.FromContext(ctx).Error(err,
+			"Failed to resolve NPU device classes; NPU pods holding a ResourceClaim will not be evicted")
+	}
+	return nil
+}
+
+// npuClaimMatcher reports whether a pod holds an NPU through a DRA
 // ResourceClaim rather than a resource request. Such a pod carries no
 // rebellions.ai/* entry in its container resources at all, so npuPodSpecFilter
 // cannot see it — and a pod it misses keeps /dev/rbln* open, so the driver pod
 // that follows cannot unload the module and wedges the node.
 //
+// It answers pod by pod rather than from a snapshot of the node's pods: the
+// drain helper lists the node again after the first pass, and a pod that lands
+// in between must be judged by the same criterion. Verdicts are cached per
+// claim, not per pod — pods of one workload commonly share a claim, and a node
+// runs many of them — which also keeps it to one Get per claim. One matcher
+// serves one node's eviction on that node's goroutine; it is not safe for
+// concurrent use.
+//
 // A claim that cannot be read counts as not holding an NPU: one missing RBAC
 // rule must not park every node in the cluster, and the unread claim's pod
 // surfaces as a driver pod that cannot unload the module.
-func podsHoldingNPUDeviceClaim(
-	ctx context.Context,
-	k8sInterface kubernetes.Interface,
-	pods []corev1.Pod,
-	deviceClasses []string,
-) map[string]struct{} {
-	if len(deviceClasses) == 0 {
-		return nil
-	}
+type npuClaimMatcher struct {
+	k8sInterface  kubernetes.Interface
+	deviceClasses []string
+	verdicts      map[string]bool
+}
 
-	holders := map[string]struct{}{}
-	// One Get per claim, not per pod: pods of one workload commonly share a
-	// claim, and a node runs many of them.
-	verdicts := map[string]bool{}
-	for i := range pods {
-		pod := &pods[i]
-		if len(pod.Spec.ResourceClaims) == 0 || !podRunningOrPending(pod) {
-			continue
+func newNPUClaimMatcher(k8sInterface kubernetes.Interface, deviceClasses []string) *npuClaimMatcher {
+	return &npuClaimMatcher{
+		k8sInterface:  k8sInterface,
+		deviceClasses: deviceClasses,
+		verdicts:      map[string]bool{},
+	}
+}
+
+func (m *npuClaimMatcher) holdsNPUClaim(ctx context.Context, pod *corev1.Pod) bool {
+	if len(m.deviceClasses) == 0 || len(pod.Spec.ResourceClaims) == 0 || !podRunningOrPending(pod) {
+		return false
+	}
+	for _, claimName := range podResourceClaimNames(pod) {
+		key := pod.Namespace + "/" + claimName
+		holdsNPU, decided := m.verdicts[key]
+		if !decided {
+			holdsNPU = claimUsesNPUDeviceClass(ctx, m.k8sInterface, pod.Namespace, claimName, m.deviceClasses)
+			m.verdicts[key] = holdsNPU
 		}
-		for _, claimName := range podResourceClaimNames(pod) {
-			key := pod.Namespace + "/" + claimName
-			holdsNPU, decided := verdicts[key]
-			if !decided {
-				holdsNPU = claimUsesNPUDeviceClass(ctx, k8sInterface, pod.Namespace, claimName, deviceClasses)
-				verdicts[key] = holdsNPU
-			}
-			if holdsNPU {
-				holders[podKey(pod)] = struct{}{}
-				break
-			}
+		if holdsNPU {
+			return true
 		}
 	}
-	return holders
+	return false
 }
 
 // podResourceClaimNames resolves the ResourceClaim objects a pod refers to. A

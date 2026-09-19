@@ -12,7 +12,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
@@ -21,7 +20,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 const (
@@ -243,21 +241,7 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 		return fmt.Errorf("pod deletion spec should not be empty")
 	}
 
-	deviceClasses, err := npuDeviceClassNames(ctx, m.k8sInterface)
-	if err != nil {
-		// Not fatal either way: a cluster that does not serve the DRA API
-		// answers 404 and has no claims to find, and a transient read failure
-		// must not stop the rollout. Eviction falls back to the pod-spec
-		// filter, and a pod it misses surfaces as a driver pod that cannot
-		// unload the module.
-		if apierrors.IsNotFound(err) {
-			log.FromContext(ctx).V(consts.VDebug).Info(
-				"DRA device classes are not served; NPU pods holding a ResourceClaim will not be evicted")
-		} else {
-			log.FromContext(ctx).Error(err,
-				"Failed to resolve NPU device classes; NPU pods holding a ResourceClaim will not be evicted")
-		}
-	}
+	deviceClasses := npuDeviceClassesOrNone(ctx, m.k8sInterface)
 
 	for _, node := range config.Nodes {
 		if !m.nodesInProgress.Has(node.Name) {
@@ -275,16 +259,12 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 					return
 				}
 
-				// The claim lookup is per node because it reads the node's own
-				// pods; the pod-spec filter alone cannot see a pod whose only
-				// NPU reference is a ResourceClaim.
-				claimHolders := podsHoldingNPUDeviceClaim(ctx, m.k8sInterface, podList.Items, deviceClasses)
+				// The pod-spec filter alone cannot see a pod whose only NPU
+				// reference is a ResourceClaim. One matcher per node, so both
+				// passes over the node's pods share its claim verdicts.
+				claims := newNPUClaimMatcher(m.k8sInterface, deviceClasses)
 				isNPUPod := func(pod corev1.Pod) bool {
-					if m.podDeletionFilter(pod) {
-						return true
-					}
-					_, ok := claimHolders[podKey(&pod)]
-					return ok
+					return m.podDeletionFilter(pod) || claims.holdsNPUClaim(ctx, &pod)
 				}
 
 				npuPods := make([]corev1.Pod, 0, len(podList.Items))
