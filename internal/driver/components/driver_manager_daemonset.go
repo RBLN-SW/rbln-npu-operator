@@ -3,7 +3,6 @@ package components
 import (
 	"context"
 	"fmt"
-	"reflect"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -50,6 +49,7 @@ func (h *driverManagerPatcher) handleDaemonSet(
 	ds.Annotations = k8sutil.MergeMaps(ds.Annotations, map[string]string{
 		driverLastAppliedHashAnnotation: driverConfigDigest,
 	})
+	stampTemplateHash(ds)
 
 	current, err := h.getDaemonSet(ctx, ds.Name)
 	if err != nil {
@@ -78,7 +78,7 @@ func (h *driverManagerPatcher) handleDaemonSet(
 			ds.Namespace, ds.Name, existingInstance, h.instanceName)
 	}
 
-	if h.shouldSkipDaemonSetUpdate(current, ds, driverConfigDigest) {
+	if h.shouldSkipDaemonSetUpdate(current, ds) {
 		return nil
 	}
 
@@ -101,35 +101,42 @@ func (h *driverManagerPatcher) getDaemonSet(ctx context.Context, name string) (*
 	return current, nil
 }
 
-func (h *driverManagerPatcher) shouldSkipDaemonSetUpdate(current, desired *appsv1.DaemonSet, driverConfigDigest string) bool {
+// stampTemplateHash records the hash of the desired pod spec on the DaemonSet
+// and on its pod template. It is the update gate: unlike DRIVER_CONFIG_DIGEST,
+// which covers only the driver container and decides driver reinstall and
+// rollout, this hash covers the whole pod spec so that init-container, volume
+// and scheduling changes still reach the DaemonSet. The pod template copy is
+// what the upgrade controller reads off a running pod to decide whether an
+// admitted node's pod must be recreated. The stamp lives in template metadata,
+// outside the hashed spec, so stamping does not feed back into the hash.
+func stampTemplateHash(ds *appsv1.DaemonSet) string {
+	hash := k8sutil.GetObjectHash(ds.Spec.Template.Spec)
+	stamp := map[string]string{driverLastAppliedTemplateHashAnnotation: hash}
+	ds.Annotations = k8sutil.MergeMaps(ds.Annotations, stamp)
+	ds.Spec.Template.Annotations = k8sutil.MergeMaps(ds.Spec.Template.Annotations, stamp)
+	return hash
+}
+
+// shouldSkipDaemonSetUpdate compares the desired template hash with the ones
+// stamped on the last applied DaemonSet and its pod template. The stored
+// object cannot be compared directly: the API server fills defaults the
+// operator never renders. A DaemonSet missing either stamp is updated once so
+// it gets stamped.
+func (h *driverManagerPatcher) shouldSkipDaemonSetUpdate(current, desired *appsv1.DaemonSet) bool {
 	if current == nil {
 		return false
 	}
-
-	currentHash := current.Annotations[driverLastAppliedHashAnnotation]
-	if currentHash == "" {
-		currentHash = k8sutil.GetObjectHash(current.Spec.Template.Spec.Containers)
-	}
-	if currentHash != driverConfigDigest {
-		return false
-	}
-
-	// The digest covers only the driver container, so compare the pod-level
-	// scheduling fields explicitly. Otherwise toggling the RDS pool split —
-	// which changes the base pod's exclusion affinity but not its container —
-	// would be silently skipped and never applied.
-	curSpec := current.Spec.Template.Spec
-	desSpec := desired.Spec.Template.Spec
-	if !reflect.DeepEqual(curSpec.Affinity, desSpec.Affinity) ||
-		!reflect.DeepEqual(curSpec.NodeSelector, desSpec.NodeSelector) {
+	desiredHash := desired.Annotations[driverLastAppliedTemplateHashAnnotation]
+	if current.Annotations[driverLastAppliedTemplateHashAnnotation] != desiredHash ||
+		current.Spec.Template.Annotations[driverLastAppliedTemplateHashAnnotation] != desiredHash {
 		return false
 	}
 
 	h.log.Info(
-		"Skip DaemonSet update: driver container and scheduling unchanged",
+		"Skip DaemonSet update: pod template unchanged",
 		"namespace", current.Namespace,
 		"name", current.Name,
-		"hash", driverConfigDigest,
+		"hash", desiredHash,
 	)
 	return true
 }

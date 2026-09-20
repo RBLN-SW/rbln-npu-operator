@@ -6,8 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
 
 	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
@@ -15,18 +18,104 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// podInSyncWithDS
+// ---------------------------------------------------------------------------
+
+// Rollout is decided by the driver container digest the operator stamps into
+// DRIVER_CONFIG_DIGEST, not by the DaemonSet's controller revision: an
+// init-container-only template change (driver-manager tag or env) must not
+// roll the fleet, while a driver container change must.
+func TestPodInSyncWithDS_ComparesDriverConfigDigest(t *testing.T) {
+	withDigest := func(image, digest string) []corev1.Container {
+		c := corev1.Container{Name: "k8s-driver-manager", Image: image}
+		if digest != "" {
+			c.Env = []corev1.EnvVar{{Name: consts.DriverConfigDigestEnv, Value: digest}}
+		}
+		return []corev1.Container{c}
+	}
+	newDS := func(initContainers []corev1.Container) *appsv1.DaemonSet {
+		return &appsv1.DaemonSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "rbln-driver-pool"},
+			Spec:       appsv1.DaemonSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{InitContainers: initContainers}}},
+		}
+	}
+
+	tests := map[string]struct {
+		pod          []corev1.Container
+		ds           *appsv1.DaemonSet
+		wantSynced   bool
+		wantOrphaned bool
+	}{
+		"same digest with a different init container image stays in sync": {
+			pod:        withDigest("driver-manager:v0.2.2", "d1"),
+			ds:         newDS(withDigest("driver-manager:v0.3.0", "d1")),
+			wantSynced: true,
+		},
+		"different digest is out of sync": {
+			pod:        withDigest("driver-manager:v0.2.2", "d1"),
+			ds:         newDS(withDigest("driver-manager:v0.2.2", "d2")),
+			wantSynced: false,
+		},
+		"pod without a digest is out of sync": {
+			pod:        withDigest("driver-manager:v0.1.0", ""),
+			ds:         newDS(withDigest("driver-manager:v0.2.2", "d1")),
+			wantSynced: false,
+		},
+		"orphaned pod is reported as such": {
+			pod:          withDigest("driver-manager:v0.2.2", "d1"),
+			ds:           nil,
+			wantOrphaned: true,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			mgr := newTestManager(t)
+			mgr.podManager = NewPodManager(k8sfake.NewClientset(), mgr.nodeUpgradeStateProvider, nil)
+			ns := &NodeUpgradeState{
+				Node:            &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}},
+				DriverPod:       &corev1.Pod{Spec: corev1.PodSpec{InitContainers: tc.pod}},
+				DriverDaemonSet: tc.ds,
+			}
+
+			synced, orphaned, err := mgr.podInSyncWithDS(context.Background(), ns)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if orphaned != tc.wantOrphaned {
+				t.Fatalf("orphaned = %v, want %v", orphaned, tc.wantOrphaned)
+			}
+			if synced != tc.wantSynced {
+				t.Fatalf("synced = %v, want %v", synced, tc.wantSynced)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // ProcessDoneOrUnknownNodes
 // ---------------------------------------------------------------------------
 
 func TestProcessDoneOrUnknownNodes(t *testing.T) {
 	tests := map[string]struct {
-		stateName      string
-		podRevHash     string
-		dsRevHash      string
-		annotations    map[string]string
-		wantState      string
-		safeDriverWait bool
+		stateName        string
+		podRevHash       string
+		dsRevHash        string
+		annotations      map[string]string
+		wantState        string
+		safeDriverWait   bool
+		templateOutdated bool
 	}{
+		// Admission looks at the driver container digest only: an
+		// init-container, volume or scheduling change updates the DaemonSet
+		// without starting a rollout.
+		"done node with outdated pod template but same digest stays done": {
+			stateName:        UpgradeStateDone,
+			podRevHash:       "rev1",
+			dsRevHash:        "rev1",
+			templateOutdated: true,
+			wantState:        UpgradeStateDone,
+		},
 		"unknown node with pod in sync transitions to Done": {
 			stateName:  UpgradeStateUnknown,
 			podRevHash: "rev1",
@@ -71,13 +160,16 @@ func TestProcessDoneOrUnknownNodes(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			pm := &mockPodManager{podRevisionHash: tc.podRevHash, dsRevisionHash: tc.dsRevHash}
+			pm := &mockPodManager{podDigest: tc.podRevHash, dsDigest: tc.dsRevHash}
 			sdlm := &mockSafeDriverLoadManager{waiting: tc.safeDriverWait}
 			mgr := newTestManager(t, withPodManager(pm), withSafeDriverLoadManager(sdlm))
 
 			ns := newNodeUpgradeState("node-1", tc.stateName, tc.podRevHash)
 			if tc.annotations != nil {
 				ns.Node.Annotations = tc.annotations
+			}
+			if tc.templateOutdated {
+				markPodTemplateOutdated(ns)
 			}
 			registerNodes(t, mgr, ns.Node)
 
@@ -356,6 +448,88 @@ func TestProcessUncordonRequiredNodes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// ProcessPodDeletionRequiredNodes
+// ---------------------------------------------------------------------------
+
+func TestProcessPodDeletionRequiredNodes(t *testing.T) {
+	tests := map[string]struct {
+		podDeletionEnabled bool
+		evictErr           error
+		wantErr            bool
+		wantState          string
+		wantScheduled      bool
+	}{
+		"disabled pod deletion moves the node straight to pod-restart-required": {
+			wantState: UpgradeStatePodRestartRequired,
+		},
+		"enabled pod deletion hands the node and spec to the pod manager": {
+			podDeletionEnabled: true,
+			wantState:          UpgradeStatePodDeletionRequired, // eviction is async, state stays
+			wantScheduled:      true,
+		},
+		"pod manager error propagates": {
+			podDeletionEnabled: true,
+			evictErr:           fmt.Errorf("eviction scheduling failed"),
+			wantErr:            true,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			pm := &mockPodManager{schedulePodEvictErr: tc.evictErr}
+			opts := []func(*ClusterUpgradeStateManagerImpl){withPodManager(pm)}
+			if tc.podDeletionEnabled {
+				opts = append(opts, withPodDeletionEnabled())
+			}
+			mgr := newTestManager(t, opts...)
+
+			ns := newNodeUpgradeState("node-1", UpgradeStatePodDeletionRequired, "rev0")
+			registerNodes(t, mgr, ns.Node)
+			state := newClusterState(map[string][]*NodeUpgradeState{
+				UpgradeStatePodDeletionRequired: {ns},
+			})
+			spec := &v1beta1.PodDeletionSpec{Force: true, TimeoutSeconds: 42}
+
+			err := mgr.ProcessPodDeletionRequiredNodes(context.Background(), state, spec)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			var updated corev1.Node
+			if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+				t.Fatalf("get node: %v", err)
+			}
+			if got := updated.Labels[UpgradeStateLabelKey]; got != tc.wantState {
+				t.Fatalf("node state = %q, want %q", got, tc.wantState)
+			}
+
+			if !tc.wantScheduled {
+				if len(pm.evictionConfigs) != 0 {
+					t.Fatalf("pod manager must not be called while pod deletion is disabled, got %d call(s)", len(pm.evictionConfigs))
+				}
+				return
+			}
+			if len(pm.evictionConfigs) != 1 {
+				t.Fatalf("pod manager calls = %d, want 1", len(pm.evictionConfigs))
+			}
+			config := pm.evictionConfigs[0]
+			if config.DeletionSpec != spec {
+				t.Fatalf("eviction config spec = %+v, want the policy's %+v", config.DeletionSpec, spec)
+			}
+			if len(config.Nodes) != 1 || config.Nodes[0].Name != "node-1" {
+				t.Fatalf("eviction config nodes = %d, want exactly node-1", len(config.Nodes))
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // ProcessValidationRequiredNodes
 // ---------------------------------------------------------------------------
 
@@ -611,6 +785,62 @@ func TestProcessPodRestartNodes_StuckEventEmittedWithoutJudgement(t *testing.T) 
 	}
 }
 
+// Admission is decided by DRIVER_CONFIG_DIGEST alone, but once a node is in
+// the rollout its pod is replaced whenever the pod template changed. Otherwise
+// an operator-requested attempt after a driver-manager bump would cordon and
+// drain the node and then complete on the old pod.
+func TestProcessPodRestartNodes_TemplateHash(t *testing.T) {
+	tests := map[string]struct {
+		templateOutdated bool
+		wantRestarted    bool
+		wantState        string
+	}{
+		"outdated pod template is recreated even with the digest in sync": {
+			templateOutdated: true,
+			wantRestarted:    true,
+			wantState:        UpgradeStatePodRestartRequired,
+		},
+		"current pod template completes the step": {
+			wantState: UpgradeStateUncordonRequired,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			pm := &mockPodManager{podDigest: "rev1", dsDigest: "rev1"}
+			mgr := newTestManager(t, withPodManager(pm))
+
+			ns := newNodeUpgradeState("node-1", UpgradeStatePodRestartRequired, "rev1")
+			ns.DriverPod.Status.Phase = corev1.PodRunning
+			ns.DriverPod.Status.ContainerStatuses = []corev1.ContainerStatus{{Ready: true}}
+			if tc.templateOutdated {
+				markPodTemplateOutdated(ns)
+			}
+			registerNodes(t, mgr, ns.Node)
+
+			state := newClusterState(map[string][]*NodeUpgradeState{
+				UpgradeStatePodRestartRequired: {ns},
+			})
+			if err := mgr.ProcessPodRestartNodes(context.Background(), state, 3600); err != nil {
+				t.Fatalf("ProcessPodRestartNodes: %v", err)
+			}
+
+			restarted := len(pm.restartedPods) == 1 && pm.restartedPods[0].Name == ns.DriverPod.Name
+			if restarted != tc.wantRestarted {
+				t.Fatalf("driver pod restarted = %v, want %v (restart list: %d pods)", restarted, tc.wantRestarted, len(pm.restartedPods))
+			}
+
+			var updated corev1.Node
+			if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+				t.Fatalf("get node: %v", err)
+			}
+			if got := updated.Labels[UpgradeStateLabelKey]; got != tc.wantState {
+				t.Fatalf("node state = %q, want %q", got, tc.wantState)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ProcessUpgradeSkippedNodes
 // ---------------------------------------------------------------------------
@@ -683,7 +913,7 @@ func TestProcessUpgradeSkippedNodes_WakesOnOperatorRequest(t *testing.T) {
 }
 
 func TestProcessUpgradeSkippedNodes_WakesOnNewRevision(t *testing.T) {
-	pm := &mockPodManager{podRevisionHash: "rev0", dsRevisionHash: "rev1"}
+	pm := &mockPodManager{podDigest: "rev0", dsDigest: "rev1"}
 	mgr := newTestManager(t, withPodManager(pm))
 
 	ns := newNodeUpgradeState("node-1", UpgradeStateSkipped, "rev0")
@@ -707,7 +937,7 @@ func TestProcessUpgradeSkippedNodes_WakesOnNewRevision(t *testing.T) {
 }
 
 func TestProcessUpgradeSkippedNodes_SameRevisionDoesNotWake(t *testing.T) {
-	pm := &mockPodManager{podRevisionHash: "rev0", dsRevisionHash: "rev1"}
+	pm := &mockPodManager{podDigest: "rev0", dsDigest: "rev1"}
 	mgr := newTestManager(t, withPodManager(pm))
 
 	ns := newNodeUpgradeState("node-1", UpgradeStateSkipped, "rev0")
@@ -731,7 +961,7 @@ func TestProcessUpgradeSkippedNodes_SameRevisionDoesNotWake(t *testing.T) {
 }
 
 func TestTransitionToUpgradeRequiredClearsJudgementArtifacts(t *testing.T) {
-	pm := &mockPodManager{podRevisionHash: "rev0", dsRevisionHash: "rev1"}
+	pm := &mockPodManager{podDigest: "rev0", dsDigest: "rev1"}
 	mgr := newTestManager(t, withPodManager(pm))
 
 	ns := newNodeUpgradeState("node-1", UpgradeStateDone, "rev0")
@@ -806,13 +1036,76 @@ func TestProcessUpgradeSkippedNodesKeepsCordonExceptions(t *testing.T) {
 
 func TestProcessUpgradeFailedNodes(t *testing.T) {
 	tests := map[string]struct {
-		podRevHash  string
-		dsRevHash   string
-		podPhase    corev1.PodPhase
-		podReady    bool
-		annotations map[string]string
-		wantState   string
+		podRevHash       string
+		dsRevHash        string
+		podPhase         corev1.PodPhase
+		podReady         bool
+		podTerminating   bool
+		templateOutdated bool
+		annotations      map[string]string
+		wantState        string
 	}{
+		// A pod-template change is the fix for a pod-restart failure the
+		// init container caused (a bad k8s-driver-manager tag), and it leaves
+		// DRIVER_CONFIG_DIGEST alone. The node must return to the queue so
+		// pod-restart-required replaces the stuck pod; the replacement carries
+		// the current template hash, so this wakes a node once per template.
+		"pod-restart failure with a stuck pod from an outdated template is retried": {
+			podRevHash:       "rev1",
+			dsRevHash:        "rev1",
+			podPhase:         corev1.PodPending,
+			templateOutdated: true,
+			annotations: map[string]string{
+				UpgradeFailureStepAnnotationKey:       UpgradeStatePodRestartRequired,
+				UpgradeAttemptedRevisionAnnotationKey: "rev1",
+			},
+			wantState: UpgradeStateUpgradeRequired,
+		},
+		// A Ready pod from an older template is not recovery evidence:
+		// pod-restart-required would replace it, so the node is retried
+		// rather than completed on it.
+		"pod-restart failure with a Ready pod from an outdated template is retried, not completed": {
+			podRevHash:       "rev1",
+			dsRevHash:        "rev1",
+			podPhase:         corev1.PodRunning,
+			podReady:         true,
+			templateOutdated: true,
+			annotations: map[string]string{
+				UpgradeFailureStepAnnotationKey:       UpgradeStatePodRestartRequired,
+				UpgradeAttemptedRevisionAnnotationKey: "rev1",
+			},
+			wantState: UpgradeStateUpgradeRequired,
+		},
+		// A pod already being deleted is not the pod the wake would replace:
+		// pod-restart-required skips a Terminating pod, so waking on it only
+		// cycles failed -> wake -> timeout -> failed until it is gone (kubelet
+		// down). Its replacement carries the current template hash anyway.
+		"pod-restart failure with a Terminating pod from an outdated template stays in Failed": {
+			podRevHash:       "rev1",
+			dsRevHash:        "rev1",
+			podPhase:         corev1.PodRunning,
+			podTerminating:   true,
+			templateOutdated: true,
+			annotations: map[string]string{
+				UpgradeFailureStepAnnotationKey:       UpgradeStatePodRestartRequired,
+				UpgradeAttemptedRevisionAnnotationKey: "rev1",
+			},
+			wantState: UpgradeStateFailed,
+		},
+		// The template wake is scoped to pod-restart failures: a validation
+		// failure says nothing about the pod template.
+		"validation failure with outdated pod template stays in Failed": {
+			podRevHash:       "rev1",
+			dsRevHash:        "rev1",
+			podPhase:         corev1.PodRunning,
+			podReady:         true,
+			templateOutdated: true,
+			annotations: map[string]string{
+				UpgradeFailureStepAnnotationKey:       UpgradeStateValidationRequired,
+				UpgradeAttemptedRevisionAnnotationKey: "rev1",
+			},
+			wantState: UpgradeStateFailed,
+		},
 		"pod-restart failure self-heals to UncordonRequired when pod is in sync": {
 			podRevHash: "rev1",
 			dsRevHash:  "rev1",
@@ -894,12 +1187,15 @@ func TestProcessUpgradeFailedNodes(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			pm := &mockPodManager{podRevisionHash: tc.podRevHash, dsRevisionHash: tc.dsRevHash}
+			pm := &mockPodManager{podDigest: tc.podRevHash, dsDigest: tc.dsRevHash}
 			mgr := newTestManager(t, withPodManager(pm))
 
 			ns := newNodeUpgradeState("node-1", UpgradeStateFailed, tc.podRevHash)
 			if tc.annotations != nil {
 				ns.Node.Annotations = tc.annotations
+			}
+			if tc.templateOutdated {
+				markPodTemplateOutdated(ns)
 			}
 			if tc.podPhase != "" {
 				ns.DriverPod.Status.Phase = tc.podPhase
@@ -908,6 +1204,10 @@ func TestProcessUpgradeFailedNodes(t *testing.T) {
 				ns.DriverPod.Status.ContainerStatuses = []corev1.ContainerStatus{
 					{Ready: true},
 				}
+			}
+			if tc.podTerminating {
+				now := metav1.Now()
+				ns.DriverPod.DeletionTimestamp = &now
 			}
 			registerNodes(t, mgr, ns.Node)
 
@@ -944,7 +1244,7 @@ func TestProcessUpgradeFailedNodes(t *testing.T) {
 }
 
 func TestProcessUpgradeFailedNodes_StampsAttemptedRevisionOnFirstSight(t *testing.T) {
-	pm := &mockPodManager{podRevisionHash: "rev0", dsRevisionHash: "rev1"}
+	pm := &mockPodManager{podDigest: "rev0", dsDigest: "rev1"}
 	mgr := newTestManager(t, withPodManager(pm))
 
 	ns := newNodeUpgradeState("node-1", UpgradeStateFailed, "rev0")

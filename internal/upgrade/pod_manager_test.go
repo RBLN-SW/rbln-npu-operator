@@ -19,31 +19,57 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
-func TestGetPodControllerRevisionHash(t *testing.T) {
+func TestGetPodDriverConfigDigest(t *testing.T) {
 	pm := &PodManager{}
 
-	t.Run("returns hash when label exists", func(t *testing.T) {
-		pod := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Labels: map[string]string{PodControllerRevisionHashLabelKey: "abc123"},
-			},
-		}
-		hash, err := pm.GetPodControllerRevisionHash(pod)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if hash != "abc123" {
-			t.Fatalf("hash = %q, want %q", hash, "abc123")
+	t.Run("returns the digest stamped on the driver-manager init container", func(t *testing.T) {
+		pod := &corev1.Pod{Spec: corev1.PodSpec{InitContainers: []corev1.Container{{
+			Name: "k8s-driver-manager",
+			Env:  []corev1.EnvVar{{Name: consts.DriverConfigDigestEnv, Value: "abc123"}},
+		}}}}
+		if got := pm.GetPodDriverConfigDigest(pod); got != "abc123" {
+			t.Fatalf("digest = %q, want %q", got, "abc123")
 		}
 	})
 
-	t.Run("returns error when label is missing", func(t *testing.T) {
-		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{}}}
-		_, err := pm.GetPodControllerRevisionHash(pod)
-		if err == nil {
-			t.Fatal("expected error for missing label")
+	// A pod rendered before the digest existed must read as out of sync, not
+	// as an error that strands the node.
+	t.Run("returns empty when the pod carries no digest", func(t *testing.T) {
+		pod := &corev1.Pod{Spec: corev1.PodSpec{InitContainers: []corev1.Container{{Name: "k8s-driver-manager"}}}}
+		if got := pm.GetPodDriverConfigDigest(pod); got != "" {
+			t.Fatalf("digest = %q, want empty", got)
+		}
+	})
+}
+
+func TestGetDaemonSetDriverConfigDigest(t *testing.T) {
+	pm := &PodManager{}
+
+	t.Run("returns the digest from the pod template", func(t *testing.T) {
+		ds := &appsv1.DaemonSet{Spec: appsv1.DaemonSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{{
+				Name: "k8s-driver-manager",
+				Env:  []corev1.EnvVar{{Name: consts.DriverConfigDigestEnv, Value: "abc123"}},
+			}},
+		}}}}
+		got, err := pm.GetDaemonSetDriverConfigDigest(ds)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "abc123" {
+			t.Fatalf("digest = %q, want %q", got, "abc123")
+		}
+	})
+
+	// The operator stamps every driver DaemonSet it renders; a missing digest
+	// is an operator bug, not a legacy object.
+	t.Run("errors when the template carries no digest", func(t *testing.T) {
+		ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "rbln-driver-pool"}}
+		if _, err := pm.GetDaemonSetDriverConfigDigest(ds); err == nil {
+			t.Fatal("expected error for missing digest")
 		}
 	})
 }

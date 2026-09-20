@@ -20,20 +20,29 @@ func (m *ClusterUpgradeStateManagerImpl) podInSyncWithDS(ctx context.Context,
 	if isOrphened = nodeState.IsOrphanedPod(); isOrphened {
 		return isPodSynced, isOrphened, nil
 	}
-	podRevisionHash, err := m.podManager.GetPodControllerRevisionHash(nodeState.DriverPod)
+	podDigest := m.podManager.GetPodDriverConfigDigest(nodeState.DriverPod)
+	log.FromContext(ctx).V(consts.VDebug).Info("Pod driver config digest", "digest", podDigest)
+	daemonsetDigest, err := m.podManager.GetDaemonSetDriverConfigDigest(nodeState.DriverDaemonSet)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get pod template revision hash", "pod", nodeState.DriverPod)
+		log.FromContext(ctx).Error(err, "Failed to get daemonset driver config digest", "daemonset", nodeState.DriverDaemonSet.Name)
 		return isPodSynced, isOrphened, err
 	}
-	log.FromContext(ctx).V(consts.VDebug).Info("Pod template revision hash", "hash", podRevisionHash)
-	daemonsetRevisionHash, err := m.podManager.GetDaemonsetControllerRevisionHash(ctx, nodeState.DriverDaemonSet)
-	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get daemonset template revision hash", "daemonset", nodeState.DriverDaemonSet)
-		return isPodSynced, isOrphened, err
-	}
-	log.FromContext(ctx).V(consts.VDebug).Info("Daemonset template revision hash", "hash", daemonsetRevisionHash)
-	isPodSynced = podRevisionHash == daemonsetRevisionHash
+	log.FromContext(ctx).V(consts.VDebug).Info("Daemonset driver config digest", "digest", daemonsetDigest)
+	isPodSynced = podDigest == daemonsetDigest
 	return isPodSynced, isOrphened, nil
+}
+
+// driverPodTemplateOutdated reports whether the pod was rendered from an older
+// pod template than its DaemonSet now carries. Admission never looks at this:
+// DRIVER_CONFIG_DIGEST alone starts a rollout. But a node already in the
+// rollout replaces its pod whenever any part of the template changed, so an
+// operator-requested attempt lands init-container, volume and scheduling
+// changes too instead of completing on the old pod, and a node parked in
+// upgrade-failed at the pod-restart step is retried when the template moves.
+// Callers must rule out an orphaned pod first.
+func driverPodTemplateOutdated(nodeState *NodeUpgradeState) bool {
+	return nodeState.DriverPod.Annotations[consts.DriverTemplateHashAnnotation] !=
+		nodeState.DriverDaemonSet.Spec.Template.Annotations[consts.DriverTemplateHashAnnotation]
 }
 
 func (m *ClusterUpgradeStateManagerImpl) ProcessDoneOrUnknownNodes(
@@ -90,7 +99,7 @@ func (m *ClusterUpgradeStateManagerImpl) shouldRequireUpgradeForDoneOrUnknownNod
 ) (bool, error) {
 	isPodSynced, isOrphaned, err := m.podInSyncWithDS(ctx, nodeState)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get daemonset template/pod revision hash")
+		log.FromContext(ctx).Error(err, "Failed to compare pod and daemonset driver config digest")
 		return false, err
 	}
 
@@ -329,13 +338,13 @@ func (m *ClusterUpgradeStateManagerImpl) isDriverPodInSync(ctx context.Context,
 ) (bool, error) {
 	isPodSynced, isOrphaned, err := m.podInSyncWithDS(ctx, nodeState)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get daemonset template/pod revision hash")
+		log.FromContext(ctx).Error(err, "Failed to compare pod and daemonset driver config digest")
 		return false, err
 	}
 	if isOrphaned {
 		return false, nil
 	}
-	if isPodSynced &&
+	if isPodSynced && !driverPodTemplateOutdated(nodeState) &&
 		nodeState.DriverPod.Status.Phase == corev1.PodRunning &&
 		len(nodeState.DriverPod.Status.ContainerStatuses) != 0 {
 		for i := range nodeState.DriverPod.Status.ContainerStatuses {
@@ -420,10 +429,10 @@ func (m *ClusterUpgradeStateManagerImpl) processPodRestartNode(
 
 	isPodSynced, isOrphaned, err := m.podInSyncWithDS(ctx, nodeState)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to get daemonset template/pod revision hash")
+		log.FromContext(ctx).Error(err, "Failed to compare pod and daemonset driver config digest")
 		return err
 	}
-	if !isPodSynced || isOrphaned {
+	if isOrphaned || !isPodSynced || driverPodTemplateOutdated(nodeState) {
 		if nodeState.DriverPod.DeletionTimestamp.IsZero() {
 			*pods = append(*pods, nodeState.DriverPod)
 		}
@@ -558,13 +567,11 @@ func (m *ClusterUpgradeStateManagerImpl) isDriverPodFailing(pod *corev1.Pod) boo
 	return false
 }
 
-func (m *ClusterUpgradeStateManagerImpl) currentDSRevisionHash(
-	ctx context.Context, nodeState *NodeUpgradeState,
-) (string, error) {
+func (m *ClusterUpgradeStateManagerImpl) currentDriverConfigDigest(nodeState *NodeUpgradeState) (string, error) {
 	if nodeState.IsOrphanedPod() {
 		return "", nil
 	}
-	return m.podManager.GetDaemonsetControllerRevisionHash(ctx, nodeState.DriverDaemonSet)
+	return m.podManager.GetDaemonSetDriverConfigDigest(nodeState.DriverDaemonSet)
 }
 
 // clearParkedBookkeeping drops the attempt's judgement artifacts.
@@ -608,7 +615,7 @@ func (m *ClusterUpgradeStateManagerImpl) wakeParkedNode(
 func (m *ClusterUpgradeStateManagerImpl) newRevisionPushed(
 	ctx context.Context, nodeState *NodeUpgradeState,
 ) (bool, error) {
-	currentRevision, err := m.currentDSRevisionHash(ctx, nodeState)
+	currentRevision, err := m.currentDriverConfigDigest(nodeState)
 	if err != nil {
 		return false, err
 	}
@@ -646,6 +653,18 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessUpgradeFailedNodes(
 // Self-heal is allowed only for pod-restart failures: the replacement pod
 // becoming in-sync and Ready is recovery evidence there, while for validation
 // failures a Ready pod is only the entry condition.
+//
+// A pod-restart failure is also retried when the pod template changes. The
+// fix for a failure the init container caused (a bad k8s-driver-manager tag)
+// leaves DRIVER_CONFIG_DIGEST alone, so newRevisionPushed never sees it, and
+// kubelet cannot make the stuck pod Ready from its stale spec. The wake is
+// self-limiting: the replacement pod carries the current template hash, so a
+// node that fails again on the new template parks until the next change.
+// That relies on a replacement appearing, so a pod already being deleted
+// does not wake the node: pod-restart-required skips a Terminating pod, and
+// waking on it would cycle failed -> wake -> timeout -> failed for as long
+// as the pod lingers (kubelet down). Once it is gone, the replacement is
+// judged on the current template like any other.
 func (m *ClusterUpgradeStateManagerImpl) processUpgradeFailedNode(
 	ctx context.Context, nodeState *NodeUpgradeState,
 ) error {
@@ -664,6 +683,10 @@ func (m *ClusterUpgradeStateManagerImpl) processUpgradeFailedNode(
 				return err
 			}
 			return m.updateNodeToUncordonOrDoneState(ctx, nodeState)
+		}
+		if !nodeState.IsOrphanedPod() && driverPodTemplateOutdated(nodeState) &&
+			nodeState.DriverPod.DeletionTimestamp.IsZero() {
+			return m.wakeParkedNode(ctx, node, "driver pod template updated")
 		}
 	}
 
@@ -716,7 +739,7 @@ func (m *ClusterUpgradeStateManagerImpl) processUpgradeSkippedNode(
 	// Stamp the attempt revision on first sight so the node never wakes on
 	// the very revision it was parked under.
 	if node.Annotations[UpgradeAttemptedRevisionAnnotationKey] == "" {
-		currentRevision, err := m.currentDSRevisionHash(ctx, nodeState)
+		currentRevision, err := m.currentDriverConfigDigest(nodeState)
 		if err != nil {
 			log.FromContext(ctx).Error(err, "Failed to resolve driver revision for skipped node", "node", node.Name)
 			return err
