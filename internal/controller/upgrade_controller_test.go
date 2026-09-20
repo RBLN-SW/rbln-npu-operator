@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -28,6 +29,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
@@ -233,6 +236,68 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
 			expectNodeHasNoAnnotation(ctx, nodeName, upgrade.UpgradeValidationStartTimeAnnotationKey)
 			expectNodeHasNoAnnotation(ctx, nodeName, upgrade.UpgradeWaitForPodCompletionStartTimeAnnotationKey)
+		})
+
+		// The attempt's judgement artifacts go with the label. Admission drops
+		// them through clearParkedBookkeeping, but a node whose driver pod is
+		// already in sync is moved straight to upgrade-done without passing it.
+		It("drops the parked-node bookkeeping", func() {
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, upgrade.UpgradeStateSkipped)
+			setNodeAnnotation(ctx, nodeName, upgrade.UpgradePodRestartStartTimeAnnotationKey, "1")
+			setNodeAnnotation(ctx, nodeName, upgrade.UpgradeSkipReasonAnnotationKey, "pod eviction blocked")
+			setNodeAnnotation(ctx, nodeName, upgrade.UpgradeAttemptedRevisionAnnotationKey, "digest-a")
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+			expectNodeHasNoAnnotation(ctx, nodeName, upgrade.UpgradePodRestartStartTimeAnnotationKey)
+			expectNodeHasNoAnnotation(ctx, nodeName, upgrade.UpgradeSkipReasonAnnotationKey)
+			expectNodeHasNoAnnotation(ctx, nodeName, upgrade.UpgradeAttemptedRevisionAnnotationKey)
+		})
+
+		// The verdict comes from labels the state manager wrote through its own
+		// direct client moments ago; the informer cache may not have caught up,
+		// so the nodes must be read from the API server.
+		It("reads the nodes from the API server, not the cache", func() {
+			reconciler.Client = newInterceptedClient(interceptor.Funcs{
+				List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+					if _, isNodes := list.(*corev1.NodeList); isNodes {
+						return errors.New("node list served from the cache")
+					}
+					return c.List(ctx, list, opts...)
+				},
+			})
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+		})
+
+		// One node's patch failing must not leave the nodes behind it labeled
+		// and cordoned until the requeue; each node is torn down on its own.
+		It("keeps tearing down the other nodes when one patch fails", func() {
+			// Sorts before the shared node, so the old loop would stop here.
+			failingNode := fmt.Sprintf("a-teardown-fail-%d", GinkgoParallelProcess())
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+				Name:   failingNode,
+				Labels: map[string]string{upgrade.UpgradeStateLabelKey: upgrade.UpgradeStateUpgradeRequired},
+			}}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, node)).To(Succeed()) })
+
+			reconciler.Client = newInterceptedClient(interceptor.Funcs{
+				Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+					if obj.GetName() == failingNode {
+						return errors.New("patch rejected")
+					}
+					return c.Patch(ctx, obj, patch, opts...)
+				},
+			})
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).To(MatchError(ContainSubstring(failingNode)))
+			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
 		})
 	})
 
@@ -455,10 +520,19 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 func newTestUpgradeReconciler(sm upgrade.ClusterUpgradeStateManager) *UpgradeReconciler {
 	return &UpgradeReconciler{
 		Client:       k8sClient,
+		APIReader:    k8sClient,
 		Scheme:       k8sClient.Scheme(),
 		Namespace:    "test-namespace",
 		StateManager: sm,
 	}
+}
+
+// newInterceptedClient wraps a direct client so a test can fail selected calls.
+func newInterceptedClient(funcs interceptor.Funcs) client.Client {
+	GinkgoHelper()
+	direct, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+	Expect(err).NotTo(HaveOccurred())
+	return interceptor.NewClient(direct, funcs)
 }
 
 // ---------------------------------------------------------------------------

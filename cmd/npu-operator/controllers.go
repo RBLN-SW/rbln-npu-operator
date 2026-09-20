@@ -79,6 +79,7 @@ func registerUpgradeController(ctx context.Context, mgr ctrl.Manager, recorder r
 
 	if err := (&controller.UpgradeReconciler{
 		Client:       mgr.GetClient(),
+		APIReader:    mgr.GetAPIReader(),
 		Scheme:       mgr.GetScheme(),
 		Namespace:    namespace,
 		StateManager: stateManager,
