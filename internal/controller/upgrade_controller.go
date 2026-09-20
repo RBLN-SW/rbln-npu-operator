@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -40,6 +41,11 @@ const (
 
 type UpgradeReconciler struct {
 	client.Client
+	// APIReader bypasses the informer cache. The teardown's verdict comes from
+	// the state label and annotations, which the state manager writes through
+	// its own direct client; a pass that lists them from the cache can act on
+	// the state a node was in before the previous pass moved it.
+	APIReader    client.Reader
 	Scheme       *runtime.Scheme
 	Namespace    string
 	StateManager upgrade.ClusterUpgradeStateManager
@@ -93,7 +99,7 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			logger.Error(err, "Failed to clear driver upgrade status")
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, r.removeNodeUpgradeStateLabels(ctx)
+		return ctrl.Result{}, r.removeNodeUpgradeState(ctx)
 	}
 
 	driverLabel := map[string]string{DriverLabelKey: DriverLabelValue}
@@ -136,30 +142,93 @@ func (r *UpgradeReconciler) cleanupIfNoPoliciesLeft(ctx context.Context) error {
 		return nil
 	}
 	metrics.DriverUpgradeNodes.Reset()
-	return r.removeNodeUpgradeStateLabels(ctx)
+	return r.removeNodeUpgradeState(ctx)
 }
 
-// removeNodeUpgradeStateLabels loops over nodes in the cluster and removes "rebellions.ai/npu-driver-upgrade-state"
-// It is used for cleanup when autoUpgrade feature gets disabled
-func (r *UpgradeReconciler) removeNodeUpgradeStateLabels(ctx context.Context) error {
+// removeNodeUpgradeState tears the workflow's node bookkeeping down: the state
+// label, the initial-state annotation, the timeout clocks and the attempt's
+// bookkeeping go, and the cordon this rollout took is lifted. Label and cordon
+// move in one patch, so a node can never be left uncordoned while still
+// labeled, or labeled while already back in service.
+//
+// The initial-state annotation has to go with the label. It records whether the
+// node was unschedulable when the rollout admitted it, and left behind it
+// outlives the rollout that meant it: the next one would read this rollout's own
+// leftover cordon as the administrator's and refuse to lift it forever. The
+// timeout clocks are cleared only when their state completes, so a rollout
+// paused inside one would hand the next rollout a stale epoch and an instant
+// timeout. The attempt's bookkeeping is dropped on admission by
+// clearParkedBookkeeping, but a node whose driver pod is already in sync goes
+// straight to upgrade-done and never passes it.
+//
+// A node parked in upgrade-failed is left alone entirely. Its cordon stays on
+// purpose, the driver did not come up, and its label has to stay with it:
+// stripped of the label, the next rollout would admit the node as unknown, read
+// the leftover cordon as the administrator's, wipe the failure reason on the way
+// in and finish without ever uncordoning. With the label it is retried as a
+// parked node (ProcessUpgradeFailedNodes), which knows the cordon is its own.
+func (r *UpgradeReconciler) removeNodeUpgradeState(ctx context.Context) error {
 	logger := log.FromContext(ctx)
-	logger.Info("Resetting node upgrade labels from all nodes")
+	logger.Info("Resetting node upgrade state from all nodes")
 
 	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList, client.HasLabels{upgrade.UpgradeStateLabelKey}); err != nil {
-		logger.Error(err, "Failed to get node list to reset upgrade labels")
-		return err
+	if err := r.APIReader.List(ctx, nodeList, client.HasLabels{upgrade.UpgradeStateLabelKey}); err != nil {
+		return fmt.Errorf("list nodes carrying the upgrade state label: %w", err)
 	}
 
+	// Each node is torn down on its own: one rejected patch must not leave the
+	// nodes behind it labeled and cordoned until the requeue.
+	var errs []error
 	for i := range nodeList.Items {
 		node := &nodeList.Items[i]
-		patchBytes := fmt.Appendf(nil, `{"metadata":{"labels":{%q:null}}}`, upgrade.UpgradeStateLabelKey)
-		if err := r.Patch(ctx, node, client.RawPatch(types.MergePatchType, patchBytes)); err != nil {
-			logger.Error(err, "Failed to reset upgrade state label from node", "node", node.Name)
-			return err
+		state := node.Labels[upgrade.UpgradeStateLabelKey]
+		if state == upgrade.UpgradeStateFailed {
+			logger.Info("Leaving upgrade-failed node parked with its label and cordon", "node", node.Name)
+			continue
+		}
+		releaseCordon := upgrade.ShouldReleaseCordonOnTeardown(node)
+		patch, err := upgradeStateTeardownPatch(releaseCordon)
+		if err != nil {
+			return fmt.Errorf("build teardown patch for node %q: %w", node.Name, err)
+		}
+		if err = r.Patch(ctx, node, client.RawPatch(types.MergePatchType, patch)); err != nil {
+			errs = append(errs, fmt.Errorf("reset upgrade state on node %q: %w", node.Name, err))
+			continue
+		}
+		if releaseCordon {
+			logger.Info("Returned the node to service, lifting any cordon the rollout took",
+				"node", node.Name, "state", state)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
+}
+
+// teardownAnnotationKeys is the node bookkeeping that goes with the state
+// label; removeNodeUpgradeState explains why each entry has to.
+var teardownAnnotationKeys = []string{
+	upgrade.UpgradeInitialStateAnnotationKey,
+	upgrade.UpgradeValidationStartTimeAnnotationKey,
+	upgrade.UpgradeWaitForPodCompletionStartTimeAnnotationKey,
+	upgrade.UpgradePodRestartStartTimeAnnotationKey,
+	upgrade.UpgradeSkipReasonAnnotationKey,
+	upgrade.UpgradeAttemptedRevisionAnnotationKey,
+}
+
+func upgradeStateTeardownPatch(releaseCordon bool) ([]byte, error) {
+	annotations := make(map[string]any, len(teardownAnnotationKeys))
+	for _, key := range teardownAnnotationKeys {
+		annotations[key] = nil
+	}
+	patch := map[string]any{
+		"metadata": map[string]any{
+			"labels":      map[string]any{upgrade.UpgradeStateLabelKey: nil},
+			"annotations": annotations,
+		},
+	}
+	if releaseCordon {
+		patch["spec"] = map[string]any{"unschedulable": false}
+	}
+	return json.Marshal(patch)
 }
 
 // clusterPolicyUpgradePredicate also fires on status transitions (state or

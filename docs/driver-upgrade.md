@@ -17,7 +17,7 @@ The driver DaemonSet uses the `OnDelete` update strategy, so a new driver image 
 
 A node enters a rollout when the driver container configuration its driver pod was rendered with differs from the DaemonSet's current one (the `DRIVER_CONFIG_DIGEST` the operator stamps into the pod), or when it carries the annotation `rebellions.ai/npu-driver-upgrade-requested=true`. Changes that leave the driver container's spec alone, such as a new `k8s-driver-manager` image, an init container environment variable or a toleration, update the DaemonSet but start no rollout. Each node picks them up the next time its driver pod is recreated: at the next driver rollout, or on request through the annotation above, which recreates the pod whenever any part of its template is out of date.
 
-Setting `autoUpgrade` back to `false` removes the state label from every node and clears `status.driverUpgrade` and its conditions.
+Setting `autoUpgrade` back to `false` clears `status.driverUpgrade` and its conditions, removes the state label and the rollout's bookkeeping annotations from every node, and returns nodes caught mid-rollout to service by lifting the cordon the rollout took. A cordon that was already on the node before the rollout admitted it is left in place. A node parked in `upgrade-failed` is left alone entirely: it keeps its label, its `npu-driver-upgrade-failure-reason` annotation and its cordon, so that the next rollout retries it as a parked node and knows the cordon is its own to lift. Deleting the last `RBLNClusterPolicy` does the same.
 
 ```yaml
 driver:
@@ -200,7 +200,7 @@ All keys are prefixed `rebellions.ai/`. The operator writes the first three; `np
 |------------|-----|---------|
 | `npu-driver-upgrade-failure-reason` | On the transition to `upgrade-failed`: the failure message, truncated to 400 characters | When the node is retried or self-heals |
 | `npu-driver-upgrade-failure-step` | On the transition to `upgrade-failed`: the state the node failed in | When the node is retried or self-heals |
-| `npu-driver-upgrade-skip-reason` | On the transition to `upgrade-skipped`: the eviction error, truncated to 400 characters | When the node is retried |
+| `npu-driver-upgrade-skip-reason` | On the transition to `upgrade-skipped`: the eviction error, truncated to 400 characters | When the node is retried, or when `autoUpgrade` is turned off |
 | `npu-driver-upgrade-requested` | `true`, by you, to request one attempt for a done, skipped, or failed node | By the operator when it re-admits the node |
 
 ### Events
@@ -232,7 +232,7 @@ The gauge `rbln_operator_driver_upgrade_nodes{state=...}` reports the number of 
 Releases up to v0.5.0 accepted `upgradePolicy.drain` and `upgradePolicy.reboot`. Both blocks are gone: the operator evicts only the node's NPU pods and never reboots a node.
 
 -   **Manifests.** Remove `drain` and `reboot` from any `RBLNClusterPolicy` manifest you apply directly; once the new CRD is installed, `kubectl apply` rejects them as unknown fields. If you relied on `drain.deleteEmptyDirData`, set `podDeletion.deleteEmptyDirData` instead. Helm-managed policies no longer render either block, and a `drain` block left in your values file fails the install with the same instruction (chart key: `npuPodDeletion.deleteEmptyDirData`); a leftover `reboot` block is ignored silently.
--   **Nodes mid-rollout.** Before upgrading the operator, finish or pause the rollout (`autoUpgrade: false`) so that no node is in `drain-required`, `reboot-required`, `reboot-validation-required` or `reboot-post-required`. Uncordon those nodes by hand, and delete any leftover `rbln-reboot-*` pod in the operator namespace before it reboots the node. A node left in one of the removed states past the upgrade is re-evaluated by the new operator and completes as `upgrade-done` (through the new flow when its driver pod is still the old revision, directly otherwise), but its cordon is not lifted and no event points at it.
+-   **Nodes mid-rollout.** Before upgrading the operator, finish or pause the rollout (`autoUpgrade: false`) so that no node is in `drain-required`, `reboot-required`, `reboot-validation-required` or `reboot-post-required`. Pausing does not lift the cordons those nodes hold, on the old operator or on the new one, which does not know the removed state names. Uncordon those nodes by hand, and delete any leftover `rbln-reboot-*` pod in the operator namespace before it reboots the node. A node left in one of the removed states past the upgrade is re-evaluated by the new operator and completes as `upgrade-done` (through the new flow when its driver pod is still the old revision, directly otherwise), but its cordon is not lifted and no event points at it.
 
     ```bash
     $ kubectl get nodes -l 'rebellions.ai/npu-driver-upgrade-state in (drain-required,reboot-required,reboot-validation-required,reboot-post-required)'
