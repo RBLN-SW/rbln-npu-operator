@@ -28,6 +28,7 @@ type mockPodManager struct {
 	scheduleCheckOnPodCp error
 
 	evictionConfigs []*PodManagerConfig
+	restartedPods   []*corev1.Pod
 }
 
 func (m *mockPodManager) GetPodDriverConfigDigest(_ *corev1.Pod) string {
@@ -47,8 +48,17 @@ func (m *mockPodManager) SchedulePodEviction(_ context.Context, config *PodManag
 	return m.schedulePodEvictErr
 }
 
-func (m *mockPodManager) SchedulePodsRestart(_ context.Context, _ []*corev1.Pod) error {
+func (m *mockPodManager) SchedulePodsRestart(_ context.Context, pods []*corev1.Pod) error {
+	m.restartedPods = append(m.restartedPods, pods...)
 	return m.schedulePodsRestart
+}
+
+// markPodTemplateOutdated gives the pod and its DaemonSet different template
+// hashes, so the pod reads as rendered from an older template while its
+// DRIVER_CONFIG_DIGEST stays whatever the mock reports.
+func markPodTemplateOutdated(ns *NodeUpgradeState) {
+	ns.DriverPod.Annotations = map[string]string{consts.DriverTemplateHashAnnotation: "tmpl-old"}
+	ns.DriverDaemonSet.Spec.Template.Annotations = map[string]string{consts.DriverTemplateHashAnnotation: "tmpl-new"}
 }
 
 // ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ This document covers:
 
 The driver DaemonSet uses the `OnDelete` update strategy, so a new driver image changes nothing on a node until its driver pod is deleted. With `autoUpgrade: true` the operator deletes it: the node is cordoned, NPU workloads are moved off, the driver pod is replaced, validated, and uncordoned. `maxParallelUpgrades` nodes go through this at a time.
 
-A node enters a rollout when the driver container configuration its driver pod was rendered with differs from the DaemonSet's current one (the `DRIVER_CONFIG_DIGEST` the operator stamps into the pod), or when it carries the annotation `rebellions.ai/npu-driver-upgrade-requested=true`. Changes that leave the driver container alone, such as a new `k8s-driver-manager` image, an init container environment variable, a volume or a toleration, update the DaemonSet but start no rollout: each node picks them up the next time its driver pod is recreated.
+A node enters a rollout when the driver container configuration its driver pod was rendered with differs from the DaemonSet's current one (the `DRIVER_CONFIG_DIGEST` the operator stamps into the pod), or when it carries the annotation `rebellions.ai/npu-driver-upgrade-requested=true`. Changes that leave the driver container's spec alone, such as a new `k8s-driver-manager` image, an init container environment variable or a toleration, update the DaemonSet but start no rollout. Each node picks them up the next time its driver pod is recreated: at the next driver rollout, or on request through the annotation above, which recreates the pod whenever any part of its template is out of date.
 
 Setting `autoUpgrade` back to `false` removes the state label from every node and clears `status.driverUpgrade` and its conditions.
 
@@ -117,7 +117,8 @@ During `pod-restart-required`, a driver pod in `ImagePullBackOff`, `ErrImagePull
     ```
 
 -   **New driver revision.** Publishing a new driver image starts a new rollout, and every skipped or failed node is retried once.
--   **Self-heal.** A node that failed in `pod-restart-required` resumes on its own once its driver pod becomes Ready. Validation failures never self-heal.
+-   **Self-heal.** A node that failed in `pod-restart-required` resumes on its own once a driver pod rendered from the DaemonSet's current template becomes Ready. Validation failures never self-heal.
+-   **Pod template change.** A node that failed in `pod-restart-required` is also retried once when the driver DaemonSet's pod template changes without a new driver revision, which is how a bad `k8s-driver-manager` image is fixed: the stuck pod can never become Ready from its old spec, so correcting the image re-admits the nodes it broke. Nodes in `upgrade-done` are not touched by such a change.
 
 To exclude a node from rollouts, label it `rebellions.ai/npu-driver-upgrade.skip=true`; the node parks in `upgrade-required` until the label is removed.
 
@@ -241,3 +242,4 @@ Releases up to v0.5.0 accepted `upgradePolicy.drain` and `upgradePolicy.reboot`.
 
     The annotations `rebellions.ai/npu-driver-upgrade-pre-reboot-boot-id`, `-reboot-requested-at`, `-reboot-pod-name` and `-reboot-post-start-time` are left on such nodes and can be removed.
 -   **Parked nodes are retried once.** This version identifies a driver revision by `DRIVER_CONFIG_DIGEST` instead of the DaemonSet controller revision. A node parked in `upgrade-skipped` or `upgrade-failed` by the old operator recorded the old identifier as its attempted revision, so on the first reconcile it reads as facing a new revision and is re-admitted once, exactly as it would be for a new driver image.
+-   **Nodes in `pod-restart-required` restart their driver pod once more.** The new operator stamps every driver DaemonSet's pod template with `rebellions.ai/last-applied-template-hash` on its first pass. A driver pod the old operator already replaced carries no such stamp, so a node still in `pod-restart-required` reads its pod as outdated and recreates it one more time before completing. Nodes in `upgrade-done` are not affected.

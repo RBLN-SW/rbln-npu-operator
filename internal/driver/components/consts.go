@@ -15,7 +15,7 @@ const (
 	driverManagerSyncDriverLabel              = "reconcile-driver-state"
 	driverConfigDigestEnv                     = consts.DriverConfigDigestEnv
 	driverLastAppliedHashAnnotation           = "rebellions.ai/last-applied-hash"
-	driverLastAppliedTemplateHashAnnotation   = "rebellions.ai/last-applied-template-hash"
+	driverLastAppliedTemplateHashAnnotation   = consts.DriverTemplateHashAnnotation
 	driverInstallerCommand                    = "/opt/rebellions/bin/rbln-driver"
 	driverInstallerInitArg                    = "init"
 	startupProbeConfigMapSuffix               = "startup-probe"

@@ -253,3 +253,13 @@ const RBLNResourceNamePrefix = "rebellions.ai/"
 // node needs a rollout. Init-container, volume and scheduling changes leave it
 // unchanged on purpose, so they update the DaemonSet without rolling the fleet.
 const DriverConfigDigestEnv = "DRIVER_CONFIG_DIGEST"
+
+// DriverTemplateHashAnnotation carries the hash of a driver DaemonSet's whole
+// desired pod template. The driver reconciler stamps it on the DaemonSet and
+// on its pod template, so every driver pod records the template it was
+// rendered from. It gates DaemonSet updates, and once a node is in a rollout
+// it decides whether the pod must be recreated: DRIVER_CONFIG_DIGEST alone
+// starts a rollout, but an admitted node's pod is replaced whenever any part
+// of the template changed, so an operator-requested attempt also lands
+// init-container, volume and scheduling changes.
+const DriverTemplateHashAnnotation = "rebellions.ai/last-applied-template-hash"

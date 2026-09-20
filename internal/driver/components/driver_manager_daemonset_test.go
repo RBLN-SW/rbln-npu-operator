@@ -60,6 +60,18 @@ func TestShouldSkipDaemonSetUpdate(t *testing.T) {
 			desired:  mk(nil),
 			wantSkip: false,
 		},
+		// The upgrade controller reads the hash off the pod, so a DaemonSet
+		// whose pod template lacks it must be updated even when the
+		// DaemonSet-level annotation already matches.
+		"current without pod template hash annotation is updated once": {
+			current: func() *appsv1.DaemonSet {
+				ds := mk(nil)
+				ds.Spec.Template.Annotations = nil
+				return ds
+			}(),
+			desired:  mk(nil),
+			wantSkip: false,
+		},
 		"identical template skips update": {
 			current:  mk(nil),
 			desired:  mk(nil),
@@ -132,6 +144,30 @@ func TestStampTemplateHashIsDeterministic(t *testing.T) {
 		if again := stamp(); again != first {
 			t.Fatalf("template hash differs across identical renders: %s vs %s", first, again)
 		}
+	}
+}
+
+// The hash is stamped on the pod template as well as on the DaemonSet, so the
+// upgrade controller can read it off a running pod. The stamp lives in
+// template metadata, outside the hashed pod spec, so stamping must not change
+// the hash.
+func TestStampTemplateHashStampsPodTemplate(t *testing.T) {
+	ds := &appsv1.DaemonSet{Spec: appsv1.DaemonSetSpec{Template: corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: driverManagerContainer, Image: "driver:3.0.0"}}},
+	}}}
+
+	hash := stampTemplateHash(ds)
+	if hash == "" {
+		t.Fatal("stampTemplateHash returned an empty hash")
+	}
+	if got := ds.Annotations[driverLastAppliedTemplateHashAnnotation]; got != hash {
+		t.Fatalf("DaemonSet annotation = %q, want %q", got, hash)
+	}
+	if got := ds.Spec.Template.Annotations[driverLastAppliedTemplateHashAnnotation]; got != hash {
+		t.Fatalf("pod template annotation = %q, want %q", got, hash)
+	}
+	if again := stampTemplateHash(ds); again != hash {
+		t.Fatalf("re-stamping changed the hash: %s vs %s", hash, again)
 	}
 }
 

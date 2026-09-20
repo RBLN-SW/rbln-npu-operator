@@ -101,29 +101,34 @@ func (h *driverManagerPatcher) getDaemonSet(ctx context.Context, name string) (*
 	return current, nil
 }
 
-// stampTemplateHash records the hash of the desired pod template on the
-// DaemonSet. It is the update gate: unlike DRIVER_CONFIG_DIGEST, which covers
-// only the driver container and decides driver reinstall and rollout, this
-// hash covers the whole template so that init-container, volume and
-// scheduling changes still reach the DaemonSet.
+// stampTemplateHash records the hash of the desired pod spec on the DaemonSet
+// and on its pod template. It is the update gate: unlike DRIVER_CONFIG_DIGEST,
+// which covers only the driver container and decides driver reinstall and
+// rollout, this hash covers the whole pod spec so that init-container, volume
+// and scheduling changes still reach the DaemonSet. The pod template copy is
+// what the upgrade controller reads off a running pod to decide whether an
+// admitted node's pod must be recreated. The stamp lives in template metadata,
+// outside the hashed spec, so stamping does not feed back into the hash.
 func stampTemplateHash(ds *appsv1.DaemonSet) string {
 	hash := k8sutil.GetObjectHash(ds.Spec.Template.Spec)
-	ds.Annotations = k8sutil.MergeMaps(ds.Annotations, map[string]string{
-		driverLastAppliedTemplateHashAnnotation: hash,
-	})
+	stamp := map[string]string{driverLastAppliedTemplateHashAnnotation: hash}
+	ds.Annotations = k8sutil.MergeMaps(ds.Annotations, stamp)
+	ds.Spec.Template.Annotations = k8sutil.MergeMaps(ds.Spec.Template.Annotations, stamp)
 	return hash
 }
 
-// shouldSkipDaemonSetUpdate compares the desired template hash with the one
-// stamped on the last applied DaemonSet. The stored object cannot be compared
-// directly: the API server fills defaults the operator never renders. A
-// DaemonSet without the annotation is updated once so it gets stamped.
+// shouldSkipDaemonSetUpdate compares the desired template hash with the ones
+// stamped on the last applied DaemonSet and its pod template. The stored
+// object cannot be compared directly: the API server fills defaults the
+// operator never renders. A DaemonSet missing either stamp is updated once so
+// it gets stamped.
 func (h *driverManagerPatcher) shouldSkipDaemonSetUpdate(current, desired *appsv1.DaemonSet) bool {
 	if current == nil {
 		return false
 	}
-	currentHash := current.Annotations[driverLastAppliedTemplateHashAnnotation]
-	if currentHash == "" || currentHash != desired.Annotations[driverLastAppliedTemplateHashAnnotation] {
+	desiredHash := desired.Annotations[driverLastAppliedTemplateHashAnnotation]
+	if current.Annotations[driverLastAppliedTemplateHashAnnotation] != desiredHash ||
+		current.Spec.Template.Annotations[driverLastAppliedTemplateHashAnnotation] != desiredHash {
 		return false
 	}
 
@@ -131,7 +136,7 @@ func (h *driverManagerPatcher) shouldSkipDaemonSetUpdate(current, desired *appsv
 		"Skip DaemonSet update: pod template unchanged",
 		"namespace", current.Namespace,
 		"name", current.Name,
-		"hash", currentHash,
+		"hash", desiredHash,
 	)
 	return true
 }
