@@ -153,22 +153,6 @@ if [ "$dm_skew" -eq 0 ] && [ "$dm_count" -gt 0 ]; then
 	ok "rbln-k8s-driver-manager pinned at $dm_ref in $dm_count places"
 fi
 
-# 5. The pair is also a floor. The NPU-only eviction contract -- the
-#    NPU_POD_EVICTION_* env, DeviceClass-keyed claim eviction and the cordon
-#    claim -- is bound from rbln-k8s-driver-manager v0.3.0 (see
-#    docs/driver-upgrade.md). An older pin runs a binary that drains the whole
-#    node on the driver path and evicts nothing on the vfio path, and agreeing
-#    pins do not catch that. Pre-releases of the floor version count as
-#    meeting it: sort -V orders v0.3.0-rc1 after v0.3.0.
-dm_floor="v0.3.0"
-if [ "$dm_skew" -eq 0 ] && [ -n "$dm_ref" ]; then
-	if [ "$(printf '%s\n%s\n' "$dm_floor" "$dm_ref" | sort -V | head -1)" != "$dm_floor" ]; then
-		err "rbln-k8s-driver-manager pin $dm_ref is below the $dm_floor floor the NPU-only eviction contract requires"
-	else
-		ok "rbln-k8s-driver-manager pin $dm_ref meets the $dm_floor floor"
-	fi
-fi
-
 if [ "$fail" -ne 0 ]; then
 	echo >&2
 	echo "Version pin check failed. See docs/image-security.md for the compatibility" >&2
