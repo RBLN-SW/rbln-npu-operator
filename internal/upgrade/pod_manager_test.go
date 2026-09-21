@@ -263,8 +263,22 @@ func TestSchedulePodEviction(t *testing.T) {
 			wantState:   UpgradeStatePodRestartRequired,
 			wantDeleted: []string{"dra-vllm"},
 		},
-		// The passthrough class carries no extended-resource bridge, so a VM
-		// holding it is not a container-mode NPU pod to move.
+		// An API server without the DRAExtendedResource feature gate (off by
+		// default through Kubernetes 1.35) drops the extended-resource bridge
+		// the operator renders on the class. The claim holder must still be
+		// recognized by the class name.
+		"NPU pod holding a DRA claim is evicted when the API server pruned the class bridge": {
+			spec: v1beta1.PodDeletionSpec{TimeoutSeconds: 5},
+			pods: []*corev1.Pod{withClaim(newPod("dra-vllm", false, false, rsOwner), "npu-claim")},
+			draObjs: []runtime.Object{
+				deviceClass(npuDeviceClass, nil),
+				claimForClass(ns, "npu-claim", npuDeviceClass),
+			},
+			wantState:   UpgradeStatePodRestartRequired,
+			wantDeleted: []string{"dra-vllm"},
+		},
+		// A VM holding the passthrough class is not a container-mode NPU pod
+		// to move; its device sits on vfio-pci, not on the driver being replaced.
 		"passthrough DRA claim is left alone": {
 			spec: v1beta1.PodDeletionSpec{TimeoutSeconds: 5},
 			pods: []*corev1.Pod{withClaim(newPod("virt-launcher", false, false, rsOwner), "vfio-claim")},
@@ -357,7 +371,7 @@ func TestSchedulePodEviction(t *testing.T) {
 
 			spec := tc.spec
 			err := pm.SchedulePodEviction(context.Background(), &PodManagerConfig{
-				Nodes: []*corev1.Node{node}, DeletionSpec: &spec,
+				Nodes: []*corev1.Node{node}, DeletionSpec: &spec, NPUDeviceClass: npuDeviceClass,
 			})
 			if err != nil {
 				t.Fatalf("SchedulePodEviction: %v", err)

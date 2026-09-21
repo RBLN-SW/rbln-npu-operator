@@ -57,6 +57,7 @@ func (m *ClusterUpgradeStateManagerImpl) runApplyStateStep(ctx context.Context, 
 
 func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 	currentState *ClusterUpgradeState, upgradePolicy *v1beta1.DriverUpgradePolicySpec,
+	npuDeviceClass string,
 ) error {
 	log.FromContext(ctx).V(consts.VDebug).Info("State Manager, got state update")
 
@@ -131,7 +132,7 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 			name:     UpgradeStatePodDeletionRequired,
 			errorMsg: "Failed to delete pods",
 			run: func() error {
-				return m.ProcessPodDeletionRequiredNodes(ctx, currentState, upgradePolicy.PodDeletion)
+				return m.ProcessPodDeletionRequiredNodes(ctx, currentState, upgradePolicy.PodDeletion, npuDeviceClass)
 			},
 		},
 		{

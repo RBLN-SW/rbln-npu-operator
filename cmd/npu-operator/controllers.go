@@ -44,6 +44,7 @@ func registerClusterPolicyController(
 ) error {
 	if err := (&controller.RBLNClusterPolicyReconciler{
 		Client:      mgr.GetClient(),
+		APIReader:   mgr.GetAPIReader(),
 		Log:         ctrl.Log.WithName("controllers").WithName("RBLNClusterPolicy"),
 		Scheme:      mgr.GetScheme(),
 		ClusterInfo: clusterInfo,

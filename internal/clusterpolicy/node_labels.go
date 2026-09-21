@@ -124,9 +124,12 @@ func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []
 		node := &candidates[i]
 
 		labelsChanged := s.reconcileNodeLabelsInPlace(node)
+		// After the fill-only pass, so a stale pause is judged on the keys the
+		// node should carry now.
+		pausedRestored := s.restoreStalePausedLabels(ctx, node)
 		annotationsChanged := reconcileAutoUpgradeAnnotationInPlace(node, shouldEnableUpgrade)
 
-		if labelsChanged || annotationsChanged {
+		if labelsChanged || pausedRestored || annotationsChanged {
 			if err := s.client.Update(ctx, node); err != nil {
 				return NodeCensus{}, fmt.Errorf("update node %s: %w", node.Name, err)
 			}
@@ -241,6 +244,120 @@ func emptyDesiredComponentLabels(labels map[string]string, config string) []stri
 	return empty
 }
 
+// restoreStalePausedLabels returns a node's deploy labels from
+// paused-for-driver-upgrade to "true" once the pause can no longer be live, and
+// reports whether it changed any. k8s-driver-manager pauses them at the start
+// of a driver (re)install and restores them at the end of the run, so a pause
+// outlives its run only when the run was killed in between or its final label
+// write failed. Fill-only reconciliation never repairs it, and the node's
+// components stay gated off with nothing reporting why.
+//
+// The pause is live while any k8s-driver-manager init container on the node
+// is running, or has not reported a state yet; undoing it then would
+// reschedule the very components the run is evicting. Only once every such
+// init container has terminated is the pause stale: a terminated run has
+// already made its restore attempt, and a failed attempt's successor pauses
+// again anyway. With no such pod on the node there is nothing to judge by, so
+// the pause is presumed live and the next driver pod's run restores it in the
+// ordinary way. Values other than the pause, the user's "false" opt-out
+// included, are never rewritten.
+func (s *ClusterPolicyService) restoreStalePausedLabels(ctx context.Context, node *corev1.Node) bool {
+	labels := node.GetLabels()
+	if hasRBLNDeploySkipLabel(labels) || !hasRBLNPresentLabel(labels) {
+		return false
+	}
+	workload, _ := getWorkloadConfig(labels, s.policy.Spec.WorkloadType)
+	paused := pausedDesiredComponentLabels(labels, workload)
+	if len(paused) == 0 {
+		return false
+	}
+
+	idle, err := s.driverManagerIdle(ctx, node.Name)
+	if err != nil {
+		s.log.Error(err, "Cannot tell whether k8s-driver-manager is running; leaving paused deploy labels alone",
+			"node", node.Name, "labels", paused)
+		return false
+	}
+	if !idle {
+		s.log.V(consts.VDebug).Info("Deploy labels are paused by a k8s-driver-manager run in progress",
+			"node", node.Name, "labels", paused)
+		return false
+	}
+
+	for _, key := range paused {
+		labels[key] = labelValueTrue
+	}
+	node.SetLabels(labels)
+	s.log.Info("Restored deploy labels a finished k8s-driver-manager run left paused",
+		"node", node.Name, "labels", paused)
+	return true
+}
+
+// pausedDesiredComponentLabels returns the deploy labels this node should carry
+// as "true" but which k8s-driver-manager left at paused-for-driver-upgrade,
+// sorted for a stable log line.
+func pausedDesiredComponentLabels(labels map[string]string, config string) []string {
+	desired := desiredComponentLabels(labels, config)
+	paused := make([]string, 0, len(desired))
+	for key := range desired {
+		if labels[key] == consts.RBLNDeployPausedForDriverUpgrade {
+			paused = append(paused, key)
+		}
+	}
+	sort.Strings(paused)
+	return paused
+}
+
+// driverManagerIdle reports whether every k8s-driver-manager init container on
+// the node has terminated. The driver pod and the vfio-manager pod both run
+// one. It reads the API server directly rather than the cache: the question
+// is asked rarely, and a stale answer would undo a live pause. A pod whose
+// init container has no reported state yet counts as running; with no such
+// pod on the node at all the answer is false, since there is nothing to judge
+// the pause by.
+func (s *ClusterPolicyService) driverManagerIdle(ctx context.Context, nodeName string) (bool, error) {
+	pods := &corev1.PodList{}
+	if err := s.apiReader.List(ctx, pods,
+		client.InNamespace(s.namespace),
+		client.MatchingFields{"spec.nodeName": nodeName},
+	); err != nil {
+		return false, fmt.Errorf("list pods on node %s: %w", nodeName, err)
+	}
+
+	seen := false
+	for i := range pods.Items {
+		runsIt, terminated := driverManagerInitState(&pods.Items[i])
+		if !runsIt {
+			continue
+		}
+		if !terminated {
+			return false, nil
+		}
+		seen = true
+	}
+	return seen, nil
+}
+
+// driverManagerInitState reports whether the pod runs the k8s-driver-manager
+// init container and, if so, whether that container has terminated.
+func driverManagerInitState(pod *corev1.Pod) (runsIt, terminated bool) {
+	for i := range pod.Spec.InitContainers {
+		if pod.Spec.InitContainers[i].Name == consts.DriverManagerInitContainerName {
+			runsIt = true
+			break
+		}
+	}
+	if !runsIt {
+		return false, false
+	}
+	for i := range pod.Status.InitContainerStatuses {
+		if pod.Status.InitContainerStatuses[i].Name == consts.DriverManagerInitContainerName {
+			return true, pod.Status.InitContainerStatuses[i].State.Terminated != nil
+		}
+	}
+	return true, false
+}
+
 func hasRBLNPresentLabel(labels map[string]string) bool {
 	return labels[consts.RBLNPresentLabelKey] == labelValueTrue
 }
@@ -325,7 +442,9 @@ func updateRBLNComponentLabels(labels map[string]string, config string) bool {
 		// one — because k8s-driver-manager owns every value transition on these
 		// keys (it flips them to paused-for-driver-upgrade to evict a node's
 		// components) and the operator must not race it. An empty value is
-		// reported by emptyDesiredComponentLabels rather than repaired here.
+		// reported by emptyDesiredComponentLabels rather than repaired here; a
+		// pause left behind by a finished run is restored by
+		// restoreStalePausedLabels, which first checks that no run is in progress.
 		if _, exists := labels[key]; !exists {
 			labels[key] = value
 			modified = true

@@ -63,6 +63,32 @@ func TestResolveNPUPodEvictionPolicy(t *testing.T) {
 	}
 }
 
+// The upgrade controller matches DRA claims by this name and k8s-driver-manager
+// binds it as NPU_POD_EVICTION_DEVICE_CLASS, so both must resolve it the same way.
+func TestNPUDeviceClass(t *testing.T) {
+	tests := map[string]struct {
+		spec *rblnv1beta1.RBLNClusterPolicySpec
+		want string
+	}{
+		"no cluster policy": {spec: nil, want: consts.DefaultDRADeviceClass},
+		"driverName unset":  {spec: &rblnv1beta1.RBLNClusterPolicySpec{}, want: consts.DefaultDRADeviceClass},
+		"driverName is used": {
+			spec: &rblnv1beta1.RBLNClusterPolicySpec{
+				DRAKubeletPlugin: rblnv1beta1.RBLNDRAKubeletPluginSpec{DriverName: "npu.example.com"},
+			},
+			want: "npu.example.com",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := NPUDeviceClass(tc.spec); got != tc.want {
+				t.Fatalf("NPUDeviceClass() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // Both k8s-driver-manager init containers, the driver pod's and the
 // vfio-manager's, render exactly this list, so the contract with the binary
 // lives in one place.

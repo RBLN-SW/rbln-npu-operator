@@ -45,6 +45,8 @@ const (
 
 type RBLNClusterPolicyReconciler struct {
 	client.Client
+	// APIReader bypasses the informer cache; see ClusterPolicyService.apiReader.
+	APIReader       client.Reader
 	Log             logr.Logger
 	Scheme          *runtime.Scheme
 	SingletonCRName string
@@ -151,6 +153,7 @@ func (r *RBLNClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	service := clusterpolicy.NewClusterPolicyService(
 		r.Client,
+		r.APIReader,
 		logger,
 		r.Scheme,
 		instance,

@@ -36,12 +36,9 @@ type NPUPodEvictionPolicy struct {
 // to vm-passthrough, simply because auto-upgrade is off. autoUpgrade is
 // deliberately not consulted. A nil spec keeps the strictest behaviour.
 func ResolveNPUPodEvictionPolicy(spec *rblnv1beta1.RBLNClusterPolicySpec) NPUPodEvictionPolicy {
-	policy := NPUPodEvictionPolicy{DeviceClass: consts.DefaultDRADeviceClass}
+	policy := NPUPodEvictionPolicy{DeviceClass: NPUDeviceClass(spec)}
 	if spec == nil {
 		return policy
-	}
-	if driverName := spec.DRAKubeletPlugin.DriverName; driverName != "" {
-		policy.DeviceClass = driverName
 	}
 	upgradePolicy := spec.Driver.UpgradePolicy
 	if upgradePolicy == nil || upgradePolicy.PodDeletion == nil {
@@ -50,6 +47,19 @@ func ResolveNPUPodEvictionPolicy(spec *rblnv1beta1.RBLNClusterPolicySpec) NPUPod
 	policy.Force = upgradePolicy.PodDeletion.Force
 	policy.DeleteEmptyDirData = upgradePolicy.PodDeletion.DeleteEmptyDirData
 	return policy
+}
+
+// NPUDeviceClass names the container-mode DRA DeviceClass whose claims mark a
+// pod as an NPU consumer: draKubeletPlugin.driverName, or the default the DRA
+// kubelet plugin registers under. It is the one discriminator both eviction
+// paths share — k8s-driver-manager binds it as NPU_POD_EVICTION_DEVICE_CLASS,
+// the upgrade controller matches ResourceClaims by it — so resolving it here
+// keeps the two from disagreeing on which class is the NPU class.
+func NPUDeviceClass(spec *rblnv1beta1.RBLNClusterPolicySpec) string {
+	if spec != nil && spec.DRAKubeletPlugin.DriverName != "" {
+		return spec.DRAKubeletPlugin.DriverName
+	}
+	return consts.DefaultDRADeviceClass
 }
 
 // NPUPodEvictionEnv renders the policy as the env vars k8s-driver-manager

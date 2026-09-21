@@ -472,9 +472,10 @@ func expectNoPolicyEvent(rec *record.FakeRecorder) {
 
 func newTestClusterPolicyReconciler(openShiftVersion string) *RBLNClusterPolicyReconciler {
 	return &RBLNClusterPolicyReconciler{
-		Client: k8sClient,
-		Log:    logf.Log,
-		Scheme: k8sClient.Scheme(),
+		Client:    k8sClient,
+		APIReader: k8sClient,
+		Log:       logf.Log,
+		Scheme:    k8sClient.Scheme(),
 		ClusterInfo: &clusterinfo.Info{
 			OpenShiftVersion: openShiftVersion,
 		},

@@ -36,6 +36,9 @@ driver:
 
 The keys above are chart values. In a `RBLNClusterPolicy` manifest the same block is `spec.driver.upgradePolicy`, where `npuPodDeletion` is named `podDeletion` — the name the operator uses when it names a knob in a skip reason.
 
+> [!NOTE]
+> The chart cannot express `0` for `podRestartTimeoutSeconds` or `npuPodDeletion.timeoutSeconds`: its template substitutes the default for an unset *or zero* value, so `podRestartTimeoutSeconds: 0` renders as `1800` and `npuPodDeletion.timeoutSeconds: 0` as `300`. The `0` meanings in the table below ("no timeout", "wait indefinitely") are reachable only by setting the field in a `RBLNClusterPolicy` manifest.
+
 ### Upgrade Policy Reference
 
 | Setting | Description | Default |
@@ -56,7 +59,20 @@ The keys above are chart values. In a `RBLNClusterPolicy` manifest the same bloc
 >
 > This needs a `k8s-driver-manager` that binds the `NPU_POD_EVICTION_*` variables, which is what the chart's `driver.manager.image.tag` and `vfioManager.driverManager.image.tag` pin. Releases up to v0.2.2 ignore them: on the driver path they fall back to draining the whole node, since `ENABLE_AUTO_DRAIN=false` is no longer rendered, and on the vfio path they evict nothing, so the switch keeps failing its readiness check until the NPU pods are moved by hand.
 >
-> A node stuck this way shows up as a driver pod whose `k8s-driver-manager` init container is in `CrashLoopBackOff`, repeating `cannot proceed until all NPU pods are evicted from the node`. Its logs name the blocking pod.
+> A node stuck this way shows up as a pod whose `k8s-driver-manager` init container is in `CrashLoopBackOff`. On the driver path it is the driver pod, repeating `cannot proceed until all NPU pods are evicted from the node`; on the vfio path it is the vfio-manager pod, repeating `cannot proceed until all container-mode NPU pods are evicted from the node`. Either log names the blocking pod.
+
+### Driver Pod Restarts Without a Driver Change
+
+With `autoUpgrade: false`, `k8s-driver-manager` decides at every driver pod start whether the loaded kernel module has to be replaced. It compares the `DRIVER_CONFIG_DIGEST` the operator stamped into the pod with the digest recorded on the host in `/run/rbln/rbln-driver.state`. When the two match, the run skips the uninstall: no cordon, no NPU pod eviction, no module reload, and the running workloads are left alone. When the file is missing or differs, the run takes the full reinstall path.
+
+The operator provides the plumbing for that file. The driver DaemonSet mounts the host directory `/run/rbln` (created if absent) into both containers, at `/run/rbln` in the `k8s-driver-manager` init container and at `/host/run/rbln` in `rbln-driver-container`, and passes `DRIVER_CONFIG_DIGEST` to both. The operator never writes the file itself; the write is the driver container's job, under the following contract:
+
+-   **When:** immediately after the install pipeline succeeds — the module is loaded and the driver's readiness marker is about to be published. Nothing is written on any failure, so a failed install can never read as installed on the next start.
+-   **What:** the value of the container's `DRIVER_CONFIG_DIGEST` environment variable, as a single line, to `/host/run/rbln/rbln-driver.state`.
+-   **How:** write to a temporary file in the same directory, then `rename(2)` it over the final name, so a reader never sees a partial file.
+-   **Lifetime:** `/run` is a tmpfs, so the file disappears on reboot together with the loaded module. That is the intended behaviour: after a reboot no module is loaded and the run installs unconditionally.
+
+Until the driver image implements the write, every driver-manager run logs `No previous driver configuration found` and takes the reinstall path, so any driver pod restart with `autoUpgrade: false` costs a cordon, an NPU pod eviction and a module reload even when nothing about the driver changed.
 
 ------------------------------------------------------------------------
 
@@ -95,7 +111,7 @@ There is no limit on skipped nodes; a rollout that ends with skipped nodes repor
 
 ### Why a node is skipped
 
-Only NPU pods are ever evicted; every other pod on the node is left alone. A pod counts as an NPU pod when it requests a `rebellions.ai/*` resource, or when it holds a DRA `ResourceClaim` against a DeviceClass bridged to one — the class the DRA kubelet plugin registers for container mode. A `ResourceClaim` against the passthrough DeviceClass is not evicted: it carries no such bridge, and the device it holds is bound to `vfio-pci` rather than to the driver being replaced. The skip reason names the NPU pods that blocked the eviction and how to clear them.
+Only NPU pods are ever evicted; every other pod on the node is left alone. A pod counts as an NPU pod when it requests a `rebellions.ai/*` resource, or when it holds a DRA `ResourceClaim` against the container-mode DeviceClass: `draKubeletPlugin.driverName`, `npu.rebellions.ai` by default, the same class `k8s-driver-manager` is handed as `NPU_POD_EVICTION_DEVICE_CLASS`. The class is matched by name, not by its `rebellions.ai/npu` extended-resource bridge, because an API server without the `DRAExtendedResource` feature gate (off by default through Kubernetes 1.35) does not persist that field; any other DeviceClass that does carry a `rebellions.ai/*` bridge is matched as well. A `ResourceClaim` against the passthrough DeviceClass `vfio-<driverName>` is never evicted: the device it holds is bound to `vfio-pci` rather than to the driver being replaced. The skip reason names the NPU pods that blocked the eviction and how to clear them.
 
 | Blocking NPU pod | Skip reason says | Remedy |
 |------------------|------------------|--------|
@@ -203,7 +219,7 @@ All keys are prefixed `rebellions.ai/`. The operator writes the first three; `np
 | `npu-driver-upgrade-failure-reason` | On the transition to `upgrade-failed`: the failure message, truncated to 400 characters | When the node is retried or self-heals |
 | `npu-driver-upgrade-failure-step` | On the transition to `upgrade-failed`: the state the node failed in | When the node is retried or self-heals |
 | `npu-driver-upgrade-skip-reason` | On the transition to `upgrade-skipped`: the eviction error, truncated to 400 characters | When the node is retried, or when `autoUpgrade` is turned off |
-| `npu-driver-upgrade-requested` | `true`, by you, to request one attempt for a done, skipped, or failed node | By the operator when it re-admits the node |
+| `npu-driver-upgrade-requested` | `true`, by you, to request one attempt for a done, skipped, or failed node | By the operator when it re-admits the node. Turning `autoUpgrade` off leaves it in place: a request that was not served is honored by the next rollout |
 
 One more annotation on this prefix is written by `k8s-driver-manager`, not by the operator. With `autoUpgrade: false` the binary cordons the node itself before it evicts NPU pods, and it marks that cordon with `npu-driver-upgrade-cordon` so a later run can tell it from an administrator's. If such a run is killed before it uncordons and `autoUpgrade` is then turned on, the operator finds the node cordoned with that mark when it admits it: the cordon is adopted as the rollout's own, the mark is removed, and the node is uncordoned at the end like any other. Without the mark, a cordon that predates the rollout is treated as the administrator's and left in place.
 
@@ -232,6 +248,8 @@ The gauge `rbln_operator_driver_upgrade_nodes{state=...}` reports the number of 
 ------------------------------------------------------------------------
 
 ## Upgrading the Operator from v0.5.x or Earlier
+
+-   **Every driver pod's `DRIVER_CONFIG_DIGEST` changes once, from any earlier release.** The driver container's spec now carries the `/host/run/rbln` mount and the digest environment variable for the [driver state file](#driver-pod-restarts-without-a-driver-change), and the digest is a hash of that spec. With `autoUpgrade: true`, deploying this release starts one full rollout across every NPU node. With `autoUpgrade: false` nothing happens until a driver pod is next recreated, and that recreation reinstalls the driver as it does today.
 
 Releases up to v0.5.0 accepted `upgradePolicy.drain` and `upgradePolicy.reboot`. Both blocks are gone: the operator evicts only the node's NPU pods and never reboots a node.
 

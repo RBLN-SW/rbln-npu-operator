@@ -490,7 +490,7 @@ func TestProcessPodDeletionRequiredNodes(t *testing.T) {
 			})
 			spec := &v1beta1.PodDeletionSpec{Force: true, TimeoutSeconds: 42}
 
-			err := mgr.ProcessPodDeletionRequiredNodes(context.Background(), state, spec)
+			err := mgr.ProcessPodDeletionRequiredNodes(context.Background(), state, spec, "npu.example.com")
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -524,6 +524,11 @@ func TestProcessPodDeletionRequiredNodes(t *testing.T) {
 			}
 			if len(config.Nodes) != 1 || config.Nodes[0].Name != "node-1" {
 				t.Fatalf("eviction config nodes = %d, want exactly node-1", len(config.Nodes))
+			}
+			// The class name is how a claim holder is recognized as an NPU
+			// pod; dropping it here would silently leave every DRA pod behind.
+			if config.NPUDeviceClass != "npu.example.com" {
+				t.Fatalf("eviction config NPU device class = %q, want npu.example.com", config.NPUDeviceClass)
 			}
 		})
 	}

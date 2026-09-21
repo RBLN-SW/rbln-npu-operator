@@ -319,6 +319,7 @@ func (m *ClusterUpgradeStateManagerImpl) IsPodDeletionEnabled() bool {
 
 func (m *ClusterUpgradeStateManagerImpl) ProcessPodDeletionRequiredNodes(
 	ctx context.Context, currentClusterState *ClusterUpgradeState, podDeletionSpec *v1beta1.PodDeletionSpec,
+	npuDeviceClass string,
 ) error {
 	log.FromContext(ctx).V(consts.VDebug).Info("ProcessPodDeletionRequiredNodes")
 
@@ -335,8 +336,9 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessPodDeletionRequiredNodes(
 	}
 
 	podManagerConfig := PodManagerConfig{
-		DeletionSpec: podDeletionSpec,
-		Nodes:        make([]*corev1.Node, 0, len(currentClusterState.NodeStates[UpgradeStatePodDeletionRequired])),
+		DeletionSpec:   podDeletionSpec,
+		NPUDeviceClass: npuDeviceClass,
+		Nodes:          make([]*corev1.Node, 0, len(currentClusterState.NodeStates[UpgradeStatePodDeletionRequired])),
 	}
 
 	for _, nodeState := range currentClusterState.NodeStates[UpgradeStatePodDeletionRequired] {

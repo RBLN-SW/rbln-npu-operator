@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -14,6 +15,7 @@ import (
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/drivermanager"
+	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 func newTestPatcher(t *testing.T, openshiftVersion string) *driverManagerPatcher {
@@ -375,6 +377,107 @@ func TestBuildDriverPodSpec_HasDriverStateVolume(t *testing.T) {
 		}
 	}
 	t.Fatalf("pod spec missing %q volume", driverReadyVolumeName)
+}
+
+// k8s-driver-manager decides at every driver pod start whether the loaded
+// driver has to be replaced by comparing DRIVER_CONFIG_DIGEST with the digest
+// the driver container recorded in the host's /run/rbln/rbln-driver.state.
+// Both containers therefore need the host directory itself, not only the
+// /run/rbln/driver staging tree that is torn down with the driver: the init
+// container reads the file at its own path, the driver container writes it
+// under /host like the rest of the host filesystem.
+func TestBuildDriverPodSpec_MountsHostRunRBLNIntoBothContainers(t *testing.T) {
+	h := newTestPatcher(t, "")
+	pool := nodePool{osRelease: "ubuntu", osVersion: "22.04", kernel: "5.15.0-100-generic", family: "atom"}
+
+	spec := h.buildDriverPodSpec(pool, "repo.rebellions.ai/rebellions/atom/rbln-driver:3.0.0-5.15.0-100-generic-ubuntu22.04")
+
+	var volume *corev1.Volume
+	for i := range spec.Volumes {
+		if spec.Volumes[i].Name == hostRunRBLNVolumeName {
+			volume = &spec.Volumes[i]
+		}
+	}
+	if volume == nil {
+		t.Fatalf("pod spec missing %q volume", hostRunRBLNVolumeName)
+	}
+	if volume.HostPath == nil || volume.HostPath.Path != "/run/rbln" ||
+		volume.HostPath.Type == nil || *volume.HostPath.Type != corev1.HostPathDirectoryOrCreate {
+		t.Fatalf("%s volume = %+v, want hostPath /run/rbln DirectoryOrCreate", hostRunRBLNVolumeName, volume.VolumeSource)
+	}
+
+	mountPath := func(c *corev1.Container) string {
+		for _, m := range c.VolumeMounts {
+			if m.Name == hostRunRBLNVolumeName {
+				return m.MountPath
+			}
+		}
+		return ""
+	}
+	if got := mountPath(&spec.InitContainers[0]); got != "/run/rbln" {
+		t.Fatalf("%s mount in %s = %q, want /run/rbln", hostRunRBLNVolumeName, driverManagerInitContainer, got)
+	}
+	if got := mountPath(&spec.Containers[0]); got != "/host/run/rbln" {
+		t.Fatalf("%s mount in %s = %q, want /host/run/rbln", hostRunRBLNVolumeName, driverManagerContainer, got)
+	}
+}
+
+// The driver container is handed DRIVER_CONFIG_DIGEST to record in the state
+// file, but the digest is a hash of that very container, so the env must be
+// stamped after the hash is taken: inside the hash it would be an input to
+// itself. Every render must then agree on the digest, or an unchanged driver
+// spec would read as a new driver revision on every reconcile.
+func TestHandleDaemonSetStampsDriverConfigDigestOutsideItsOwnHash(t *testing.T) {
+	h := newTestPatcher(t, "")
+	owner := newTestOwner()
+	pool := nodePool{
+		name: "atom-ubuntu22.04-5.15.0-100-generic", osRelease: "ubuntu", osVersion: "22.04",
+		kernel: "5.15.0-100-generic", family: "atom",
+	}
+	const image = "repo.rebellions.ai/rebellions/atom/rbln-driver:3.0.0-5.15.0-100-generic-ubuntu22.04"
+	ctx := context.Background()
+
+	stampedDigest := func(pass int) string {
+		t.Helper()
+		if err := h.handleDaemonSet(ctx, owner, pool, image, false); err != nil {
+			t.Fatalf("handleDaemonSet pass %d: %v", pass, err)
+		}
+		ds := &appsv1.DaemonSet{}
+		key := types.NamespacedName{Name: testInstanceName + "-" + pool.name, Namespace: testNamespace}
+		if err := h.client.Get(ctx, key, ds); err != nil {
+			t.Fatalf("get DaemonSet %s after pass %d: %v", key.Name, pass, err)
+		}
+		initDigest := containerEnvValue(ds.Spec.Template.Spec.InitContainers, driverManagerInitContainer, driverConfigDigestEnv)
+		driverDigest := containerEnvValue(ds.Spec.Template.Spec.Containers, driverManagerContainer, driverConfigDigestEnv)
+		if initDigest == "" || initDigest != driverDigest {
+			t.Fatalf("pass %d: %s is %q in %s and %q in %s; want the same non-empty digest in both",
+				pass, driverConfigDigestEnv, initDigest, driverManagerInitContainer, driverDigest, driverManagerContainer)
+		}
+		return initDigest
+	}
+
+	first := stampedDigest(1)
+	if want := k8sutil.GetObjectHash(h.buildDriverPodSpec(pool, image).Containers); first != want {
+		t.Fatalf("digest = %s, want %s: the hash of the driver container as rendered, before the digest env is stamped",
+			first, want)
+	}
+	if second := stampedDigest(2); second != first {
+		t.Fatalf("digest changed across identical renders: %s vs %s", first, second)
+	}
+}
+
+func containerEnvValue(containers []corev1.Container, containerName, envName string) string {
+	for i := range containers {
+		if containers[i].Name != containerName {
+			continue
+		}
+		for _, env := range containers[i].Env {
+			if env.Name == envName {
+				return env.Value
+			}
+		}
+	}
+	return ""
 }
 
 func TestDriverContainerEnvs(t *testing.T) {

@@ -38,8 +38,11 @@ type ClusterUpgradeStateManager interface {
 	WithValidationEnabled(podSelector string) ClusterUpgradeStateManager
 	BuildState(ctx context.Context, namespace string,
 		driverLabels map[string]string) (*ClusterUpgradeState, error)
+	// npuDeviceClass is the container-mode DRA DeviceClass whose claims mark a
+	// pod as an NPU pod the eviction has to move (drivermanager.NPUDeviceClass).
 	ApplyState(ctx context.Context,
-		currentState *ClusterUpgradeState, upgradePolicy *v1beta1.DriverUpgradePolicySpec) (err error)
+		currentState *ClusterUpgradeState, upgradePolicy *v1beta1.DriverUpgradePolicySpec,
+		npuDeviceClass string) (err error)
 }
 
 type ClusterUpgradeStateManagerImpl struct {

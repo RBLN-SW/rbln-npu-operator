@@ -16,7 +16,12 @@ import (
 // ClusterPolicyService orchestrates reconciliation of all components
 // managed by a single RBLNClusterPolicy.
 type ClusterPolicyService struct {
-	client     client.Client
+	client client.Client
+	// apiReader bypasses the informer cache. It is used only to look at the
+	// pods on a node whose deploy labels k8s-driver-manager left paused, which
+	// is rare, and the cached client would start a cluster-wide pod informer
+	// the operator otherwise never needs.
+	apiReader  client.Reader
 	log        logr.Logger
 	policy     *rblnv1beta1.RBLNClusterPolicy
 	namespace  string
@@ -25,6 +30,7 @@ type ClusterPolicyService struct {
 
 func NewClusterPolicyService(
 	client client.Client,
+	apiReader client.Reader,
 	log logr.Logger,
 	scheme *runtime.Scheme,
 	policy *rblnv1beta1.RBLNClusterPolicy,
@@ -34,6 +40,7 @@ func NewClusterPolicyService(
 ) *ClusterPolicyService {
 	return &ClusterPolicyService{
 		client:    client,
+		apiReader: apiReader,
 		log:       log,
 		policy:    policy,
 		namespace: namespace,
