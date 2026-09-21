@@ -263,3 +263,13 @@ const DriverConfigDigestEnv = "DRIVER_CONFIG_DIGEST"
 // of the template changed, so an operator-requested attempt also lands
 // init-container, volume and scheduling changes.
 const DriverTemplateHashAnnotation = "rebellions.ai/last-applied-template-hash"
+
+// DriverManagerCordonClaimAnnotation is written by k8s-driver-manager, in the
+// same patch as the cordon it takes on its own eviction path (autoUpgrade off),
+// so that a later run can tell its cordon from an administrator's. The operator
+// reads it once, on admission: a node arriving cordoned with the claim had a
+// driver-manager run killed before it uncordoned, and the rollout adopts that
+// cordon instead of recording it as the administrator's. The value names the
+// path that took it ("driver", "vfio", or the pre-rename "true"); the operator
+// treats every value alike.
+const DriverManagerCordonClaimAnnotation = "rebellions.ai/npu-driver-upgrade-cordon"

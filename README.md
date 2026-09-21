@@ -377,7 +377,12 @@ NPU pod eviction policy as `NPU_POD_EVICTION_*` env vars and no longer
 renders `ENABLE_AUTO_DRAIN=false`. A driver-manager that predates the
 NPU-only eviction contract, every release up to v0.2.2, binds none of the new
 names and defaults the retired flag to true, so on every driver change it
-drains the whole node instead of evicting only NPU pods.
+drains the whole node instead of evicting only NPU pods. The vfio-manager init
+container runs the same binary with the same env and is pinned separately by
+`vfioManager.driverManager.image.tag`: a driver-manager from v0.3.0 on evicts
+the node's container-mode NPU pods there before binding `vfio-pci`, an older
+one evicts nothing and the switch fails its readiness check while an NPU pod
+is running.
 Readiness is reported in `status.smd` (`desired`/`ready`/`state`) and gates
 the CR's `Ready` condition (`SmdNotReady` while catching up, no event —
 ordinary rollout progress); `status.desiredNodes`/`readyNodes` stay

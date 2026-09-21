@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,6 +11,7 @@ import (
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/drivermanager"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
@@ -222,22 +222,7 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 		).
 		WithCommands([]string{driverManagerCommand}).
 		WithArgs([]string{driverManagerSyncDriverLabel}).
-		WithEnvs([]corev1.EnvVar{
-			{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{
-				FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "spec.nodeName"},
-			}},
-			// Consulted only while driver auto-upgrade is off: with it on,
-			// k8s-driver-manager defers the whole cordon-and-evict to the
-			// upgrade controller and these have no effect.
-			{Name: "ENABLE_NPU_POD_EVICTION", Value: "true"},
-			{Name: "NPU_POD_EVICTION_FORCE", Value: strconv.FormatBool(h.evictionPolicy.Force)},
-			{Name: "NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA", Value: strconv.FormatBool(h.evictionPolicy.DeleteEmptyDirData)},
-			{Name: "NPU_POD_EVICTION_DEVICE_CLASS", Value: h.evictionPolicy.DeviceClass},
-			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{
-				FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "metadata.namespace"},
-			}},
-			{Name: "PROC_ROOT", Value: "/host/proc"},
-		}).
+		WithEnvs(driverManagerInitEnv(h.evictionPolicy)).
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged:     ptr(true),
 			SELinuxOptions: &corev1.SELinuxOptions{Level: "s0"},
@@ -272,6 +257,27 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 			},
 		}).
 		Build()
+}
+
+// driverManagerInitEnv keeps the eviction block between NODE_NAME and
+// OPERATOR_NAMESPACE, where it has always been: the init container spec feeds
+// the template hash, so reordering would re-stamp every driver DaemonSet.
+func driverManagerInitEnv(policy drivermanager.NPUPodEvictionPolicy) []corev1.EnvVar {
+	env := []corev1.EnvVar{
+		{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "spec.nodeName"},
+		}},
+	}
+	// Consulted only while driver auto-upgrade is off: with it on,
+	// k8s-driver-manager defers the whole cordon-and-evict to the upgrade
+	// controller and these have no effect.
+	env = append(env, drivermanager.NPUPodEvictionEnv(policy)...)
+	return append(env,
+		corev1.EnvVar{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "metadata.namespace"},
+		}},
+		corev1.EnvVar{Name: "PROC_ROOT", Value: "/host/proc"},
+	)
 }
 
 // buildDriverContainer takes imagePath as a parameter rather than deriving

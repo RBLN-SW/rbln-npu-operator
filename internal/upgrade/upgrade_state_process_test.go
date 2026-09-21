@@ -1333,3 +1333,61 @@ func TestIsDriverPodFailing(t *testing.T) {
 		})
 	}
 }
+
+// k8s-driver-manager marks the cordon it takes on its own eviction path with
+// rebellions.ai/npu-driver-upgrade-cordon. A run killed before releasing it
+// leaves the node cordoned with the mark; when autoUpgrade is then turned on,
+// the operator must adopt that cordon as the rollout's own instead of recording
+// it as the administrator's, or nothing ever lifts it: the binary skips its
+// uncordon under auto-upgrade, and the operator skips a cordon it believes
+// predates the rollout. The mark goes too, or a later manual-mode run would
+// read the administrator's next cordon as its own and lift it.
+func TestTransitionToUpgradeRequired_CordonOwnership(t *testing.T) {
+	const claim = "rebellions.ai/npu-driver-upgrade-cordon"
+	tests := map[string]struct {
+		annotations      map[string]string
+		wantInitialState bool
+	}{
+		"unmarked cordon is the administrator's and is recorded": {
+			wantInitialState: true,
+		},
+		"cordon marked by k8s-driver-manager is adopted": {
+			annotations: map[string]string{claim: "driver"},
+		},
+		"pre-rename mark is adopted too": {
+			annotations: map[string]string{claim: "true"},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			// The DaemonSet carries a newer driver than the pod, so the node
+			// is admitted; the mock decides that, not the fixture's digests.
+			mgr := newTestManager(t, withPodManager(&mockPodManager{podDigest: "rev0", dsDigest: "rev1"}))
+
+			ns := newNodeUpgradeState("node-1", UpgradeStateDone, "rev0")
+			ns.Node.Spec.Unschedulable = true
+			ns.Node.Annotations = tc.annotations
+			registerNodes(t, mgr, ns.Node)
+
+			state := newClusterState(map[string][]*NodeUpgradeState{UpgradeStateDone: {ns}})
+			if err := mgr.ProcessDoneNodes(context.Background(), state); err != nil {
+				t.Fatalf("ProcessDoneNodes: %v", err)
+			}
+
+			var updated corev1.Node
+			if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+				t.Fatalf("get node: %v", err)
+			}
+			if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUpgradeRequired {
+				t.Fatalf("state = %q, want %q", got, UpgradeStateUpgradeRequired)
+			}
+			if _, got := updated.Annotations[UpgradeInitialStateAnnotationKey]; got != tc.wantInitialState {
+				t.Fatalf("initial-state annotation present = %v, want %v", got, tc.wantInitialState)
+			}
+			if _, left := updated.Annotations[claim]; left {
+				t.Fatalf("k8s-driver-manager cordon mark left on the node; the operator owns this cordon now")
+			}
+		})
+	}
+}

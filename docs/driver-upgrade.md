@@ -52,7 +52,9 @@ The keys above are chart values. In a `RBLNClusterPolicy` manifest the same bloc
 > [!NOTE]
 > `npuPodDeletion.force` and `npuPodDeletion.deleteEmptyDirData` apply even with `autoUpgrade: false`. With the workflow off, `k8s-driver-manager` empties the node itself whenever a driver pod restarts while the module is still loaded, and it obeys the same two settings. `timeoutSeconds` is the exception: it bounds only the operator's eviction, which has `upgrade-skipped` to fall back to. `k8s-driver-manager` has no such state and waits instead of giving up.
 >
-> This needs a `k8s-driver-manager` that binds the `NPU_POD_EVICTION_*` variables, which is what the chart's `driver.manager.image.tag` pins. Releases up to v0.2.2 ignore them and, with `ENABLE_AUTO_DRAIN=false` no longer rendered, fall back to draining the whole node.
+> The same two settings govern one more eviction: the one `k8s-driver-manager` runs from the vfio-manager init container when a node is switched from the `container` workload to `vm-passthrough`. Before the NPUs are bound to `vfio-pci` it cordons the node and evicts its container-mode NPU pods: pods that request exactly `rebellions.ai/npu`, and pods that hold a DRA `ResourceClaim` against the container-mode DeviceClass. A KubeVirt VM holding a passthrough resource or the `vfio-` DeviceClass is not matched, and a node whose NPUs already sit on `vfio-pci` gets neither the cordon nor the eviction. A pod that requests a product-specific resource name instead of `rebellions.ai/npu` is not matched either; it shows up as a vfio-mode readiness failure naming the process that holds `/dev/rbln*`, and has to be moved by hand. To keep the switch from evicting anything, set `ENABLE_NPU_POD_EVICTION=false` through `vfioManager.driverManager.env` (chart) or `spec.vfioManager.driverManager.env` (manifest); those entries come after the operator's own, so the duplicate wins.
+>
+> This needs a `k8s-driver-manager` that binds the `NPU_POD_EVICTION_*` variables, which is what the chart's `driver.manager.image.tag` and `vfioManager.driverManager.image.tag` pin. Releases up to v0.2.2 ignore them: on the driver path they fall back to draining the whole node, since `ENABLE_AUTO_DRAIN=false` is no longer rendered, and on the vfio path they evict nothing, so the switch keeps failing its readiness check until the NPU pods are moved by hand.
 >
 > A node stuck this way shows up as a driver pod whose `k8s-driver-manager` init container is in `CrashLoopBackOff`, repeating `cannot proceed until all NPU pods are evicted from the node`. Its logs name the blocking pod.
 
@@ -70,7 +72,7 @@ Each node advances through the states below one step at a time. The current stat
 | `pod-deletion-required` | Evicts the node's NPU pods, then moves to `pod-restart-required`. A pod the eviction cannot remove parks the node; see [Why a node is skipped](#why-a-node-is-skipped) | `upgrade-skipped` |
 | `pod-restart-required` | Deletes the driver pod and waits for the replacement to become Ready | `upgrade-failed` |
 | `validation-required` | Waits up to 600 seconds for the operator validator pod on the node to become Ready | `upgrade-failed` |
-| `uncordon-required` | Uncordons the node. A node that was already cordoned before the upgrade stays cordoned | retried |
+| `uncordon-required` | Uncordons the node. A node that was already cordoned before the upgrade stays cordoned, unless that cordon was `k8s-driver-manager`'s own (see below) | retried |
 | `upgrade-done` | Terminal until the next driver revision | N/A |
 
 `maxParallelUpgrades` counts every node between `cordon-required` and `uncordon-required`, plus every node in `upgrade-failed`. Nodes in `upgrade-skipped` and `upgrade-done` do not count.
@@ -202,6 +204,8 @@ All keys are prefixed `rebellions.ai/`. The operator writes the first three; `np
 | `npu-driver-upgrade-failure-step` | On the transition to `upgrade-failed`: the state the node failed in | When the node is retried or self-heals |
 | `npu-driver-upgrade-skip-reason` | On the transition to `upgrade-skipped`: the eviction error, truncated to 400 characters | When the node is retried, or when `autoUpgrade` is turned off |
 | `npu-driver-upgrade-requested` | `true`, by you, to request one attempt for a done, skipped, or failed node | By the operator when it re-admits the node |
+
+One more annotation on this prefix is written by `k8s-driver-manager`, not by the operator. With `autoUpgrade: false` the binary cordons the node itself before it evicts NPU pods, and it marks that cordon with `npu-driver-upgrade-cordon` so a later run can tell it from an administrator's. If such a run is killed before it uncordons and `autoUpgrade` is then turned on, the operator finds the node cordoned with that mark when it admits it: the cordon is adopted as the rollout's own, the mark is removed, and the node is uncordoned at the end like any other. Without the mark, a cordon that predates the rollout is treated as the administrator's and left in place.
 
 ### Events
 

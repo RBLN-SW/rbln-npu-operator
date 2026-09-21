@@ -68,10 +68,14 @@ func TestVFIOManagerPatch(t *testing.T) {
 	}
 	assertContainerHasVolumeMount(t, initContainer, "host-sys")
 	assertContainerHasVolumeMount(t, initContainer, "host-root")
-	if envValue(initContainer.Env, "ENABLE_NPU_POD_EVICTION") != "false" {
-		t.Fatalf("ENABLE_NPU_POD_EVICTION = %q, want false (the vfio-manager ServiceAccount lacks the cluster-wide eviction RBAC)",
-			envValue(initContainer.Env, "ENABLE_NPU_POD_EVICTION"))
-	}
+	// The vfio run evicts the node's container-mode NPU pods before binding
+	// vfio-pci, under the same policy the driver pod's init container gets.
+	assertEnvValues(t, initContainer.Env, map[string]string{
+		"ENABLE_NPU_POD_EVICTION":               "true",
+		"NPU_POD_EVICTION_FORCE":                "false",
+		"NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA": "false",
+		"NPU_POD_EVICTION_DEVICE_CLASS":         consts.DefaultDRADeviceClass,
+	})
 	// k8s-driver-manager binds none of these since the full-node drain was
 	// dropped, and warns on every run that still renders them.
 	for _, env := range initContainer.Env {
@@ -101,13 +105,20 @@ func TestVFIOManagerPatch(t *testing.T) {
 	role := &rbacv1.Role{}
 	assertObjectExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, role)
 	assertHasOwnerRef(t, role, owner.Name)
-	assertRoleHasRule(t, role, "", "pods")
-	assertRoleHasRule(t, role, "", "pods/eviction")
 	assertRoleHasRule(t, role, "apps", "daemonsets")
+	// The eviction lists every pod on the node and creates evictions in the
+	// workloads' namespaces, so pods and pods/eviction are cluster-scoped
+	// grants now; a namespaced copy left behind would only mislead.
+	assertRoleLacksResource(t, role, "pods", "pods/eviction")
 
 	cr := &rbacv1.ClusterRole{}
 	assertObjectExists(t, c, types.NamespacedName{Name: name}, cr)
 	assertClusterRoleHasRule(t, cr, "", "nodes")
+	assertClusterRoleHasRule(t, cr, "", "pods")
+	assertClusterRoleHasRule(t, cr, "", "pods/eviction")
+	// A pod holding its NPU through a DRA ResourceClaim has no rebellions.ai/*
+	// request to match on; the binary reads the claim to find it.
+	assertClusterRoleHasRule(t, cr, "resource.k8s.io", "resourceclaims")
 
 	crb := &rbacv1.ClusterRoleBinding{}
 	assertObjectExists(t, c, types.NamespacedName{Name: name}, crb)
@@ -193,4 +204,72 @@ func TestVFIOManagerCleanUp(t *testing.T) {
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name}, &rbacv1.ClusterRoleBinding{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name}, &rbacv1.ClusterRole{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
+}
+
+// The policy reaches the vfio init container from the same cluster policy
+// fields the driver pod reads: relaxing podDeletion for driver upgrades relaxes
+// the workload switch too, and a custom DRA driverName names the container-mode
+// DeviceClass on both.
+func TestVFIOManagerInitContainerRendersEvictionPolicy(t *testing.T) {
+	scheme := newTestScheme(t)
+	c := newFakeClient(t, scheme)
+
+	owner := newTestOwner()
+	owner.Spec.VFIOManager = rblnv1beta1.RBLNVFIOManagerSpec{
+		Enabled: true,
+		DriverManager: rblnv1beta1.VFIODriverManagerSpec{
+			Registry: "docker.io",
+			Image:    "rebellions/rbln-k8s-driver-manager",
+			Version:  "v0.3.0",
+		},
+	}
+	owner.Spec.Driver.UpgradePolicy = &rblnv1beta1.DriverUpgradePolicySpec{
+		PodDeletion: &rblnv1beta1.PodDeletionSpec{Force: true, DeleteEmptyDirData: true},
+	}
+	owner.Spec.DRAKubeletPlugin.DriverName = "npu.example.com"
+
+	p, ok := NewVFIOManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "").(*vfioManagerPatcher)
+	if !ok {
+		t.Fatal("NewVFIOManagerPatcher() did not return a *vfioManagerPatcher")
+	}
+	assertEnvValues(t, p.buildDriverUninstallInitContainer().Env, map[string]string{
+		"ENABLE_NPU_POD_EVICTION":               "true",
+		"NPU_POD_EVICTION_FORCE":                "true",
+		"NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA": "true",
+		"NPU_POD_EVICTION_DEVICE_CLASS":         "npu.example.com",
+	})
+}
+
+// The documented opt-out relies on user env being appended after the
+// operator's own, so a duplicate ENABLE_NPU_POD_EVICTION set by the user is the
+// last one in the list and wins.
+func TestVFIOManagerInitContainerUserEnvOverridesEviction(t *testing.T) {
+	scheme := newTestScheme(t)
+	c := newFakeClient(t, scheme)
+
+	owner := newTestOwner()
+	owner.Spec.VFIOManager = rblnv1beta1.RBLNVFIOManagerSpec{
+		Enabled: true,
+		DriverManager: rblnv1beta1.VFIODriverManagerSpec{
+			Registry: "docker.io",
+			Image:    "rebellions/rbln-k8s-driver-manager",
+			Version:  "v0.3.0",
+			Env:      []corev1.EnvVar{{Name: "ENABLE_NPU_POD_EVICTION", Value: "false"}},
+		},
+	}
+
+	p, ok := NewVFIOManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "").(*vfioManagerPatcher)
+	if !ok {
+		t.Fatal("NewVFIOManagerPatcher() did not return a *vfioManagerPatcher")
+	}
+	env := p.buildDriverUninstallInitContainer().Env
+	var last *corev1.EnvVar
+	for i := range env {
+		if env[i].Name == "ENABLE_NPU_POD_EVICTION" {
+			last = &env[i]
+		}
+	}
+	if last == nil || last.Value != "false" {
+		t.Fatalf("last ENABLE_NPU_POD_EVICTION entry = %v, want the user's \"false\" to come last", last)
+	}
 }

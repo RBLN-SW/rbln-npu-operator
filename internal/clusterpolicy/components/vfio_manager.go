@@ -14,6 +14,7 @@ import (
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/drivermanager"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
@@ -21,6 +22,9 @@ type vfioManagerPatcher struct {
 	basePatcher
 	desiredSpec *rblnv1beta1.RBLNVFIOManagerSpec
 	podDefaults *rblnv1beta1.PodDefaultsSpec
+	// evictionPolicy is what the k8s-driver-manager init container may do to
+	// the node's container-mode NPU pods before vfio-manager binds vfio-pci.
+	evictionPolicy drivermanager.NPUPodEvictionPolicy
 }
 
 func NewVFIOManagerPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
@@ -36,8 +40,9 @@ func NewVFIOManagerPatcher(client client.Client, log logr.Logger, namespace stri
 			enabled:          synced.IsEnabled(),
 			workloadType:     consts.RBLNWorkloadConfigVMPassthrough,
 		},
-		desiredSpec: &synced,
-		podDefaults: cpSpec.PodDefaults,
+		desiredSpec:    &synced,
+		podDefaults:    cpSpec.PodDefaults,
+		evictionPolicy: drivermanager.ResolveNPUPodEvictionPolicy(cpSpec),
 	}
 }
 
@@ -111,6 +116,28 @@ func (h *vfioManagerPatcher) handleClusterRole(ctx context.Context, owner *rblnv
 				Resources: []string{"nodes"},
 				Verbs:     []string{"get", "list", "watch", "patch", "update"},
 			},
+			{
+				// Cluster-scoped, not namespaced: the k8s-driver-manager init
+				// container lists every pod on the node and evicts the
+				// container-mode NPU pods in their own namespaces before
+				// vfio-pci is bound.
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods/eviction"},
+				Verbs:     []string{"create"},
+			},
+			{
+				// A pod holding its NPU through a DRA ResourceClaim has no
+				// rebellions.ai/* request to match on; the binary reads the
+				// claim to find it.
+				APIGroups: []string{"resource.k8s.io"},
+				Resources: []string{"resourceclaims"},
+				Verbs:     []string{"get"},
+			},
 		}
 		return ctrl.SetControllerReference(owner, role, h.scheme)
 	})
@@ -147,16 +174,6 @@ func (h *vfioManagerPatcher) reconcileVFIOManagerRBAC(ctx context.Context, owner
 	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace}}
 	if _, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
 		role.Rules = []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{""},
-				Resources: []string{"pods"},
-				Verbs:     []string{"get", "list", "watch"},
-			},
-			{
-				APIGroups: []string{""},
-				Resources: []string{"pods/eviction"},
-				Verbs:     []string{"create"},
-			},
 			{
 				APIGroups: []string{"apps"},
 				Resources: []string{"daemonsets"},
@@ -442,6 +459,28 @@ esac`,
 	return nil
 }
 
+// driverManagerInitEnv renders the k8s-driver-manager init container's env.
+// The eviction block is the one the driver pod renders too: on a node whose
+// NPUs are still bound to the rebellions driver, the binary cordons the node
+// and evicts its container-mode NPU pods (pods requesting exactly
+// rebellions.ai/npu, or holding a DRA claim against the container-mode
+// DeviceClass) before vfio-manager binds vfio-pci. What keeps a running VM
+// safe is the binary, not this env: a KubeVirt VM holds a passthrough resource
+// name and the vfio DeviceClass, neither of which is matched, and a node
+// already on vfio-pci is not touched at all. A pod requesting a
+// product-specific resource name is not matched either; it still fails the
+// vfio-mode readiness check, which names the holding process. User env comes
+// last so it can override any of these.
+func (h *vfioManagerPatcher) driverManagerInitEnv(userEnv []corev1.EnvVar) []corev1.EnvVar {
+	env := []corev1.EnvVar{
+		{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "spec.nodeName"}}},
+		{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "metadata.namespace"}}},
+	}
+	env = append(env, drivermanager.NPUPodEvictionEnv(h.evictionPolicy)...)
+	env = append(env, corev1.EnvVar{Name: "PROC_ROOT", Value: "/host/proc"})
+	return append(env, userEnv...)
+}
+
 func (h *vfioManagerPatcher) buildDriverUninstallInitContainer() *corev1.Container {
 	dm := h.desiredSpec.DriverManager
 	return k8sutil.NewContainerBuilder().
@@ -449,17 +488,7 @@ func (h *vfioManagerPatcher) buildDriverUninstallInitContainer() *corev1.Contain
 		WithImage(k8sutil.ComposeImageReference(dm.Registry, dm.Image), dm.Version, dm.ImagePullPolicy).
 		WithCommands([]string{"driver-manager"}).
 		WithArgs([]string{"reconcile-vfio-state"}).
-		WithEnvs(append([]corev1.EnvVar{
-			{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "spec.nodeName"}}},
-			{Name: "OPERATOR_NAMESPACE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "metadata.namespace"}}},
-			// Off on purpose: the vfio run's own NPU pod eviction needs
-			// cluster-wide pods and pods/eviction access that this
-			// ServiceAccount's namespaced Role does not grant. With it off, a
-			// workload still holding /dev/rbln* fails the vfio-mode readiness
-			// check, which names the holding process.
-			{Name: "ENABLE_NPU_POD_EVICTION", Value: "false"},
-			{Name: "PROC_ROOT", Value: "/host/proc"},
-		}, dm.Env...)).
+		WithEnvs(h.driverManagerInitEnv(dm.Env)).
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged: ptr(true),
 			RunAsUser:  ptr(int64(0)),

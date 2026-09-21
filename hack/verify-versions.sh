@@ -109,6 +109,50 @@ else
 	fi
 fi
 
+# 4. rbln-k8s-driver-manager ships as a version pair with this operator (see
+#    the README, "version pair"), and the operator pins it in two places that
+#    must agree: the driver pod's init container (driver.manager) and the
+#    vfio-manager's (vfioManager.driverManager). Both render the same
+#    NPU_POD_EVICTION_* contract, so a pin left behind runs a binary that
+#    ignores it. The chart, its sample overlays, the CR samples and the
+#    RELATED_IMAGE in config/manager all carry the pin by hand.
+dm_files="
+deployments/rbln-npu-operator/values.yaml
+deployments/rbln-npu-operator/sample-values-ContainerWorkload.yaml
+deployments/rbln-npu-operator/sample-values-SandboxWorkload.yaml
+config/samples/v1beta1_rblnclusterpolicy.yaml
+config/samples/v1alpha1_rblndriver.yaml
+"
+dm_ref=""
+dm_count=0
+dm_skew=0
+check_dm_pin() {
+	local file="$1" ver="$2"
+	if [ -z "$ver" ]; then
+		err "rbln-k8s-driver-manager: no version pin found in $file"
+		dm_skew=1
+		return
+	fi
+	dm_count=$((dm_count + 1))
+	if [ -z "$dm_ref" ]; then
+		dm_ref="$ver"
+	elif [ "$ver" != "$dm_ref" ]; then
+		err "rbln-k8s-driver-manager pin skew: $file has $ver, expected $dm_ref"
+		dm_skew=1
+	fi
+}
+for f in $dm_files; do
+	# The pin is the tag: or version: line that follows the image name.
+	for ver in $(awk '/rbln-k8s-driver-manager$/ { getline; if ($1 == "tag:" || $1 == "version:") print $2 }' "$f"); do
+		check_dm_pin "$f" "$ver"
+	done
+done
+check_dm_pin config/manager/manager.yaml \
+	"$(grep -o 'rbln-k8s-driver-manager:v[^@ ]*' config/manager/manager.yaml | head -1 | cut -d: -f2)"
+if [ "$dm_skew" -eq 0 ] && [ "$dm_count" -gt 0 ]; then
+	ok "rbln-k8s-driver-manager pinned at $dm_ref in $dm_count places"
+fi
+
 if [ "$fail" -ne 0 ]; then
 	echo >&2
 	echo "Version pin check failed. See docs/image-security.md for the compatibility" >&2
