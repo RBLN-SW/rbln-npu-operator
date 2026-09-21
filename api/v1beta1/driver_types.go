@@ -39,10 +39,12 @@ type DriverUpgradePolicySpec struct {
 }
 
 // PodDeletionSpec describes how NPU pods are evicted from a node before its
-// driver is replaced. It governs both evictions: the operator's own during an
-// automatic upgrade, and k8s-driver-manager's when autoUpgrade is off. Only
-// TimeoutSeconds is operator-only — k8s-driver-manager has no park state to
-// fall back to, so it waits instead of giving up.
+// driver is replaced or its NPUs are handed to vfio-pci. It governs every such
+// eviction: the operator's own during an automatic upgrade, k8s-driver-manager's
+// when autoUpgrade is off, and k8s-driver-manager's before a node is switched to
+// the vm-passthrough workload. Only TimeoutSeconds is operator-only —
+// k8s-driver-manager has no park state to fall back to, so it waits instead of
+// giving up.
 type PodDeletionSpec struct {
 	// Force indicates if force deletion is allowed
 	// +optional

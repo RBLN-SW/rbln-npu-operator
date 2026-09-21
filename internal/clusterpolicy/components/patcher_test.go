@@ -225,6 +225,28 @@ func assertClusterRoleHasRule(t *testing.T, cr *rbacv1.ClusterRole, apiGroup, re
 	t.Fatalf("ClusterRole %q missing rule for %s/%s", cr.Name, apiGroup, resource)
 }
 
+func assertRoleLacksResource(t *testing.T, role *rbacv1.Role, resources ...string) {
+	t.Helper()
+	for _, rule := range role.Rules {
+		for _, res := range rule.Resources {
+			for _, banned := range resources {
+				if res == banned {
+					t.Fatalf("Role %q still grants %q", role.Name, res)
+				}
+			}
+		}
+	}
+}
+
+func assertEnvValues(t *testing.T, env []corev1.EnvVar, want map[string]string) {
+	t.Helper()
+	for name, value := range want {
+		if got := envValue(env, name); got != value {
+			t.Fatalf("%s = %q, want %q", name, got, value)
+		}
+	}
+}
+
 func assertConfigMapHasKey(t *testing.T, c client.Client, name, namespace, ownerName, key string) {
 	t.Helper()
 	cm := &corev1.ConfigMap{}

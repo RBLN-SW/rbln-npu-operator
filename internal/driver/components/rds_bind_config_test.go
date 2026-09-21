@@ -9,6 +9,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/rebellions-sw/rbln-npu-operator/internal/drivermanager"
 )
 
 func TestBuildRDSBindConfigData(t *testing.T) {
@@ -226,7 +228,7 @@ func TestPatch_RendersRDSBindConfigMap(t *testing.T) {
 	c := newFakeClient(t, scheme, owner)
 
 	p, err := NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", nil,
-		NPUPodEvictionPolicy{}, true, map[string][]string{"udc-06": {"0000:d8:00.0"}})
+		drivermanager.NPUPodEvictionPolicy{}, true, map[string][]string{"udc-06": {"0000:d8:00.0"}})
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}
@@ -245,7 +247,7 @@ func TestPatch_RendersRDSBindConfigMap(t *testing.T) {
 	}
 
 	// Disabling RDS on a later pass must remove the ConfigMap again.
-	p, err = NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", nil, NPUPodEvictionPolicy{}, false, nil)
+	p, err = NewDriverManagerPatcher(c, c, logf.Log, testNamespace, owner, scheme, &fakeChecker{}, "", nil, drivermanager.NPUPodEvictionPolicy{}, false, nil)
 	if err != nil {
 		t.Fatalf("NewDriverManagerPatcher() error: %v", err)
 	}

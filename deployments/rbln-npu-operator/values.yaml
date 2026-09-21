@@ -155,8 +155,9 @@ driver:
     waitForCompletion:
       timeoutSeconds: 0
       podSelector: ""
-    # Applies to both evictions: the operator's during an automatic upgrade,
-    # and k8s-driver-manager's own when autoUpgrade is off.
+    # Applies to every NPU pod eviction: the operator's during an automatic
+    # upgrade, k8s-driver-manager's own when autoUpgrade is off, and
+    # k8s-driver-manager's before a node is switched to vm-passthrough.
     npuPodDeletion:
       force: false
       timeoutSeconds: 300
@@ -345,6 +346,13 @@ vfioManager:
       repository: rebellions/rbln-k8s-driver-manager
       tag: v0.2.2
       pullPolicy: IfNotPresent
+    # Appended after the env the operator renders, so a duplicate name set here
+    # wins. Before binding vfio-pci, k8s-driver-manager evicts the node's
+    # container-mode NPU pods under driver.upgradePolicy.npuPodDeletion. To keep
+    # that switch from evicting anything (an NPU pod left running then blocks it
+    # until moved by hand), add:
+    #   - name: ENABLE_NPU_POD_EVICTION
+    #     value: "false"
     env: []
 
 # Validator configuration

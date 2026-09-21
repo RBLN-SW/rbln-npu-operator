@@ -249,6 +249,12 @@ vfioManager:
       repository: rebellions/rbln-k8s-driver-manager
       tag: v0.2.2
       pullPolicy: IfNotPresent
+    # Before binding vfio-pci, k8s-driver-manager evicts the node's
+    # container-mode NPU pods under driver.upgradePolicy.npuPodDeletion. To keep
+    # the switch from evicting anything, add (this entry wins over the
+    # operator's own):
+    #   - name: ENABLE_NPU_POD_EVICTION
+    #     value: "false"
     env: []
 
 # Validator configuration

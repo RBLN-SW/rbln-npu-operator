@@ -12,8 +12,8 @@ import (
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/driver/components"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/drivermanager"
 )
 
 type DriverService struct {
@@ -72,8 +72,12 @@ func NewDriverService(
 		}
 	}
 
+	var policySpec *rblnv1beta1.RBLNClusterPolicySpec
+	if clusterPolicy != nil {
+		policySpec = &clusterPolicy.Spec
+	}
 	dmp, err := components.NewDriverManagerPatcher(client, apiReader, log, s.namespace, driver, scheme, checker, s.openshiftVersion,
-		ownedNodes, npuPodEvictionPolicy(clusterPolicy), rdsEnabled, rdsDeviceSelection)
+		ownedNodes, drivermanager.ResolveNPUPodEvictionPolicy(policySpec), rdsEnabled, rdsDeviceSelection)
 	if err != nil {
 		return nil, err
 	}
@@ -86,28 +90,6 @@ func NewDriverService(
 	s.smd = smd
 
 	return s, nil
-}
-
-// npuPodEvictionPolicy resolves what k8s-driver-manager may do when it empties
-// a node itself. upgradePolicy.podDeletion is the source even though that block
-// otherwise governs the operator-driven rollout: the two evictions free the
-// same node for the same reason, and a node must not become unupgradable simply
-// because auto-upgrade is off. The zero value keeps the strictest behaviour.
-func npuPodEvictionPolicy(clusterPolicy *rblnv1beta1.RBLNClusterPolicy) components.NPUPodEvictionPolicy {
-	policy := components.NPUPodEvictionPolicy{DeviceClass: consts.DefaultDRADeviceClass}
-	if clusterPolicy == nil {
-		return policy
-	}
-	if driverName := clusterPolicy.Spec.DRAKubeletPlugin.DriverName; driverName != "" {
-		policy.DeviceClass = driverName
-	}
-	upgradePolicy := clusterPolicy.Spec.Driver.UpgradePolicy
-	if upgradePolicy == nil || upgradePolicy.PodDeletion == nil {
-		return policy
-	}
-	policy.Force = upgradePolicy.PodDeletion.Force
-	policy.DeleteEmptyDirData = upgradePolicy.PodDeletion.DeleteEmptyDirData
-	return policy
 }
 
 // Namespace returns the namespace the service deploys operands into.

@@ -13,6 +13,7 @@ import (
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/drivermanager"
 )
 
 func newTestPatcher(t *testing.T, openshiftVersion string) *driverManagerPatcher {
@@ -574,11 +575,11 @@ var _ = metav1.ObjectMeta{}
 // strictest policy with no way for the user to relax it.
 func TestBuildDriverManagerInitContainerRendersEvictionPolicy(t *testing.T) {
 	tests := map[string]struct {
-		policy NPUPodEvictionPolicy
+		policy drivermanager.NPUPodEvictionPolicy
 		want   map[string]string
 	}{
 		"defaults": {
-			policy: NPUPodEvictionPolicy{DeviceClass: consts.DefaultDRADeviceClass},
+			policy: drivermanager.NPUPodEvictionPolicy{DeviceClass: consts.DefaultDRADeviceClass},
 			want: map[string]string{
 				"NPU_POD_EVICTION_FORCE":                "false",
 				"NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA": "false",
@@ -586,7 +587,7 @@ func TestBuildDriverManagerInitContainerRendersEvictionPolicy(t *testing.T) {
 			},
 		},
 		"relaxed policy with a custom device class": {
-			policy: NPUPodEvictionPolicy{Force: true, DeleteEmptyDirData: true, DeviceClass: "npu.example.com"},
+			policy: drivermanager.NPUPodEvictionPolicy{Force: true, DeleteEmptyDirData: true, DeviceClass: "npu.example.com"},
 			want: map[string]string{
 				"NPU_POD_EVICTION_FORCE":                "true",
 				"NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA": "true",
@@ -610,5 +611,29 @@ func TestBuildDriverManagerInitContainerRendersEvictionPolicy(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The init container's env order is part of the pod template hash. Changing it
+// re-stamps every driver DaemonSet and makes admitted nodes recreate their pod,
+// so the order is pinned here and only a deliberate change may move it.
+func TestBuildDriverManagerInitContainerEnvOrder(t *testing.T) {
+	h := newTestPatcher(t, "")
+	want := []string{
+		"NODE_NAME",
+		"ENABLE_NPU_POD_EVICTION",
+		"NPU_POD_EVICTION_FORCE",
+		"NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA",
+		"NPU_POD_EVICTION_DEVICE_CLASS",
+		"OPERATOR_NAMESPACE",
+		"PROC_ROOT",
+	}
+	env := h.buildDriverManagerInitContainer().Env
+	got := make([]string, 0, len(env))
+	for _, e := range env {
+		got = append(got, e.Name)
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("init container env order changed (-want +got):\n%s", diff)
 	}
 }
