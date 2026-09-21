@@ -117,11 +117,7 @@ func (m *ClusterUpgradeStateManagerImpl) transitionDoneOrUnknownNodeToUpgradeReq
 	ctx context.Context, nodeState *NodeUpgradeState,
 ) error {
 	if IsNodeUnschedulable(nodeState.Node) {
-		log.FromContext(ctx).Info("Node is unschedulable, adding annotation to track initial state of the node",
-			"node", nodeState.Node.Name, "annotation", UpgradeInitialStateAnnotationKey)
-		err := m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(ctx, nodeState.Node, UpgradeInitialStateAnnotationKey,
-			trueString)
-		if err != nil {
+		if err := m.recordPreexistingCordon(ctx, nodeState.Node); err != nil {
 			return err
 		}
 	}
@@ -140,6 +136,27 @@ func (m *ClusterUpgradeStateManagerImpl) transitionDoneOrUnknownNodeToUpgradeReq
 	log.FromContext(ctx).Info("Node requires upgrade, changed its state to UpgradeRequired",
 		"node", nodeState.Node.Name)
 	return nil
+}
+
+// recordPreexistingCordon decides whose cordon a node arrives with. An
+// administrator's is recorded in the initial-state annotation so the rollout
+// leaves it in place. One carrying k8s-driver-manager's claim is not the
+// administrator's: the binary took it on its own eviction path, with
+// autoUpgrade off, and was killed before releasing it. The rollout adopts that
+// cordon and lifts it at the end like its own, because neither side would
+// otherwise: the binary skips its uncordon under auto-upgrade, and the operator
+// skips a cordon it believes predates the rollout. The claim goes with the
+// adoption; left behind, a later manual-mode run would read the administrator's
+// next cordon as its own and lift it.
+func (m *ClusterUpgradeStateManagerImpl) recordPreexistingCordon(ctx context.Context, node *corev1.Node) error {
+	if _, claimed := node.Annotations[consts.DriverManagerCordonClaimAnnotation]; claimed {
+		log.FromContext(ctx).Info("Adopting the cordon k8s-driver-manager left on the node; the rollout will lift it",
+			"node", node.Name, "annotation", consts.DriverManagerCordonClaimAnnotation)
+		return m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node, consts.DriverManagerCordonClaimAnnotation)
+	}
+	log.FromContext(ctx).Info("Node is unschedulable, adding annotation to track initial state of the node",
+		"node", node.Name, "annotation", UpgradeInitialStateAnnotationKey)
+	return m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(ctx, node, UpgradeInitialStateAnnotationKey, trueString)
 }
 
 func (m *ClusterUpgradeStateManagerImpl) transitionUnknownNodeToDone(

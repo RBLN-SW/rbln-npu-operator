@@ -70,7 +70,7 @@ Each node advances through the states below one step at a time. The current stat
 | `pod-deletion-required` | Evicts the node's NPU pods, then moves to `pod-restart-required`. A pod the eviction cannot remove parks the node; see [Why a node is skipped](#why-a-node-is-skipped) | `upgrade-skipped` |
 | `pod-restart-required` | Deletes the driver pod and waits for the replacement to become Ready | `upgrade-failed` |
 | `validation-required` | Waits up to 600 seconds for the operator validator pod on the node to become Ready | `upgrade-failed` |
-| `uncordon-required` | Uncordons the node. A node that was already cordoned before the upgrade stays cordoned | retried |
+| `uncordon-required` | Uncordons the node. A node that was already cordoned before the upgrade stays cordoned, unless that cordon was `k8s-driver-manager`'s own (see below) | retried |
 | `upgrade-done` | Terminal until the next driver revision | N/A |
 
 `maxParallelUpgrades` counts every node between `cordon-required` and `uncordon-required`, plus every node in `upgrade-failed`. Nodes in `upgrade-skipped` and `upgrade-done` do not count.
@@ -202,6 +202,8 @@ All keys are prefixed `rebellions.ai/`. The operator writes the first three; `np
 | `npu-driver-upgrade-failure-step` | On the transition to `upgrade-failed`: the state the node failed in | When the node is retried or self-heals |
 | `npu-driver-upgrade-skip-reason` | On the transition to `upgrade-skipped`: the eviction error, truncated to 400 characters | When the node is retried, or when `autoUpgrade` is turned off |
 | `npu-driver-upgrade-requested` | `true`, by you, to request one attempt for a done, skipped, or failed node | By the operator when it re-admits the node |
+
+One more annotation on this prefix is written by `k8s-driver-manager`, not by the operator. With `autoUpgrade: false` the binary cordons the node itself before it evicts NPU pods, and it marks that cordon with `npu-driver-upgrade-cordon` so a later run can tell it from an administrator's. If such a run is killed before it uncordons and `autoUpgrade` is then turned on, the operator finds the node cordoned with that mark when it admits it: the cordon is adopted as the rollout's own, the mark is removed, and the node is uncordoned at the end like any other. Without the mark, a cordon that predates the rollout is treated as the administrator's and left in place.
 
 ### Events
 
