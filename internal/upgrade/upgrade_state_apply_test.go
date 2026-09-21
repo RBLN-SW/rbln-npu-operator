@@ -68,7 +68,7 @@ func TestApplyStateRunsAllStepsAndJoinsErrors(t *testing.T) {
 	})
 
 	err := mgr.ApplyState(context.Background(), state,
-		&v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true})
+		&v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true}, "npu.rebellions.ai")
 	if err == nil {
 		t.Fatal("expected the failing cordon step's error to be reported")
 	}

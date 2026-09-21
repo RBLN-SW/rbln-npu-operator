@@ -3,6 +3,7 @@ package upgrade
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -54,22 +55,76 @@ func claimingPod(namespace, name, claimName string) *corev1.Pod {
 	}
 }
 
-// The extended-resource bridge, not the class name, is what marks a DeviceClass
-// as one this upgrade must free: it tracks a customized driverName and excludes
-// the passthrough class the operator deliberately leaves unbridged.
+// The container-mode class is matched by name — draKubeletPlugin.driverName,
+// the value k8s-driver-manager is handed as NPU_POD_EVICTION_DEVICE_CLASS —
+// because the name is the one discriminator every API server persists. An API
+// server without the DRAExtendedResource feature gate drops the
+// extended-resource bridge the operator renders on the class, and a matcher
+// keyed on the bridge saw no NPU class at all. The bridge stays a hint for
+// classes the operator did not render; the passthrough class is never one.
 func TestNPUDeviceClassNames(t *testing.T) {
-	clientset := k8sfake.NewClientset(
-		deviceClass(npuDeviceClass, strPtr("rebellions.ai/npu")),
-		deviceClass(vfioDeviceClass, nil),
-		deviceClass("gpu.example.com", strPtr("example.com/gpu")),
-	)
-
-	got, err := npuDeviceClassNames(context.Background(), clientset)
-	if err != nil {
-		t.Fatalf("npuDeviceClassNames: %v", err)
+	tests := map[string]struct {
+		npuDeviceClass string
+		classes        []runtime.Object
+		want           []string
+	}{
+		"configured class matches by name when the API server pruned the bridge": {
+			npuDeviceClass: npuDeviceClass,
+			classes: []runtime.Object{
+				deviceClass(npuDeviceClass, nil),
+				deviceClass(vfioDeviceClass, nil),
+			},
+			want: []string{npuDeviceClass},
+		},
+		"configured class is listed once when its bridge is persisted": {
+			npuDeviceClass: npuDeviceClass,
+			classes: []runtime.Object{
+				deviceClass(npuDeviceClass, strPtr("rebellions.ai/npu")),
+				deviceClass(vfioDeviceClass, nil),
+			},
+			want: []string{npuDeviceClass},
+		},
+		"customized driverName replaces the default class": {
+			npuDeviceClass: "npu.example.com",
+			classes: []runtime.Object{
+				deviceClass("npu.example.com", nil),
+				deviceClass("vfio-npu.example.com", nil),
+				deviceClass(npuDeviceClass, nil),
+			},
+			want: []string{"npu.example.com"},
+		},
+		"another class bridged to a rebellions.ai resource is a hint": {
+			npuDeviceClass: npuDeviceClass,
+			classes: []runtime.Object{
+				deviceClass(npuDeviceClass, nil),
+				deviceClass("npu-shared.example.com", strPtr("rebellions.ai/npu")),
+				deviceClass("gpu.example.com", strPtr("example.com/gpu")),
+			},
+			want: []string{npuDeviceClass, "npu-shared.example.com"},
+		},
+		"passthrough class is excluded even when bridged": {
+			npuDeviceClass: npuDeviceClass,
+			classes:        []runtime.Object{deviceClass(vfioDeviceClass, strPtr("rebellions.ai/npu"))},
+			want:           []string{npuDeviceClass},
+		},
+		"configured class is matched before its DeviceClass exists": {
+			npuDeviceClass: npuDeviceClass,
+			want:           []string{npuDeviceClass},
+		},
 	}
-	if len(got) != 1 || got[0] != npuDeviceClass {
-		t.Fatalf("device classes = %v, want [%s]", got, npuDeviceClass)
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			clientset := k8sfake.NewClientset(tc.classes...)
+
+			got, err := npuDeviceClassNames(context.Background(), clientset, tc.npuDeviceClass)
+			if err != nil {
+				t.Fatalf("npuDeviceClassNames: %v", err)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("device classes = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -81,9 +136,45 @@ func TestNPUDeviceClassNamesPropagatesListFailure(t *testing.T) {
 				schema.GroupResource{Group: "resource.k8s.io", Resource: "deviceclasses"}, "")
 		})
 
-	_, err := npuDeviceClassNames(context.Background(), clientset)
+	_, err := npuDeviceClassNames(context.Background(), clientset, npuDeviceClass)
 	if !apierrors.IsNotFound(err) {
 		t.Fatalf("err = %v, want a NotFound the caller can recognize as a cluster without DRA", err)
+	}
+}
+
+// The DeviceClass list only adds hints. A cluster without the DRA API has no
+// claims to match, so nothing is returned; any other list failure must not
+// cost the rollout the configured class, or a transient read error would let
+// every claim holder ride through the eviction.
+func TestResolveNPUDeviceClasses(t *testing.T) {
+	tests := map[string]struct {
+		listErr error
+		want    []string
+	}{
+		"DRA API not served": {
+			listErr: apierrors.NewNotFound(
+				schema.GroupResource{Group: "resource.k8s.io", Resource: "deviceclasses"}, ""),
+			want: nil,
+		},
+		"list failure keeps the configured class": {
+			listErr: apierrors.NewInternalError(errors.New("etcd timeout")),
+			want:    []string{npuDeviceClass},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			clientset := k8sfake.NewClientset()
+			clientset.PrependReactor("list", "deviceclasses",
+				func(k8stesting.Action) (bool, runtime.Object, error) {
+					return true, nil, tc.listErr
+				})
+
+			got := resolveNPUDeviceClasses(context.Background(), clientset, npuDeviceClass)
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("resolveNPUDeviceClasses() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

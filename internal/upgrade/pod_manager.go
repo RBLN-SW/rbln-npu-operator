@@ -40,6 +40,9 @@ type PodManagerConfig struct {
 	Nodes                 []*corev1.Node
 	DeletionSpec          *v1beta1.PodDeletionSpec
 	WaitForCompletionSpec *v1beta1.WaitForCompletionSpec
+	// NPUDeviceClass names the container-mode DRA DeviceClass whose claims
+	// mark a pod as an NPU pod the eviction has to move (drivermanager.NPUDeviceClass).
+	NPUDeviceClass string
 }
 
 type PodDeletionFilter func(corev1.Pod) bool
@@ -214,7 +217,7 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 		return fmt.Errorf("pod deletion spec should not be empty")
 	}
 
-	deviceClasses := npuDeviceClassesOrNone(ctx, m.k8sInterface)
+	deviceClasses := resolveNPUDeviceClasses(ctx, m.k8sInterface, config.NPUDeviceClass)
 
 	for _, node := range config.Nodes {
 		if !m.nodesInProgress.Has(node.Name) {

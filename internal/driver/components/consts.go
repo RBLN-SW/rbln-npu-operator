@@ -9,7 +9,7 @@ const (
 	driverManagerNodePoolLabelKey             = "rebellions.ai/driver-node-pool"
 	driverManagerInstanceLabelKey             = "rebellions.ai/driver-instance"
 	driverManagerDeployLabelKey               = "rebellions.ai/npu.deploy.driver"
-	driverManagerInitContainer                = "k8s-driver-manager"
+	driverManagerInitContainer                = consts.DriverManagerInitContainerName
 	driverManagerContainer                    = "rbln-driver-container"
 	driverManagerCommand                      = "driver-manager"
 	driverManagerSyncDriverLabel              = "reconcile-driver-state"
@@ -51,6 +51,14 @@ const (
 	rdsBindConfWorkDir                        = "/rds-bind-conf"
 	rdsBindConfContainerPath                  = "/etc/rebellions/rblnfs-bind.conf"
 	rdsBindConfFileName                       = "rblnfs-bind.conf"
+	// hostRunRBLNPath is the host directory k8s-driver-manager reads its
+	// driver state file (rbln-driver.state) from. It is mounted whole, not
+	// just its driver/ staging tree, so a file the driver container writes
+	// there outlives the pod. The driver container sees it under /host, as it
+	// does the rest of the host.
+	hostRunRBLNVolumeName      = "host-run-rbln"
+	hostRunRBLNPath            = "/run/rbln"
+	hostRunRBLNDriverMountPath = "/host/run/rbln"
 	// driverCtrReadyFile is the cross-component "driver container ready" marker
 	// published under consts.ValidationsMountPath by the driver startup probe
 	// and removed by its preStop hook.

@@ -123,6 +123,12 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath strin
 			}},
 		},
 		{
+			Name: hostRunRBLNVolumeName,
+			VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
+				Path: hostRunRBLNPath, Type: ptr(corev1.HostPathDirectoryOrCreate),
+			}},
+		},
+		{
 			Name: consts.ValidationsVolumeName,
 			VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
 				Path: consts.ValidationsMountPath, Type: ptr(corev1.HostPathDirectoryOrCreate),
@@ -238,6 +244,15 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 				MountPropagation: ptr(corev1.MountPropagationBidirectional),
 			},
 			{
+				// k8s-driver-manager reads the driver state file
+				// (rbln-driver.state) here to decide whether the loaded
+				// driver already matches DRIVER_CONFIG_DIGEST. The host
+				// directory itself, nested around the staging tree above:
+				// the file must survive the driver pod, and the tree does not.
+				Name:      hostRunRBLNVolumeName,
+				MountPath: hostRunRBLNPath,
+			},
+			{
 				Name:             hostRootVolumeName,
 				MountPath:        "/host",
 				ReadOnly:         true,
@@ -298,6 +313,10 @@ func (h *driverManagerPatcher) buildDriverContainer(
 			MountPath:        "/host/run/rbln/driver",
 			MountPropagation: ptr(corev1.MountPropagationBidirectional),
 		},
+		// Where the driver container records DRIVER_CONFIG_DIGEST after a
+		// successful install (rbln-driver.state), for k8s-driver-manager to
+		// read on the next pod start. See docs/driver-upgrade.md.
+		{Name: hostRunRBLNVolumeName, MountPath: hostRunRBLNDriverMountPath},
 		{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
 		{Name: hostDevVolumeName, MountPath: hostDevPath},
 		{Name: driverReadyVolumeName, MountPath: defaultDriverReadyDir},

@@ -62,6 +62,18 @@ const (
 	RBLNNPUFamilyLabelKey = "rebellions.ai/npu.family"
 
 	RBLNDeployDriverPreInstalled = "pre-installed"
+
+	// RBLNDeployPausedForDriverUpgrade is the value k8s-driver-manager writes on
+	// a node's npu.deploy.* keys while it (re)installs the driver, evicting that
+	// node's component pods. Mirrors pausedStr in rbln-k8s-driver-manager
+	// (internal/cmd/driver_manager.go); the two must stay identical.
+	RBLNDeployPausedForDriverUpgrade = "paused-for-driver-upgrade"
+
+	// DriverManagerInitContainerName is the init container that runs
+	// rbln-k8s-driver-manager, in the driver pod and in the vfio-manager pod.
+	// It is the one writer of RBLNDeployPausedForDriverUpgrade, so its state on
+	// a node is what decides whether a paused label is live or left behind.
+	DriverManagerInitContainerName = "k8s-driver-manager"
 )
 
 // Container runtimes

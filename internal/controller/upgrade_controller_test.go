@@ -44,7 +44,7 @@ import (
 
 type mockStateManager struct {
 	buildStateFunc func(ctx context.Context, namespace string, driverLabels map[string]string) (*upgrade.ClusterUpgradeState, error)
-	applyStateFunc func(ctx context.Context, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec) error
+	applyStateFunc func(ctx context.Context, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec, npuDeviceClass string) error
 }
 
 func (m *mockStateManager) WithPodDeletionEnabled(_ upgrade.PodDeletionFilter) upgrade.ClusterUpgradeStateManager {
@@ -62,9 +62,9 @@ func (m *mockStateManager) BuildState(ctx context.Context, namespace string, dri
 	return &upgrade.ClusterUpgradeState{NodeStates: map[string][]*upgrade.NodeUpgradeState{}}, nil
 }
 
-func (m *mockStateManager) ApplyState(ctx context.Context, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec) error {
+func (m *mockStateManager) ApplyState(ctx context.Context, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec, npuDeviceClass string) error {
 	if m.applyStateFunc != nil {
-		return m.applyStateFunc(ctx, currentState, upgradePolicy)
+		return m.applyStateFunc(ctx, currentState, upgradePolicy, npuDeviceClass)
 	}
 	return nil
 }
@@ -256,6 +256,21 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			expectNodeHasNoAnnotation(ctx, nodeName, upgrade.UpgradeAttemptedRevisionAnnotationKey)
 		})
 
+		// The request is the administrator's instruction, not the rollout's
+		// bookkeeping: an attempt they asked for and did not get is served by
+		// the next rollout, which consumes the annotation on admission.
+		It("leaves an unserved upgrade-requested annotation in place", func() {
+			DeferCleanup(func() { removeNodeAnnotation(ctx, nodeName, upgrade.UpgradeRequestedAnnotationKey) })
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, upgrade.UpgradeStateUpgradeRequired)
+			setNodeAnnotation(ctx, nodeName, upgrade.UpgradeRequestedAnnotationKey, "true")
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+			expectNodeKeepsAnnotation(ctx, nodeName, upgrade.UpgradeRequestedAnnotationKey)
+		})
+
 		// The verdict comes from labels the state manager wrote through its own
 		// direct client moments ago; the informer cache may not have caught up,
 		// so the nodes must be read from the API server.
@@ -336,7 +351,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 
 		BeforeEach(func() {
 			mock := &mockStateManager{
-				applyStateFunc: func(_ context.Context, _ *upgrade.ClusterUpgradeState, _ *rblnv1beta1.DriverUpgradePolicySpec) error {
+				applyStateFunc: func(_ context.Context, _ *upgrade.ClusterUpgradeState, _ *rblnv1beta1.DriverUpgradePolicySpec, _ string) error {
 					return fmt.Errorf("apply failed")
 				},
 			}

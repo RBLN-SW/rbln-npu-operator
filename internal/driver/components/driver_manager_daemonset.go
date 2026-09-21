@@ -42,10 +42,18 @@ func (h *driverManagerPatcher) handleDaemonSet(
 	}
 
 	driverConfigDigest := k8sutil.GetObjectHash(ds.Spec.Template.Spec.Containers)
-	ds.Spec.Template.Spec.InitContainers[0].Env = upsertEnvVar(
-		ds.Spec.Template.Spec.InitContainers[0].Env,
-		corev1.EnvVar{Name: driverConfigDigestEnv, Value: driverConfigDigest},
-	)
+	digestEnv := corev1.EnvVar{Name: driverConfigDigestEnv, Value: driverConfigDigest}
+	ds.Spec.Template.Spec.InitContainers[0].Env = upsertEnvVar(ds.Spec.Template.Spec.InitContainers[0].Env, digestEnv)
+	// The driver container records the digest in the host's rbln-driver.state
+	// after a successful install, which is what lets k8s-driver-manager skip
+	// the reinstall on the next pod start. Stamped only after the hash above
+	// is taken: the hash covers this very container, so a digest inside its
+	// env would be an input to itself.
+	for i := range ds.Spec.Template.Spec.Containers {
+		if ds.Spec.Template.Spec.Containers[i].Name == driverManagerContainer {
+			ds.Spec.Template.Spec.Containers[i].Env = upsertEnvVar(ds.Spec.Template.Spec.Containers[i].Env, digestEnv)
+		}
+	}
 	ds.Annotations = k8sutil.MergeMaps(ds.Annotations, map[string]string{
 		driverLastAppliedHashAnnotation: driverConfigDigest,
 	})

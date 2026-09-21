@@ -17,50 +17,76 @@ import (
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
-// npuDeviceClassNames returns the DRA DeviceClasses whose devices are NPUs this
-// upgrade has to free: the ones bridged to a rebellions.ai/* extended resource.
+// npuDeviceClassNames returns the DRA DeviceClasses whose claims mark a pod as
+// an NPU pod this upgrade has to free. The container-mode class is known by
+// name: npuDeviceClass is draKubeletPlugin.driverName, the value the operator
+// hands k8s-driver-manager as NPU_POD_EVICTION_DEVICE_CLASS, so both eviction
+// paths judge a claim by one criterion.
 //
-// The bridge is the discriminator, not the class name. The operator renders the
-// container-mode class with ExtendedResourceName set and the passthrough class
-// without one (internal/clusterpolicy/components/dra_kubelet_plugin.go), so
-// reading it here tracks a customized draKubeletPlugin.driverName and leaves a
-// KubeVirt VM's passthrough claim alone. It also keeps the criterion identical
-// to npuPodSpecFilter's — "holds a rebellions.ai/* resource" — with the claim
-// the second spelling of the same sentence.
-func npuDeviceClassNames(ctx context.Context, k8sInterface kubernetes.Interface) ([]string, error) {
+// The name is the discriminator because it is the only one every API server
+// persists. The operator renders the container-mode class with an
+// extended-resource bridge and the passthrough class without one
+// (internal/clusterpolicy/components/dra_kubelet_plugin.go), but an API server
+// without the DRAExtendedResource feature gate — off by default through
+// Kubernetes 1.35 — drops Spec.ExtendedResourceName on write. A matcher keyed
+// on the bridge then saw no NPU class at all and let every claim holder ride
+// through the rollout still holding /dev/rbln*. The bridge is kept as a hint
+// only: any other class bridged to a rebellions.ai/* resource is added, so a
+// hand-made class on a cluster that does persist the field is still honored.
+// The passthrough class vfio-<driverName> is never one, bridged or not: the
+// device a KubeVirt VM holds through it sits on vfio-pci, not on the driver
+// being replaced.
+func npuDeviceClassNames(ctx context.Context, k8sInterface kubernetes.Interface, npuDeviceClass string) ([]string, error) {
 	list, err := k8sInterface.ResourceV1().DeviceClasses().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list DRA device classes: %w", err)
 	}
 
-	names := make([]string, 0, len(list.Items))
+	names := make([]string, 0, len(list.Items)+1)
+	names = append(names, npuDeviceClass)
+	passthroughClass := passthroughDeviceClassName(npuDeviceClass)
 	for i := range list.Items {
-		extendedResource := list.Items[i].Spec.ExtendedResourceName
+		class := &list.Items[i]
+		if class.Name == npuDeviceClass || class.Name == passthroughClass {
+			continue
+		}
+		extendedResource := class.Spec.ExtendedResourceName
 		if extendedResource != nil && strings.HasPrefix(*extendedResource, consts.RBLNResourceNamePrefix) {
-			names = append(names, list.Items[i].Name)
+			names = append(names, class.Name)
 		}
 	}
 	return names, nil
 }
 
-// npuDeviceClassesOrNone resolves the NPU DeviceClasses for one eviction pass.
-// A failure is not fatal either way: a cluster that does not serve the DRA API
-// answers 404 and has no claims to find, and a transient read failure must not
-// stop the rollout. Eviction then falls back to the pod-spec filter, and a pod
-// it misses surfaces as a driver pod that cannot unload the module.
-func npuDeviceClassesOrNone(ctx context.Context, k8sInterface kubernetes.Interface) []string {
-	names, err := npuDeviceClassNames(ctx, k8sInterface)
+// passthroughDeviceClassName mirrors the DRA kubelet plugin patcher's
+// vfioClassName: the passthrough class is the container-mode class name with
+// a "vfio-" prefix.
+func passthroughDeviceClassName(npuDeviceClass string) string {
+	return "vfio-" + npuDeviceClass
+}
+
+// resolveNPUDeviceClasses resolves the NPU DeviceClasses for one eviction pass.
+// The DeviceClass list only adds hints, so a failure to read it is not fatal: a
+// cluster that does not serve the DRA API answers 404 and has no claims to
+// find, and any other failure must not cost the rollout the configured class,
+// or a transient read error would let every claim holder ride through the
+// eviction. A pod the matcher still misses surfaces as a driver pod that
+// cannot unload the module.
+func resolveNPUDeviceClasses(ctx context.Context, k8sInterface kubernetes.Interface, npuDeviceClass string) []string {
+	names, err := npuDeviceClassNames(ctx, k8sInterface, npuDeviceClass)
 	switch {
 	case err == nil:
 		return names
 	case apierrors.IsNotFound(err):
 		log.FromContext(ctx).V(consts.VDebug).Info(
 			"DRA device classes are not served; NPU pods holding a ResourceClaim will not be evicted")
+		return nil
 	default:
 		log.FromContext(ctx).Error(err,
-			"Failed to resolve NPU device classes; NPU pods holding a ResourceClaim will not be evicted")
+			"Failed to list DRA device classes; only ResourceClaims on the configured NPU class will be evicted",
+			"deviceClass", npuDeviceClass)
+		return []string{npuDeviceClass}
 	}
-	return nil
 }
 
 // npuClaimMatcher reports whether a pod holds an NPU through a DRA

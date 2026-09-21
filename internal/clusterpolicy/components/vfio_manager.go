@@ -484,7 +484,7 @@ func (h *vfioManagerPatcher) driverManagerInitEnv(userEnv []corev1.EnvVar) []cor
 func (h *vfioManagerPatcher) buildDriverUninstallInitContainer() *corev1.Container {
 	dm := h.desiredSpec.DriverManager
 	return k8sutil.NewContainerBuilder().
-		WithName("k8s-driver-manager").
+		WithName(consts.DriverManagerInitContainerName).
 		WithImage(k8sutil.ComposeImageReference(dm.Registry, dm.Image), dm.Version, dm.ImagePullPolicy).
 		WithCommands([]string{"driver-manager"}).
 		WithArgs([]string{"reconcile-vfio-state"}).

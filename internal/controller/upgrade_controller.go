@@ -26,6 +26,7 @@ import (
 	rblnv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/drivermanager"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/metrics"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
 )
@@ -111,7 +112,8 @@ func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	applyErr := r.StateManager.ApplyState(ctx, state, clusterPolicy.Spec.Driver.UpgradePolicy)
+	applyErr := r.StateManager.ApplyState(ctx, state, clusterPolicy.Spec.Driver.UpgradePolicy,
+		drivermanager.NPUDeviceClass(&clusterPolicy.Spec))
 	if applyErr != nil {
 		logger.Error(applyErr, "Failed to apply cluster upgrade state")
 	}
@@ -205,6 +207,12 @@ func (r *UpgradeReconciler) removeNodeUpgradeState(ctx context.Context) error {
 
 // teardownAnnotationKeys is the node bookkeeping that goes with the state
 // label; removeNodeUpgradeState explains why each entry has to.
+//
+// UpgradeRequestedAnnotationKey is deliberately absent. It is the
+// administrator's instruction, not the rollout's bookkeeping: an attempt they
+// asked for and did not get outlives the pause that interrupted it, and the
+// next rollout consumes it on admission (ProcessUpgradeRequiredNodes). With
+// autoUpgrade off nothing acts on it, so leaving it costs nothing until then.
 var teardownAnnotationKeys = []string{
 	upgrade.UpgradeInitialStateAnnotationKey,
 	upgrade.UpgradeValidationStartTimeAnnotationKey,

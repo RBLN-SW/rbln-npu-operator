@@ -33,13 +33,19 @@ func newNodeLabelsFakeClient(t *testing.T, objs ...client.Object) client.Client 
 	return fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(runtimeObjs...).
+		// The API server answers a spec.nodeName field selector natively; the
+		// fake client needs the index spelled out.
+		WithIndex(&corev1.Pod{}, "spec.nodeName", func(obj client.Object) []string {
+			return []string{obj.(*corev1.Pod).Spec.NodeName}
+		}).
 		Build()
 }
 
 func newTestClusterPolicyService(k8sClient client.Client, workloadType string) *ClusterPolicyService {
 	return &ClusterPolicyService{
-		client: k8sClient,
-		log:    logr.Discard(),
+		client:    k8sClient,
+		apiReader: k8sClient,
+		log:       logr.Discard(),
 		policy: &rblnv1beta1.RBLNClusterPolicy{
 			Spec: rblnv1beta1.RBLNClusterPolicySpec{
 				WorkloadType: workloadType,
