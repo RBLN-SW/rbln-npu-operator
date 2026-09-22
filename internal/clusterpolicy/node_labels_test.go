@@ -11,12 +11,18 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 func newNodeLabelsFakeClient(t *testing.T, objs ...client.Object) client.Client {
+	t.Helper()
+	return newNodeLabelsFakeClientWithInterceptor(t, interceptor.Funcs{}, objs...)
+}
+
+func newNodeLabelsFakeClientWithInterceptor(t *testing.T, funcs interceptor.Funcs, objs ...client.Object) client.Client {
 	t.Helper()
 
 	scheme := runtime.NewScheme()
@@ -38,6 +44,7 @@ func newNodeLabelsFakeClient(t *testing.T, objs ...client.Object) client.Client 
 		WithIndex(&corev1.Pod{}, "spec.nodeName", func(obj client.Object) []string {
 			return []string{obj.(*corev1.Pod).Spec.NodeName}
 		}).
+		WithInterceptorFuncs(funcs).
 		Build()
 }
 

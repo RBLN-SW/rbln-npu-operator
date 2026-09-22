@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
@@ -114,8 +115,9 @@ func (c NodeCensus) CountFor(workload string) int32 {
 	}
 }
 
-// ReconcileNodes issues at most one Update call per candidate node, batching
-// label and annotation changes into a single PATCH.
+// ReconcileNodes issues one Update per candidate node that needs a change,
+// batching label and annotation changes into it, and retries a conflicting
+// Update from a fresh read.
 func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []corev1.Node) (NodeCensus, error) {
 	shouldEnableUpgrade := shouldEnableDriverAutoUpgrade(s.policy)
 	var census NodeCensus
@@ -123,16 +125,8 @@ func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []
 	for i := range candidates {
 		node := &candidates[i]
 
-		labelsChanged := s.reconcileNodeLabelsInPlace(node)
-		// After the fill-only pass, so a stale pause is judged on the keys the
-		// node should carry now.
-		pausedRestored := s.restoreStalePausedLabels(ctx, node)
-		annotationsChanged := reconcileAutoUpgradeAnnotationInPlace(node, shouldEnableUpgrade)
-
-		if labelsChanged || pausedRestored || annotationsChanged {
-			if err := s.client.Update(ctx, node); err != nil {
-				return NodeCensus{}, fmt.Errorf("update node %s: %w", node.Name, err)
-			}
+		if err := s.reconcileNode(ctx, node, shouldEnableUpgrade); err != nil {
+			return NodeCensus{}, fmt.Errorf("update node %s: %w", node.Name, err)
 		}
 
 		labels := node.GetLabels()
@@ -150,6 +144,44 @@ func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []
 	}
 
 	return census, nil
+}
+
+// reconcileNode writes the node's label and annotation decisions back. The
+// node is co-written by kubelet, k8s-driver-manager and the upgrade
+// controller, so losing the resourceVersion race is routine; the conflict is
+// retried with the decisions recomputed from a direct API read, since the
+// cache may still be behind the writer that won. The lock itself stays: a
+// lock-less write could put back a pause k8s-driver-manager re-applied after
+// restoreStalePausedLabels judged the previous one stale.
+func (s *ClusterPolicyService) reconcileNode(ctx context.Context, node *corev1.Node, shouldEnableUpgrade bool) error {
+	attempt := 0
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		attempt++
+		if attempt > 1 {
+			// Into a fresh object: decoding over the stale copy would keep
+			// labels the server no longer has.
+			fresh := &corev1.Node{}
+			if err := s.apiReader.Get(ctx, client.ObjectKeyFromObject(node), fresh); err != nil {
+				return err
+			}
+			*node = *fresh
+		}
+		if !s.reconcileNodeInPlace(ctx, node, shouldEnableUpgrade) {
+			return nil
+		}
+		return s.client.Update(ctx, node)
+	})
+}
+
+// reconcileNodeInPlace applies every label and annotation decision to the
+// node in-place and reports whether anything changed.
+func (s *ClusterPolicyService) reconcileNodeInPlace(ctx context.Context, node *corev1.Node, shouldEnableUpgrade bool) bool {
+	labelsChanged := s.reconcileNodeLabelsInPlace(node)
+	// After the fill-only pass, so a stale pause is judged on the keys the
+	// node should carry now.
+	pausedRestored := s.restoreStalePausedLabels(ctx, node)
+	annotationsChanged := reconcileAutoUpgradeAnnotationInPlace(node, shouldEnableUpgrade)
+	return labelsChanged || pausedRestored || annotationsChanged
 }
 
 // reconcileNodeLabelsInPlace adjusts RBLN labels on the node in-place

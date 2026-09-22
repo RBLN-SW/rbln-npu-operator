@@ -167,7 +167,7 @@ func (m *PodManager) ScheduleCheckOnPodCompletion(ctx context.Context, config *P
 			continue
 		}
 		if len(podList.Items) > 0 {
-			log.FromContext(ctx).Error(err, "Found workload pods",
+			log.FromContext(ctx).Info("Found workload pods",
 				"selector", config.WaitForCompletionSpec.PodSelector, "node", node.Name, "pods", len(podList.Items))
 		}
 		wg.Add(1)
