@@ -83,7 +83,7 @@ spec:
     driverManager:
       registry: docker.io
       image: rebellions/rbln-k8s-driver-manager
-      version: v0.2.2
+      version: v0.3.0
       imagePullPolicy: IfNotPresent
   validator:
     registry: docker.io

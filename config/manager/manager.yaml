@@ -87,6 +87,6 @@ spec:
           - name: RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN
             value: docker.io/rebellions/sandbox-device-plugin:v0.1.1@sha256:5504fbc0f61da69c98e6e74de0f6a4feb3771019139a34f3283209a180f1281e
           - name: RELATED_IMAGE_DRIVER_MANAGER
-            value: docker.io/rebellions/rbln-k8s-driver-manager:v0.2.2@sha256:8dafc00eac13a9ac7076f094796e51e1ac538c5cb1de061c1b05fb83350b24af
+            value: docker.io/rebellions/rbln-k8s-driver-manager:v0.3.0@sha256:a8ebc696ba5ff63074d86ed8cef0f857a7fd484cedbbe80968de66712e24d8e1
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
