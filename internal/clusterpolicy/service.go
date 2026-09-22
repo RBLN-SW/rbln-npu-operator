@@ -132,7 +132,8 @@ func (s *ClusterPolicyService) AssembleStatus(
 			Message:      report.Message,
 		})
 
-		if a, ok := aggregates[wlType]; ok {
+		for _, target := range aggregateTargets(wlType, census) {
+			a := aggregates[target]
 			a.componentCount++
 			if report.State == rblnv1beta1.ComponentStateReady {
 				a.readyCount++
@@ -150,6 +151,31 @@ func (s *ClusterPolicyService) AssembleStatus(
 
 	workloadStatuses := buildWorkloadStatuses(census, aggregates)
 	return componentStatuses, workloadStatuses
+}
+
+// aggregateTargets names the workload buckets a component's readiness feeds.
+// A component typed for one workload feeds that bucket only. A component that
+// serves every workload type (RBLNWorkloadConfigAll — the DRA kubelet plugin)
+// feeds every bucket that currently has nodes, so a DaemonSet that is not
+// Ready pulls each affected workload, and with it the top-level state, out of
+// ready. Before this, an "all" component appeared in status.components but in
+// no status.workloads entry, so the policy reported ready while the component
+// was notReady. Unknown types feed nothing, as before.
+func aggregateTargets(wlType string, census NodeCensus) []string {
+	switch wlType {
+	case consts.RBLNWorkloadConfigContainer, consts.RBLNWorkloadConfigVMPassthrough:
+		return []string{wlType}
+	case consts.RBLNWorkloadConfigAll:
+		targets := make([]string, 0, 2)
+		for _, t := range []string{consts.RBLNWorkloadConfigContainer, consts.RBLNWorkloadConfigVMPassthrough} {
+			if census.CountFor(t) > 0 {
+				targets = append(targets, t)
+			}
+		}
+		return targets
+	default:
+		return nil
+	}
 }
 
 // buildWorkloadStatuses derives an RBLNWorkloadStatus for each known workload
