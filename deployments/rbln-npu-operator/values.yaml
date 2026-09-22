@@ -208,7 +208,7 @@ driver:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.2.2
+      tag: v0.3.0
       pullPolicy: IfNotPresent
   #  imagePullSecrets:
   #  - my-registry-secret
@@ -344,7 +344,7 @@ vfioManager:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.2.2
+      tag: v0.3.0
       pullPolicy: IfNotPresent
     # Appended after the env the operator renders, so a duplicate name set here
     # wins. Before binding vfio-pci, k8s-driver-manager evicts the node's
