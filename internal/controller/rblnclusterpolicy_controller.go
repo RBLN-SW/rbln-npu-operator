@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -258,34 +259,47 @@ func (r *RBLNClusterPolicyReconciler) reconcileStatus(
 	componentStatuses []rblnv1beta1.RBLNComponentStatus,
 	workloadStatuses []rblnv1beta1.RBLNWorkloadStatus,
 ) (allReady bool, notReadyMsg string, err error) {
-	instance := &rblnv1beta1.RBLNClusterPolicy{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(policy), instance); err != nil {
-		return false, "", fmt.Errorf("get cluster policy for status update: %w", err)
-	}
-	prevState := instance.Status.State
-
-	instance.Status.Namespace = namespace
-	instance.Status.Components = componentStatuses
-	instance.Status.Workloads = workloadStatuses
-	instance.Status.ObservedGeneration = instance.Generation
-
 	state, reason, message := summariseWorkloadStatuses(workloadStatuses)
-	instance.Status.State = state
 	exportWorkloadMetrics(workloadStatuses, state)
 
 	condStatus := metav1.ConditionTrue
 	if state != consts.RBLNStateReady {
 		condStatus = metav1.ConditionFalse
 	}
-	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-		Type:               consts.RBLNConditionTypeReady,
-		Status:             condStatus,
-		ObservedGeneration: instance.Generation,
-		Reason:             reason,
-		Message:            message,
-	})
 
-	if err := r.Client.Status().Update(ctx, instance); err != nil {
+	// The upgrade controller publishes its own block and conditions into this
+	// status, so losing the resourceVersion race to it is routine. The
+	// conflict is retried from a fresh read, the retries bypassing a cache
+	// that may still be behind; a merge patch would replace the shared
+	// conditions list wholesale and drop what the other controller just wrote.
+	var instance *rblnv1beta1.RBLNClusterPolicy
+	var prevState string
+	reader := client.Reader(r.Client)
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// A fresh object per attempt: decoding over the previous one would
+		// keep status fields the server has since dropped.
+		instance = &rblnv1beta1.RBLNClusterPolicy{}
+		if getErr := reader.Get(ctx, client.ObjectKeyFromObject(policy), instance); getErr != nil {
+			return getErr
+		}
+		reader = r.APIReader
+		prevState = instance.Status.State
+
+		instance.Status.Namespace = namespace
+		instance.Status.Components = componentStatuses
+		instance.Status.Workloads = workloadStatuses
+		instance.Status.ObservedGeneration = instance.Generation
+		instance.Status.State = state
+		apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+			Type:               consts.RBLNConditionTypeReady,
+			Status:             condStatus,
+			ObservedGeneration: instance.Generation,
+			Reason:             reason,
+			Message:            message,
+		})
+		return r.Client.Status().Update(ctx, instance)
+	})
+	if err != nil {
 		return false, "", fmt.Errorf("update cluster policy status: %w", err)
 	}
 	// Reusing the condition's reason/message keeps the two from drifting apart.
