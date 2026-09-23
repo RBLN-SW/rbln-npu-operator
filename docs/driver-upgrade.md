@@ -146,12 +146,12 @@ To exclude a node from rollouts, label it `rebellions.ai/npu-driver-upgrade.skip
 
 ### Rollout Status
 
-The `RBLNClusterPolicy` printcolumns summarize the rollout. Skipped nodes are never counted as done.
+The `RBLNClusterPolicy` printcolumns summarize the rollout. Skipped nodes are never counted as done. `STATUS` reads `notReady` while nodes are mid-install; see [Policy Status While a Driver Installs](#policy-status-while-a-driver-installs).
 
 ```console
 $ kubectl get rblnclusterpolicy
 NAME             STATUS   ...   UPGRADE             UPGRADE-STATE
-cluster-policy   ready    ...   12/40 (2 skipped)   Degraded
+cluster-policy   notReady ...   12/40 (2 skipped)   Degraded
 ```
 
 Both columns come from `status.driverUpgrade`, which the operator republishes on every reconcile:
@@ -244,6 +244,26 @@ $ kubectl get events -A \
 ### Metrics
 
 The gauge `rbln_operator_driver_upgrade_nodes{state=...}` reports the number of nodes per state label value; nodes without a label report as `unknown`. Every state is published on every reconcile, zeros included, so an alert on `rbln_operator_driver_upgrade_nodes{state="upgrade-skipped"} > 0` or `{state="upgrade-failed"} > 0` needs no special case for a missing series.
+
+### Policy Status While a Driver Installs
+
+Every run of the `k8s-driver-manager` init container switches the node's `rebellions.ai/npu.deploy.*` labels to `paused-for-driver-upgrade`, which removes the operator's component pods from the node, and switches them back when the init container ends, before the driver container loads the module. The driver pod runs it whenever its init containers run: when the pod is created, and again when it restarts after a node reboot. The vfio-manager pod on a `vm-passthrough` node runs it the same way. The pause happens with or without `autoUpgrade`, and also on runs that skip the reinstall.
+
+While a node is paused its component DaemonSets no longer count it, so their own readiness would read as complete. The operator therefore holds the node's workload at `progressing`, and the policy at `notReady` with reason `WorkloadProgressing`, until no node of that workload is paused. Once the labels are back, the returning component pods wait for the driver before they become Ready, which keeps the policy `notReady` until the install finishes. The `Ready` condition names up to three paused nodes:
+
+```console
+$ kubectl get rblnclusterpolicy <POLICY_NAME> -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}'
+Progressing workload(s): container(1 of 3 container node(s) paused for driver install/upgrade: node-a)
+```
+
+The `STATUS` column reads `notReady` for the length of every driver install, and for most of a rollout. `rbln_operator_reconcile_failed_total{controller="clusterpolicy"}` counts every reconcile that ends `notReady`, so it grows during these windows too. To alert on a policy that stays unready, use `rbln_operator_clusterpolicy_reconcile_status == 1` with a `for:` longer than a driver install takes on your nodes, not the rate of that counter.
+
+A pause normally ends with its run. When a run is killed before it switches the labels back, the operator restores them itself once every `k8s-driver-manager` init container on the node has terminated. A node with no such container left, that is with neither a driver pod nor a vfio-manager pod, gives the operator nothing to judge the pause by: the labels stay paused and the policy stays `notReady`, naming the node, until you restore them.
+
+```bash
+$ kubectl get node <NODE_NAME> --show-labels | tr ',' '\n' | grep paused-for-driver-upgrade
+$ kubectl label node <NODE_NAME> --overwrite <LABEL_KEY>=true
+```
 
 ------------------------------------------------------------------------
 
