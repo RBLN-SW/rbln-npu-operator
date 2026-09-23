@@ -140,7 +140,7 @@ func (h *driverManagerPatcher) shouldSkipDaemonSetUpdate(current, desired *appsv
 		return false
 	}
 
-	h.log.Info(
+	h.log.V(consts.VDebug).Info(
 		"Skip DaemonSet update: pod template unchanged",
 		"namespace", current.Namespace,
 		"name", current.Name,

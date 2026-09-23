@@ -1,10 +1,10 @@
 package driver
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -52,9 +52,30 @@ func validateDriverInstall(root string) error {
 }
 
 func assertDriverContainerReady(outputDir string, sleepIntervalSeconds int, silent bool) error {
-	readyPath := filepath.Join(outputDir, driverContainerReadyFile)
-	args := []string{"-c", fmt.Sprintf("stat %s", readyPath)}
-	return runCommandWithWait(shell, args, sleepIntervalSeconds, silent)
+	marker := filepath.Join(outputDir, driverContainerReadyFile)
+	return waitForFile(marker, time.Duration(sleepIntervalSeconds)*time.Second, time.Sleep, silent)
+}
+
+// waitForFile polls until path exists, naming what it waits on every
+// interval like the vfio-pci, dra-ready and toolkit gates do, so the tail of
+// `kubectl logs -c driver-validation` always says where the pod is blocked.
+func waitForFile(path string, interval time.Duration, sleep func(time.Duration), silent bool) error {
+	for {
+		_, err := os.Stat(path)
+		if err == nil {
+			if !silent {
+				slog.Info("Driver container ready marker found", "path", path)
+			}
+			return nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("driver container ready marker: %w", err)
+		}
+		if !silent {
+			slog.Info("Driver container ready marker not found, retrying", "path", path, "sleepSeconds", interval.Seconds())
+		}
+		sleep(interval)
+	}
 }
 
 func findDriverLibraryPath(root string) (string, error) {
@@ -78,24 +99,4 @@ func findFileUnderRoot(root string, name string, searchIn ...string) (string, er
 	}
 
 	return "", fmt.Errorf("error locating %q under %q", name, root)
-}
-
-func runCommand(name string, args []string, silent bool) error {
-	cmd := exec.Command(name, args...)
-	if !silent {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	return cmd.Run()
-}
-
-func runCommandWithWait(name string, args []string, sleepSeconds int, silent bool) error {
-	for {
-		err := runCommand(name, args, silent)
-		if err == nil {
-			return nil
-		}
-		slog.Info("Command failed, retrying", "command", name, "error", err)
-		time.Sleep(time.Duration(sleepSeconds) * time.Second)
-	}
 }

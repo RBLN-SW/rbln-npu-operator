@@ -353,7 +353,13 @@ func summariseWorkloadStatuses(workloads []rblnv1beta1.RBLNWorkloadStatus) (stat
 		case rblnv1beta1.WorkloadStateUncovered:
 			uncovered = append(uncovered, fmt.Sprintf("%s(%d node)", w.Type, w.NodeCount))
 		case rblnv1beta1.WorkloadStateProgressing:
-			progressing = append(progressing, fmt.Sprintf("%s(%d/%d ready)", w.Type, w.ReadyCount, w.ComponentCount))
+			// The workload message is always the more specific reason; the count
+			// fallback only covers statuses built without one.
+			detail := w.Message
+			if detail == "" {
+				detail = fmt.Sprintf("%d/%d ready", w.ReadyCount, w.ComponentCount)
+			}
+			progressing = append(progressing, fmt.Sprintf("%s(%s)", w.Type, detail))
 		}
 	}
 

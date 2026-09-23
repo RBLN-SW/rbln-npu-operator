@@ -44,6 +44,18 @@ func TestNPUFeatureDiscoveryPatch(t *testing.T) {
 	assertContainerImage(t, mainContainer, "rebellions/npu-feature-discovery", "latest")
 	assertPrivileged(t, mainContainer)
 
+	// rbln-npu-feature-discovery ≥ v0.2.2 ignores --rbln-daemon-url and logs a
+	// deprecation warning when it is passed; the operator must not pass it, and
+	// NODE_IP only ever fed that URL.
+	if len(mainContainer.Args) != 0 {
+		t.Fatalf("main container args = %v, want none", mainContainer.Args)
+	}
+	for _, env := range mainContainer.Env {
+		if env.Name == "NODE_IP" {
+			t.Fatalf("main container still carries NODE_IP")
+		}
+	}
+
 	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
 		t.Fatalf("expected 1 init container, got %d", len(ds.Spec.Template.Spec.InitContainers))
 	}

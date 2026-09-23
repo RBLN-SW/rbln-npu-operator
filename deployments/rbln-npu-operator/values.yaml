@@ -292,6 +292,7 @@ npuFeatureDiscovery:
   image:
     registry: docker.io
     repository: rebellions/rbln-npu-feature-discovery
+    # v0.2.2+ ignores --rbln-daemon-url; the operator no longer passes it.
     tag: v0.2.3
     pullPolicy: IfNotPresent
   # See devicePlugin.logging.

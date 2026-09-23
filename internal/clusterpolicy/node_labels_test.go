@@ -2,6 +2,7 @@ package clusterpolicy
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -496,4 +497,96 @@ func allComponentLabelKeys() []string {
 		keys = append(keys, labelKeys(labels)...)
 	}
 	return append(keys, legacyComponentLabelKeys...)
+}
+
+func TestReconcileNodesCountsPausedNodes(t *testing.T) {
+	tests := map[string]struct {
+		workloadType string
+		labels       map[string]string
+		wantNodes    []string
+		wantTotalNPU int32
+	}{
+		"container node with a paused component label": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			labels: map[string]string{
+				consts.NFDDevicePCILabelKey:              labelValueTrue,
+				consts.RBLNPresentLabelKey:               labelValueTrue,
+				"rebellions.ai/npu.deploy.device-plugin": consts.RBLNDeployPausedForDriverUpgrade,
+			},
+			wantNodes:    []string{"node-paused"},
+			wantTotalNPU: 1,
+		},
+		"container node fully labeled true": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			labels: mergeLabelMaps(
+				map[string]string{consts.NFDDevicePCILabelKey: labelValueTrue, consts.RBLNPresentLabelKey: labelValueTrue},
+				rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
+			),
+			wantTotalNPU: 1,
+		},
+		"user opt-out false is not a pause": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			labels: map[string]string{
+				consts.NFDDevicePCILabelKey:              labelValueTrue,
+				consts.RBLNPresentLabelKey:               labelValueTrue,
+				"rebellions.ai/npu.deploy.device-plugin": labelValueFalse,
+			},
+			wantTotalNPU: 1,
+		},
+		// driver-manager's vfio init never pauses vfio-manager itself (that would
+		// evict its own pod); sandbox-device-plugin/dra-kubelet-plugin are what it pauses.
+		"vm-passthrough node paused by the sandbox-device-plugin driver-manager init": {
+			workloadType: consts.RBLNWorkloadConfigVMPassthrough,
+			labels: map[string]string{
+				consts.NFDDevicePCILabelKey:                      labelValueTrue,
+				consts.RBLNPresentLabelKey:                       labelValueTrue,
+				consts.RBLNWorkloadConfigLabelKey:                consts.RBLNWorkloadConfigVMPassthrough,
+				"rebellions.ai/npu.deploy.sandbox-device-plugin": consts.RBLNDeployPausedForDriverUpgrade,
+			},
+			wantNodes:    []string{"node-paused"},
+			wantTotalNPU: 1,
+		},
+		// An empty value belongs to emptyDesiredComponentLabels, not the pause counter.
+		"empty component value is not a pause": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			labels: map[string]string{
+				consts.NFDDevicePCILabelKey:              labelValueTrue,
+				consts.RBLNPresentLabelKey:               labelValueTrue,
+				"rebellions.ai/npu.deploy.device-plugin": "",
+			},
+			wantTotalNPU: 1,
+		},
+		// A stale pause value on a skip-labeled node must never hold the policy
+		// at progressing: the node leaves the census entirely before the pause
+		// value is even inspected.
+		"a skip-labeled node's stale pause label is not counted": {
+			workloadType: consts.RBLNWorkloadConfigContainer,
+			labels: map[string]string{
+				consts.NFDDevicePCILabelKey:              labelValueTrue,
+				consts.RBLNPresentLabelKey:               labelValueTrue,
+				consts.RBLNDeploySkipLabelKey:            labelValueTrue,
+				"rebellions.ai/npu.deploy.device-plugin": consts.RBLNDeployPausedForDriverUpgrade,
+			},
+			wantTotalNPU: 0,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			node := &corev1.Node{ObjectMeta: newObjectMeta("node-paused", tc.labels)}
+			k8sClient := newNodeLabelsFakeClient(t, node)
+			service := newTestClusterPolicyService(k8sClient, tc.workloadType)
+
+			census, err := service.ReconcileNodes(context.Background(), []corev1.Node{*node})
+			if err != nil {
+				t.Fatalf("ReconcileNodes() unexpected error: %v", err)
+			}
+			if got := census.PausedNodesFor(tc.workloadType); !slices.Equal(got, tc.wantNodes) {
+				t.Fatalf("PausedNodesFor(%s) = %v, want %v", tc.workloadType, got, tc.wantNodes)
+			}
+			if census.TotalNPU != tc.wantTotalNPU {
+				t.Fatalf("TotalNPU = %d, want %d", census.TotalNPU, tc.wantTotalNPU)
+			}
+		})
+	}
 }

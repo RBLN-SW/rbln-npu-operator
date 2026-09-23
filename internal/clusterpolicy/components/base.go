@@ -217,7 +217,7 @@ func (b *basePatcher) reconcileServiceAccount(ctx context.Context, owner *rblnv1
 		b.log.Error(err, "Failed to reconcile ServiceAccount", "name", b.name)
 		return err
 	}
-	b.log.Info("Reconciled ServiceAccount", "name", sa.Name, "namespace", sa.Namespace, "result", res)
+	k8sutil.LogReconcileResult(b.log, "Reconciled ServiceAccount", res, "name", sa.Name, "namespace", sa.Namespace)
 	return nil
 }
 
@@ -253,7 +253,7 @@ func (b *basePatcher) reconcileRole(ctx context.Context, owner *rblnv1beta1.RBLN
 		b.log.Error(err, "Failed to reconcile Role", "name", b.name)
 		return err
 	}
-	b.log.Info("Reconciled Role", "name", role.Name, "namespace", role.Namespace, "result", res)
+	k8sutil.LogReconcileResult(b.log, "Reconciled Role", res, "name", role.Name, "namespace", role.Namespace)
 	return nil
 }
 
@@ -281,7 +281,7 @@ func (b *basePatcher) reconcileRoleBinding(ctx context.Context, owner *rblnv1bet
 		b.log.Error(err, "Failed to reconcile RoleBinding", "name", b.name)
 		return err
 	}
-	b.log.Info("Reconciled RoleBinding", "name", rb.Name, "namespace", rb.Namespace, "result", res)
+	k8sutil.LogReconcileResult(b.log, "Reconciled RoleBinding", res, "name", rb.Name, "namespace", rb.Namespace)
 	return nil
 }
 

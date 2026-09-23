@@ -201,6 +201,48 @@ func TestAssembleStatus(t *testing.T) {
 				{Type: consts.RBLNWorkloadConfigVMPassthrough, NodeCount: 0, ComponentCount: 0, ReadyCount: 0, State: rblnv1beta1.WorkloadStateEmpty},
 			},
 		},
+		"all components ready but nodes are paused for driver install → progressing": {
+			reason: "DaemonSet readiness excludes paused nodes, so the workload must not report ready",
+			patchers: []*fakePatcher{
+				{name: "device-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigContainer, enabled: true, report: containerReady},
+			},
+			census: NodeCensus{TotalNPU: 3, ContainerNodes: 3, ContainerPausedNodes: []string{"node-b", "node-a"}},
+			wantComponents: []rblnv1beta1.RBLNComponentStatus{
+				{Name: "device-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigContainer, State: rblnv1beta1.ComponentStateReady, Desired: 1, Ready: 1},
+			},
+			wantWorkloads: []rblnv1beta1.RBLNWorkloadStatus{
+				{Type: consts.RBLNWorkloadConfigContainer, NodeCount: 3, ComponentCount: 1, ReadyCount: 1, State: rblnv1beta1.WorkloadStateProgressing, Message: "2 of 3 container node(s) paused for driver install/upgrade: node-a, node-b"},
+				{Type: consts.RBLNWorkloadConfigVMPassthrough, NodeCount: 0, ComponentCount: 0, ReadyCount: 0, State: rblnv1beta1.WorkloadStateEmpty},
+			},
+		},
+		"one component not ready and a node paused → message carries both": {
+			reason: "F1: the paused branch must not be shadowed just because readyCount < componentCount also matched",
+			patchers: []*fakePatcher{
+				{name: "device-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigContainer, enabled: true, report: containerNotReady},
+			},
+			census: NodeCensus{TotalNPU: 2, ContainerNodes: 2, ContainerPausedNodes: []string{"node-a"}},
+			wantComponents: []rblnv1beta1.RBLNComponentStatus{
+				{Name: "device-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigContainer, State: rblnv1beta1.ComponentStateNotReady, Desired: 1, Ready: 0, Message: "not ready"},
+			},
+			wantWorkloads: []rblnv1beta1.RBLNWorkloadStatus{
+				{Type: consts.RBLNWorkloadConfigContainer, NodeCount: 2, ComponentCount: 1, ReadyCount: 0, State: rblnv1beta1.WorkloadStateProgressing, Message: "0/1 components ready on 2 container node(s); 1 node(s) paused for driver install/upgrade: node-a"},
+				{Type: consts.RBLNWorkloadConfigVMPassthrough, NodeCount: 0, ComponentCount: 0, ReadyCount: 0, State: rblnv1beta1.WorkloadStateEmpty},
+			},
+		},
+		"paused node list is bounded": {
+			reason: "a large paused-node list must not turn the condition into a page",
+			patchers: []*fakePatcher{
+				{name: "device-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigContainer, enabled: true, report: containerReady},
+			},
+			census: NodeCensus{TotalNPU: 5, ContainerNodes: 5, ContainerPausedNodes: []string{"node-e", "node-d", "node-c", "node-b", "node-a"}},
+			wantComponents: []rblnv1beta1.RBLNComponentStatus{
+				{Name: "device-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigContainer, State: rblnv1beta1.ComponentStateReady, Desired: 1, Ready: 1},
+			},
+			wantWorkloads: []rblnv1beta1.RBLNWorkloadStatus{
+				{Type: consts.RBLNWorkloadConfigContainer, NodeCount: 5, ComponentCount: 1, ReadyCount: 1, State: rblnv1beta1.WorkloadStateProgressing, Message: "5 of 5 container node(s) paused for driver install/upgrade: node-a, node-b, node-c, … (+2 more)"},
+				{Type: consts.RBLNWorkloadConfigVMPassthrough, NodeCount: 0, ComponentCount: 0, ReadyCount: 0, State: rblnv1beta1.WorkloadStateEmpty},
+			},
+		},
 		"vm-passthrough enabled but 0 nodes → empty with message hint": {
 			reason: "Scenario C — DS exists but workload has no nodes",
 			patchers: []*fakePatcher{

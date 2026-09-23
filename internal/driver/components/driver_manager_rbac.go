@@ -8,6 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
+	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
 
 func (h *driverManagerPatcher) handleClusterRole(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {
@@ -52,7 +53,7 @@ func (h *driverManagerPatcher) handleClusterRole(ctx context.Context, owner *reb
 		h.log.Error(err, "Failed to reconcile ClusterRole", "name", h.name)
 		return err
 	}
-	h.log.Info("Reconciled ClusterRole", "name", role.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled ClusterRole", res, "name", role.Name)
 	return nil
 }
 
@@ -75,6 +76,6 @@ func (h *driverManagerPatcher) handleClusterRoleBinding(ctx context.Context, own
 		h.log.Error(err, "Failed to reconcile ClusterRoleBinding", "name", h.name)
 		return err
 	}
-	h.log.Info("Reconciled ClusterRoleBinding", "name", binding.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled ClusterRoleBinding", res, "name", binding.Name)
 	return nil
 }

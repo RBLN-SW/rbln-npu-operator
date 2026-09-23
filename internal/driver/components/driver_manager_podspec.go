@@ -103,7 +103,7 @@ publish_component_ready
 		h.log.Error(err, "Failed to reconcile startup probe ConfigMap")
 		return err
 	}
-	h.log.Info("Reconciled startup probe ConfigMap", "namespace", cm.Namespace, "name", cm.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled startup probe ConfigMap", res, "namespace", cm.Namespace, "name", cm.Name)
 	return nil
 }
 

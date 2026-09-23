@@ -184,7 +184,7 @@ func (h *SmdPatcher) handleDaemonSet(ctx context.Context, owner *rebellionsaiv1a
 		h.log.Error(err, "Failed to reconcile rbln-smd DaemonSet")
 		return err
 	}
-	h.log.Info("Reconciled rbln-smd DaemonSet", "namespace", ds.Namespace, "name", ds.Name, "result", res)
+	k8sutil.LogReconcileResult(h.log, "Reconciled rbln-smd DaemonSet", res, "namespace", ds.Namespace, "name", ds.Name)
 	return nil
 }
 
