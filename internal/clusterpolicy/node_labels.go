@@ -122,19 +122,15 @@ func (c NodeCensus) CountFor(workload string) int32 {
 	}
 }
 
-// PausedNodesFor returns nil for unknown workload types. Callers must not
-// mutate the result; pausedNodeList clones before sorting.
+// PausedNodesFor returns nil for any other workload type, "all" included:
+// workload statuses exist only for container and vm-passthrough. Callers must
+// not mutate the result; pausedNodeList clones before sorting.
 func (c NodeCensus) PausedNodesFor(workload string) []string {
 	switch workload {
 	case consts.RBLNWorkloadConfigContainer:
 		return c.ContainerPausedNodes
 	case consts.RBLNWorkloadConfigVMPassthrough:
 		return c.VMPassthroughPausedNodes
-	case consts.RBLNWorkloadConfigAll:
-		all := make([]string, 0, len(c.ContainerPausedNodes)+len(c.VMPassthroughPausedNodes))
-		all = append(all, c.ContainerPausedNodes...)
-		all = append(all, c.VMPassthroughPausedNodes...)
-		return all
 	default:
 		return nil
 	}
@@ -160,7 +156,7 @@ func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []
 		}
 		census.TotalNPU++
 		workload, _ := getWorkloadConfig(labels, s.policy.Spec.WorkloadType)
-		paused := hasPausedComponentLabel(labels, workload)
+		paused := len(pausedDesiredComponentLabels(labels, workload)) > 0
 		switch workload {
 		case consts.RBLNWorkloadConfigContainer:
 			census.ContainerNodes++
@@ -428,23 +424,6 @@ func hasRBLNPresentLabel(labels map[string]string) bool {
 
 func hasDriverDeployLabel(labels map[string]string) bool {
 	return labels[consts.RBLNDeployDriverLabelKey] == labelValueTrue
-}
-
-// hasPausedComponentLabel reports whether k8s-driver-manager has paused any of
-// the node's components for this workload. Only the pause value counts: "false"
-// is a user opt-out and "" is reported by emptyDesiredComponentLabels.
-// Exact equality is safe: driver-manager writes the bare pause value over the
-// "true" the operator filled, and its composite "<value>_paused-for-driver-upgrade"
-// form is unreachable here because the operator never writes any other value
-// on the keys driver-manager tracks, and the only sanctioned user value,
-// "false", maps to itself.
-func hasPausedComponentLabel(labels map[string]string, config string) bool {
-	for key := range rblnComponentLabels[config] {
-		if labels[key] == consts.RBLNDeployPausedForDriverUpgrade {
-			return true
-		}
-	}
-	return false
 }
 
 func hasRBLNDeploySkipLabel(labels map[string]string) bool {
