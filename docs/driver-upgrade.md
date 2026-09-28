@@ -212,16 +212,17 @@ $ kubectl get nodes -l rebellions.ai/npu-driver-upgrade-state=upgrade-failed
 $ kubectl describe node <NODE_NAME>
 ```
 
-All keys are prefixed `rebellions.ai/`. The operator writes the first three; `npu-driver-upgrade-requested` is the one you set.
+All keys are prefixed `rebellions.ai/`. The operator writes the first four; `npu-driver-upgrade-requested` is the one you set.
 
 | Annotation | Set | Cleared |
 |------------|-----|---------|
 | `npu-driver-upgrade-failure-reason` | On the transition to `upgrade-failed`: the failure message, truncated to 400 characters | When the node is retried or self-heals |
 | `npu-driver-upgrade-failure-step` | On the transition to `upgrade-failed`: the state the node failed in | When the node is retried or self-heals |
 | `npu-driver-upgrade-skip-reason` | On the transition to `upgrade-skipped`: the eviction error, truncated to 400 characters | When the node is retried, or when `autoUpgrade` is turned off |
+| `npu-driver-upgrade-cordon` | `operator`, in the same patch as the cordon the rollout takes at `cordon-required`, or when the rollout adopts a cordon `k8s-driver-manager` left (`driver`, `vfio`, or the pre-rename `true`) | In the same patch as the uncordon: at the end of the rollout, when a skipped node returns to service, when `autoUpgrade` is turned off, or when the node leaves the driver's scope (`npu.deploy.driver` no longer `true`). A cordon carrying no claim is an administrator's and is never lifted |
 | `npu-driver-upgrade-requested` | `true`, by you, to request one attempt for a done, skipped, or failed node | By the operator when it re-admits the node. Turning `autoUpgrade` off leaves it in place: a request that was not served is honored by the next rollout |
 
-One more annotation on this prefix is written by `k8s-driver-manager`, not by the operator. With `autoUpgrade: false` the binary cordons the node itself before it evicts NPU pods, and it marks that cordon with `npu-driver-upgrade-cordon` so a later run can tell it from an administrator's. If such a run is killed before it uncordons and `autoUpgrade` is then turned on, the operator finds the node cordoned with that mark when it admits it: the cordon is adopted as the rollout's own, the mark is removed, and the node is uncordoned at the end like any other. Without the mark, a cordon that predates the rollout is treated as the administrator's and left in place.
+`k8s-driver-manager` writes the same `npu-driver-upgrade-cordon` key on the cordon it takes on its own eviction path with `autoUpgrade: false`, so each side can tell its cordon from an administrator's and from the other's. Under `autoUpgrade: true` the binary never lifts a cordon, so the operator adopts one it finds — at the cordon step when the node is admitted, or directly when the node's driver pod is already in sync (a manual-mode run parked on a blocked eviction, then the policy flipped) — and clears the binary's `npu-pod-eviction-blocked` mark with it. Builds of `k8s-driver-manager` before v0.3.0 tested the claim's presence only and would lift the operator's cordon; keep the pinned v0.3.0 or later. A node that lost its state label but still carries the operator's claim is released by the next `autoUpgrade: false` teardown, or immediately when it needs no upgrade.
 
 ### Events
 
