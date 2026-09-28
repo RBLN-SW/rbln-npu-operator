@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -43,6 +44,35 @@ func (m *ClusterUpgradeStateManagerImpl) podInSyncWithDS(ctx context.Context,
 func driverPodTemplateOutdated(nodeState *NodeUpgradeState) bool {
 	return nodeState.DriverPod.Annotations[consts.DriverTemplateHashAnnotation] !=
 		nodeState.DriverDaemonSet.Spec.Template.Annotations[consts.DriverTemplateHashAnnotation]
+}
+
+// ProcessDepartedNodes tears down nodes that left the driver's scope with the
+// same patch the autoUpgrade-off teardown uses. Runs first, so the slot
+// accounting in ProcessUpgradeRequiredNodes no longer counts them.
+//
+// Unlike that teardown, an upgrade-failed node is released too: its cordon
+// kept a driver that did not come up isolated, and no driver DaemonSet
+// targets the node any more, so the cordon guards nothing. Its next role —
+// vm-passthrough under vfio-manager, or a host driver — is somebody else's
+// to manage. Only a cordon the rollout owns is lifted (OwnsCordon).
+func (m *ClusterUpgradeStateManagerImpl) ProcessDepartedNodes(
+	ctx context.Context, currentClusterState *ClusterUpgradeState,
+) error {
+	var errs []error
+	for _, node := range currentClusterState.DepartedNodes {
+		releaseCordon := OwnsCordon(node) && !IsNodeInRequestorMode(node)
+		patch, err := TeardownPatch(releaseCordon)
+		if err != nil {
+			return fmt.Errorf("build teardown patch for node %q: %w", node.Name, err)
+		}
+		if err := m.k8sClient.Patch(ctx, node, client.RawPatch(types.MergePatchType, patch)); err != nil {
+			errs = append(errs, fmt.Errorf("tear down departed node %q: %w", node.Name, err))
+			continue
+		}
+		log.FromContext(ctx).Info("Node left the driver's scope; dropped its upgrade state",
+			"node", node.Name, "state", node.Labels[UpgradeStateLabelKey], "cordonReleased", releaseCordon)
+	}
+	return errors.Join(errs...)
 }
 
 func (m *ClusterUpgradeStateManagerImpl) ProcessDoneOrUnknownNodes(
