@@ -195,6 +195,74 @@ func TestProcessDoneOrUnknownNodes(t *testing.T) {
 	}
 }
 
+// A cordon nobody will lift on a node no rollout is working on: the rollout's
+// own, left when its state label was lost; or k8s-driver-manager's, left by a
+// manual-mode run that parked on a blocked eviction (or was killed) before
+// the policy flipped to autoUpgrade — the binary never lifts under
+// autoUpgrade, and a node whose driver pod is already in sync is never
+// admitted, so the adoption at the cordon step never runs.
+func TestProcessDoneOrUnknownNodes_ReleasesLeftoverClaimedCordon(t *testing.T) {
+	tests := map[string]struct {
+		state         string
+		unschedulable bool
+		annotations   map[string]string
+		wantUncordon  bool
+	}{
+		"operator claim on a done node": {
+			state: UpgradeStateDone, unschedulable: true,
+			annotations:  map[string]string{consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue},
+			wantUncordon: true,
+		},
+		"driver-manager claim on an unknown node": {
+			state: UpgradeStateUnknown, unschedulable: true,
+			annotations:  map[string]string{consts.DriverManagerCordonClaimAnnotation: "driver"},
+			wantUncordon: true,
+		},
+		"unclaimed cordon is the administrator's": {
+			state: UpgradeStateDone, unschedulable: true,
+		},
+		"requestor mode owns its cordon": {
+			state: UpgradeStateDone, unschedulable: true,
+			annotations: map[string]string{
+				consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue,
+				UpgradeRequestorModeAnnotationKey:         trueString,
+			},
+		},
+		"schedulable node is left alone": {
+			state:       UpgradeStateDone,
+			annotations: map[string]string{consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cm := &mockCordonManager{}
+			mgr := newTestManager(t, withCordonManager(cm))
+
+			ns := newNodeUpgradeState("node-1", tc.state, "rev1")
+			ns.Node.Spec.Unschedulable = tc.unschedulable
+			ns.Node.Annotations = tc.annotations
+			registerNodes(t, mgr, ns.Node)
+
+			state := newClusterState(map[string][]*NodeUpgradeState{tc.state: {ns}})
+			if err := mgr.ProcessDoneOrUnknownNodes(context.Background(), state, tc.state); err != nil {
+				t.Fatalf("ProcessDoneOrUnknownNodes: %v", err)
+			}
+
+			if got := len(cm.uncordonedNodes) == 1; got != tc.wantUncordon {
+				t.Fatalf("uncordoned = %v, want %v", cm.uncordonedNodes, tc.wantUncordon)
+			}
+			var updated corev1.Node
+			if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+				t.Fatalf("get node: %v", err)
+			}
+			if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateDone {
+				t.Fatalf("state = %q, want %q (the node needs no upgrade)", got, UpgradeStateDone)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ProcessUpgradeRequiredNodes
 // ---------------------------------------------------------------------------

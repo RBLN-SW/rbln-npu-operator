@@ -82,6 +82,11 @@ func (m *ClusterUpgradeStateManagerImpl) processDoneOrUnknownNodes(
 			continue
 		}
 
+		if err := m.releaseLeftoverCordon(ctx, nodeState.Node); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
 		if nodeStateName == UpgradeStateUnknown {
 			if err := m.transitionUnknownNodeToDone(ctx, nodeState); err != nil {
 				errs = append(errs, err)
@@ -130,6 +135,23 @@ func (m *ClusterUpgradeStateManagerImpl) transitionDoneOrUnknownNodeToUpgradeReq
 	log.FromContext(ctx).Info("Node requires upgrade, changed its state to UpgradeRequired",
 		"node", nodeState.Node.Name)
 	return nil
+}
+
+// releaseLeftoverCordon lifts a claimed cordon on a node no rollout is working
+// on. The rollout's own claim is here when the state label was lost after the
+// cordon step. k8s-driver-manager's is here when a manual-mode run parked on a
+// blocked eviction, or was killed, and autoUpgrade was then turned on: the
+// binary never lifts a cordon under autoUpgrade, and a node whose driver pod
+// is already in sync is never admitted, so the adoption at the cordon step
+// would never run. The uncordon adopts the claim and clears the blocked mark
+// with it. An unclaimed cordon is an administrator's and stays.
+func (m *ClusterUpgradeStateManagerImpl) releaseLeftoverCordon(ctx context.Context, node *corev1.Node) error {
+	if !IsNodeUnschedulable(node) || !claimedCordon(node) || IsNodeInRequestorMode(node) {
+		return nil
+	}
+	log.FromContext(ctx).Info("Lifting a claimed cordon left on a node that needs no upgrade",
+		"node", node.Name, "claim", node.Annotations[consts.DriverManagerCordonClaimAnnotation])
+	return m.cordonManager.Uncordon(ctx, node)
 }
 
 func (m *ClusterUpgradeStateManagerImpl) transitionUnknownNodeToDone(
