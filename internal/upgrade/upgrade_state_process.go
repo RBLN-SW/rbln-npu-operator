@@ -260,7 +260,7 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessCordonRequiredNodes(
 
 	var errs []error
 	for _, nodeState := range currentClusterState.NodeStates[UpgradeStateCordonRequired] {
-		err := m.cordonManager.Cordon(ctx, nodeState.Node)
+		_, err := m.cordonManager.Cordon(ctx, nodeState.Node)
 		if err != nil {
 			log.FromContext(ctx).Error(err, "Node cordon failed", "node", nodeState.Node)
 			errs = append(errs, err)

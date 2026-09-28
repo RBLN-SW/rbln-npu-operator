@@ -68,16 +68,19 @@ func markPodTemplateOutdated(ns *NodeUpgradeState) {
 type mockCordonManager struct {
 	cordonErr   error
 	uncordonErr error
+	// foreign makes Cordon report every node's cordon as somebody else's.
+	foreign bool
 
 	cordonedNodes   []string
 	uncordonedNodes []string
 }
 
-func (m *mockCordonManager) Cordon(_ context.Context, node *corev1.Node) error {
-	if m.cordonErr == nil {
-		m.cordonedNodes = append(m.cordonedNodes, node.Name)
+func (m *mockCordonManager) Cordon(_ context.Context, node *corev1.Node) (bool, error) {
+	if m.cordonErr != nil {
+		return false, m.cordonErr
 	}
-	return m.cordonErr
+	m.cordonedNodes = append(m.cordonedNodes, node.Name)
+	return m.foreign, nil
 }
 
 func (m *mockCordonManager) Uncordon(_ context.Context, node *corev1.Node) error {
