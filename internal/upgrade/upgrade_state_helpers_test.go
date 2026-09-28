@@ -5,6 +5,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 func TestIsNodeUnschedulable(t *testing.T) {
@@ -102,68 +104,80 @@ func TestNewClusterUpgradeState(t *testing.T) {
 }
 
 func TestShouldReleaseCordonOnTeardown(t *testing.T) {
-	node := func(state string, unschedulable bool, annotations map[string]string) *corev1.Node {
-		return &corev1.Node{
-			ObjectMeta: metav1.ObjectMeta{
-				Labels:      map[string]string{UpgradeStateLabelKey: state},
-				Annotations: annotations,
-			},
-			Spec: corev1.NodeSpec{Unschedulable: unschedulable},
+	node := func(state string, annotations map[string]string) *corev1.Node {
+		labels := map[string]string{}
+		if state != "" {
+			labels[UpgradeStateLabelKey] = state
 		}
+		return &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: annotations},
+			Spec:       corev1.NodeSpec{Unschedulable: true},
+		}
+	}
+	claim := func(value string) map[string]string {
+		return map[string]string{consts.DriverManagerCordonClaimAnnotation: value}
 	}
 
 	tests := map[string]struct {
 		node *corev1.Node
 		want bool
 	}{
-		"mid-rollout node goes back into service": {
-			node: node(UpgradeStatePodRestartRequired, true, nil),
+		"the rollout's claimed cordon goes back into service": {
+			node: node(UpgradeStatePodRestartRequired, claim(consts.OperatorCordonClaimValue)),
 			want: true,
 		},
-		"node waiting to be cordoned may already carry the cordon": {
-			node: node(UpgradeStateCordonRequired, true, nil),
+		// The label was lost, the claim was not: still the rollout's.
+		"claimed cordon with no state label": {
+			node: node("", claim(consts.OperatorCordonClaimValue)),
 			want: true,
 		},
-		"node about to be uncordoned anyway": {
-			node: node(UpgradeStateUncordonRequired, true, nil),
+		"cordon step wrote the claim but not yet the label": {
+			node: node(UpgradeStateCordonRequired, claim(consts.OperatorCordonClaimValue)),
 			want: true,
 		},
-		// The driver did not come up; the node stays isolated and the
-		// failure-reason annotation outlives the label to explain why.
-		"upgrade-failed keeps its cordon": {
-			node: node(UpgradeStateFailed, true, nil),
+		// Not judged by the cordon step yet: whatever cordon is there is not
+		// the rollout's to lift.
+		"unclaimed cordon in cordon-required": {
+			node: node(UpgradeStateCordonRequired, nil),
 			want: false,
 		},
-		// Someone cordoned this node before the rollout ever saw it.
+		// The driver did not come up; the node stays isolated.
+		"upgrade-failed keeps its cordon": {
+			node: node(UpgradeStateFailed, claim(consts.OperatorCordonClaimValue)),
+			want: false,
+		},
 		"administrator's cordon is left alone": {
-			node: node(UpgradeStatePodRestartRequired, true,
-				map[string]string{UpgradeInitialStateAnnotationKey: trueString}),
+			node: node(UpgradeStatePodRestartRequired, map[string]string{UpgradeInitialStateAnnotationKey: trueString}),
+			want: false,
+		},
+		// Manual-mode ownership: autoUpgrade is off, so the binary may be
+		// holding this one legitimately.
+		"k8s-driver-manager's cordon is left alone": {
+			node: node(UpgradeStatePodRestartRequired, claim("driver")),
 			want: false,
 		},
 		"requestor mode owns its own cordon": {
-			node: node(UpgradeStatePodRestartRequired, true,
-				map[string]string{UpgradeRequestorModeAnnotationKey: trueString}),
+			node: node(UpgradeStatePodRestartRequired, map[string]string{
+				consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue,
+				UpgradeRequestorModeAnnotationKey:         trueString,
+			}),
 			want: false,
 		},
-		// The node is read from the informer cache, which may not have seen
-		// the cordon yet; the release is idempotent, so it is sent anyway.
-		"cache still shows the node schedulable": {
-			node: node(UpgradeStatePodRestartRequired, false, nil),
+		// TODO(remove after two releases): cordons taken by builds that wrote no claim.
+		"legacy build's cordon mid-rollout": {
+			node: node(UpgradeStatePodRestartRequired, nil),
 			want: true,
 		},
-		// markNodeUpgradeSkipped only labels; the uncordon happens on the
-		// next pass, so the rollout's cordon may still be on the node.
-		"upgrade-skipped not yet uncordoned by its next pass": {
-			node: node(UpgradeStateSkipped, true, nil),
+		"legacy build's cordon on a skipped node": {
+			node: node(UpgradeStateSkipped, nil),
 			want: true,
 		},
-		// Not admitted yet, so any cordon on it is not this rollout's.
 		"upgrade-required was never cordoned by the rollout": {
-			node: node(UpgradeStateUpgradeRequired, true, nil),
+			node: node(UpgradeStateUpgradeRequired, nil),
 			want: false,
 		},
 		"upgrade-done is finished": {
-			node: node(UpgradeStateDone, true, nil),
+			node: node(UpgradeStateDone, nil),
 			want: false,
 		},
 	}
