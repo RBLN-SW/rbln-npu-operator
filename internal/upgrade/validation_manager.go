@@ -52,8 +52,15 @@ func (m *ValidationManager) Validate(ctx context.Context, node *corev1.Node) (bo
 	}
 
 	if len(podList.Items) == 0 {
+		// Absence is judged by the same clock as a pod that never becomes
+		// Ready: the validator's deploy label may still be paused, or its pod
+		// may never come, and the node would otherwise hold its cordon here
+		// for good.
 		log.FromContext(ctx).Info("No validation pods found on the node", "node", node.Name,
 			"podSelector", m.podSelector)
+		if err := m.handleTimeout(ctx, node, DefaultValidationTimeoutSeconds); err != nil {
+			return false, fmt.Errorf("unable to handle timeout for validation state: %w", err)
+		}
 		return false, nil
 	}
 

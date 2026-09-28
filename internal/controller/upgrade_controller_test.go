@@ -175,7 +175,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 		It("returns a mid-rollout node to service", func() {
 			DeferCleanup(func() { restoreNodeSchedulable(ctx, nodeName) })
 			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, upgrade.UpgradeStatePodRestartRequired)
-			setNodeUnschedulable(ctx, nodeName, true)
+			cordonNode(ctx, nodeName)
 
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
@@ -190,7 +190,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 		It("leaves a cordon the rollout did not take and drops its initial-state annotation", func() {
 			DeferCleanup(func() { restoreNodeSchedulable(ctx, nodeName) })
 			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, upgrade.UpgradeStatePodRestartRequired)
-			setNodeUnschedulable(ctx, nodeName, true)
+			cordonNode(ctx, nodeName)
 			setNodeAnnotation(ctx, nodeName, upgrade.UpgradeInitialStateAnnotationKey, "true")
 
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
@@ -199,6 +199,63 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			expectNodeUnschedulable(ctx, nodeName, true)
 			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
 			expectNodeHasNoAnnotation(ctx, nodeName, upgrade.UpgradeInitialStateAnnotationKey)
+		})
+
+		It("lifts the rollout's claimed cordon and clears the claim in the same patch", func() {
+			DeferCleanup(func() {
+				restoreNodeSchedulable(ctx, nodeName)
+				removeNodeAnnotation(ctx, nodeName, consts.DriverManagerCordonClaimAnnotation)
+			})
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, upgrade.UpgradeStatePodRestartRequired)
+			setNodeAnnotation(ctx, nodeName, consts.DriverManagerCordonClaimAnnotation, consts.OperatorCordonClaimValue)
+			setNodeAnnotation(ctx, nodeName, consts.DriverManagerEvictionBlockedAnnotation, "PDB webapp")
+			cordonNode(ctx, nodeName)
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			expectNodeUnschedulable(ctx, nodeName, false)
+			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+			expectNodeHasNoAnnotation(ctx, nodeName, consts.DriverManagerCordonClaimAnnotation)
+			expectNodeHasNoAnnotation(ctx, nodeName, consts.DriverManagerEvictionBlockedAnnotation)
+		})
+
+		// The label is the rollout's only record the teardown can list by; the
+		// claim is the record it must not lose. A node whose label was
+		// scrubbed while the rollout was cordoning it is found by the claim.
+		It("lifts a claimed cordon on a node that lost its state label", func() {
+			DeferCleanup(func() {
+				restoreNodeSchedulable(ctx, nodeName)
+				removeNodeAnnotation(ctx, nodeName, consts.DriverManagerCordonClaimAnnotation)
+			})
+			removeNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+			setNodeAnnotation(ctx, nodeName, consts.DriverManagerCordonClaimAnnotation, consts.OperatorCordonClaimValue)
+			cordonNode(ctx, nodeName)
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			expectNodeUnschedulable(ctx, nodeName, false)
+			expectNodeHasNoAnnotation(ctx, nodeName, consts.DriverManagerCordonClaimAnnotation)
+		})
+
+		// With autoUpgrade off the binary evicts and cordons on its own, and may
+		// be holding this cordon right now.
+		It("leaves k8s-driver-manager's cordon and claim in place", func() {
+			DeferCleanup(func() {
+				restoreNodeSchedulable(ctx, nodeName)
+				removeNodeAnnotation(ctx, nodeName, consts.DriverManagerCordonClaimAnnotation)
+			})
+			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, upgrade.UpgradeStatePodRestartRequired)
+			setNodeAnnotation(ctx, nodeName, consts.DriverManagerCordonClaimAnnotation, "driver")
+			cordonNode(ctx, nodeName)
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			expectNodeUnschedulable(ctx, nodeName, true)
+			expectNodeHasNoLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey)
+			expectNodeKeepsAnnotation(ctx, nodeName, consts.DriverManagerCordonClaimAnnotation)
 		})
 
 		// A failed node runs a driver that never came up, so it stays isolated.
@@ -213,7 +270,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			})
 			setNodeLabel(ctx, nodeName, upgrade.UpgradeStateLabelKey, upgrade.UpgradeStateFailed)
 			setNodeAnnotation(ctx, nodeName, upgrade.UpgradeFailureReasonAnnotationKey, "driver pod crash-looping")
-			setNodeUnschedulable(ctx, nodeName, true)
+			cordonNode(ctx, nodeName)
 
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
@@ -610,10 +667,10 @@ func restoreNodeSchedulable(ctx context.Context, nodeName string) {
 	Expect(k8sClient.Update(ctx, &node)).To(Succeed())
 }
 
-func setNodeUnschedulable(ctx context.Context, nodeName string, unschedulable bool) {
+func cordonNode(ctx context.Context, nodeName string) {
 	var node corev1.Node
 	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)).To(Succeed())
-	node.Spec.Unschedulable = unschedulable
+	node.Spec.Unschedulable = true
 	Expect(k8sClient.Update(ctx, &node)).To(Succeed())
 }
 

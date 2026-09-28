@@ -62,10 +62,14 @@ func TestApplyStateRunsAllStepsAndJoinsErrors(t *testing.T) {
 	finishing := newNodeUpgradeState("node-finishing", UpgradeStateUncordonRequired, "rev1")
 	registerNodes(t, mgr, blocked.Node, finishing.Node)
 
+	departed := departedTestNode("node-departed", UpgradeStatePodRestartRequired, "", nil)
+	registerNodes(t, mgr, departed)
+
 	state := newClusterState(map[string][]*NodeUpgradeState{
 		UpgradeStateCordonRequired:   {blocked},
 		UpgradeStateUncordonRequired: {finishing},
 	})
+	state.DepartedNodes = []*corev1.Node{departed}
 
 	err := mgr.ApplyState(context.Background(), state,
 		&v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true}, "npu.rebellions.ai")
@@ -85,5 +89,11 @@ func TestApplyStateRunsAllStepsAndJoinsErrors(t *testing.T) {
 	}
 	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateCordonRequired {
 		t.Fatalf("node state = %q, want unchanged %q (failed operation retries next cycle)", got, UpgradeStateCordonRequired)
+	}
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-departed"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if _, labeled := updated.Labels[UpgradeStateLabelKey]; labeled {
+		t.Fatal("departed node must be swept in the same pass")
 	}
 }

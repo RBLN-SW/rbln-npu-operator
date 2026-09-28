@@ -50,11 +50,13 @@ type PodDeletionFilter func(corev1.Pod) bool
 // changeNodeUpgradeStateAsync transitions the node upgrade state using a
 // short-lived context derived from the parent so that the operation completes
 // even when the parent reconcile context is close to expiring. Errors are
-// logged and left for the next reconcile cycle to retry.
-func (m *PodManager) changeNodeUpgradeStateAsync(ctx context.Context, node *corev1.Node, state string) {
+// logged and left for the next reconcile cycle to retry. The write is guarded
+// on the node still being in the state the goroutine started from: the
+// goroutine outlives the reconcile, and a teardown may have run meanwhile.
+func (m *PodManager) changeNodeUpgradeStateAsync(ctx context.Context, node *corev1.Node, from, state string) {
 	stateCtx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:contextcheck // intentional short-lived timeout for goroutine state transition
 	defer cancel()
-	if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(stateCtx, node, state); err != nil {
+	if err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeStateFrom(stateCtx, node, from, state); err != nil {
 		log.FromContext(ctx).Error(err, "Failed to transition node state in goroutine; will retry next reconcile",
 			"node", node.Name, "targetState", state)
 	}
@@ -194,7 +196,7 @@ func (m *PodManager) ScheduleCheckOnPodCompletion(ctx context.Context, config *P
 			if err != nil {
 				return
 			}
-			m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStatePodDeletionRequired)
+			m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStateWaitForJobsRequired, UpgradeStatePodDeletionRequired)
 			log.FromContext(ctx).Info("Updated the node state", "node", node.Name,
 				"state", UpgradeStatePodDeletionRequired)
 		}(*node)
@@ -252,7 +254,7 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 
 				if len(npuPods) == 0 {
 					log.FromContext(ctx).Info("No pods require deletion", "node", node.Name)
-					m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStatePodRestartRequired)
+					m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStatePodDeletionRequired, UpgradeStatePodRestartRequired)
 					return
 				}
 
@@ -309,7 +311,7 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 				}
 
 				log.FromContext(ctx).Info("Deleted pods on the node", "node", node.Name)
-				m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStatePodRestartRequired)
+				m.changeNodeUpgradeStateAsync(ctx, &node, UpgradeStatePodDeletionRequired, UpgradeStatePodRestartRequired)
 			}(*node)
 		} else {
 			log.FromContext(ctx).Info("Node is already getting pods deleted, skipping", "node", node.Name)
@@ -321,7 +323,7 @@ func (m *PodManager) SchedulePodEviction(ctx context.Context, config *PodManager
 func (m *PodManager) markNodeUpgradeSkippedAsync(ctx context.Context, node corev1.Node, reason string) {
 	stateCtx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:contextcheck // intentional short-lived timeout for goroutine state transition
 	defer cancel()
-	if err := markNodeUpgradeSkipped(stateCtx, m.nodeUpgradeStateProvider, &node, reason); err != nil {
+	if err := markNodeUpgradeSkipped(stateCtx, m.nodeUpgradeStateProvider, &node, UpgradeStatePodDeletionRequired, reason); err != nil {
 		log.FromContext(ctx).Error(err, "Failed to mark node upgrade skipped; will retry next reconcile",
 			"node", node.Name, "reason", reason)
 	}

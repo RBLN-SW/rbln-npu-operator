@@ -276,12 +276,28 @@ const DriverConfigDigestEnv = "DRIVER_CONFIG_DIGEST"
 // init-container, volume and scheduling changes.
 const DriverTemplateHashAnnotation = "rebellions.ai/last-applied-template-hash"
 
-// DriverManagerCordonClaimAnnotation is written by k8s-driver-manager, in the
-// same patch as the cordon it takes on its own eviction path (autoUpgrade off),
-// so that a later run can tell its cordon from an administrator's. The operator
-// reads it once, on admission: a node arriving cordoned with the claim had a
-// driver-manager run killed before it uncordoned, and the rollout adopts that
-// cordon instead of recording it as the administrator's. The value names the
-// path that took it ("driver", "vfio", or the pre-rename "true"); the operator
-// treats every value alike.
+// DriverManagerCordonClaimAnnotation records which reconcile path took a
+// node's cordon. It is written in the same patch as the cordon itself, so a
+// process killed between the two can never leave a cordon nobody claims.
+// k8s-driver-manager writes "driver", "vfio" or the pre-rename "true" on its
+// own eviction path (autoUpgrade off); the operator's rollout writes
+// OperatorCordonClaimValue. Each side lifts only a cordon it can account for:
+// the operator lifts its own and, under autoUpgrade, adopts the binary's (the
+// binary skips its uncordon there, so nothing else would); the binary treats
+// every value it did not write as another path's and neither reclaims nor
+// releases it. An unclaimed cordon is an administrator's and nobody lifts it.
+//
+// Builds of k8s-driver-manager before v0.3.0 tested the claim's presence only
+// and would lift the operator's cordon as their own; v0.3.0 is the floor of
+// the version pair.
 const DriverManagerCordonClaimAnnotation = "rebellions.ai/npu-driver-upgrade-cordon"
+
+// OperatorCordonClaimValue is the DriverManagerCordonClaimAnnotation value the
+// driver rollout writes on a cordon it takes or adopts.
+const OperatorCordonClaimValue = "operator"
+
+// DriverManagerEvictionBlockedAnnotation is k8s-driver-manager's record of why
+// it left a node cordoned in manual mode: an NPU pod its policy could not
+// evict. It lives exactly as long as the claim, so the operator clears it in
+// the same write that adopts or lifts the cordon.
+const DriverManagerEvictionBlockedAnnotation = "rebellions.ai/npu-pod-eviction-blocked"

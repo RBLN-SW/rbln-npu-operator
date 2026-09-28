@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -149,19 +148,15 @@ func (r *UpgradeReconciler) cleanupIfNoPoliciesLeft(ctx context.Context) error {
 
 // removeNodeUpgradeState tears the workflow's node bookkeeping down: the state
 // label, the initial-state annotation, the timeout clocks and the attempt's
-// bookkeeping go, and the cordon this rollout took is lifted. Label and cordon
-// move in one patch, so a node can never be left uncordoned while still
-// labeled, or labeled while already back in service.
+// bookkeeping go, and the cordon this rollout took is lifted with the claim
+// that marked it. Label, claim and cordon move in one patch, so a node can
+// never be left uncordoned while still labeled or claimed, or claimed while
+// already back in service (upgrade.TeardownPatch explains each key).
 //
-// The initial-state annotation has to go with the label. It records whether the
-// node was unschedulable when the rollout admitted it, and left behind it
-// outlives the rollout that meant it: the next one would read this rollout's own
-// leftover cordon as the administrator's and refuse to lift it forever. The
-// timeout clocks are cleared only when their state completes, so a rollout
-// paused inside one would hand the next rollout a stale epoch and an instant
-// timeout. The attempt's bookkeeping is dropped on admission by
-// clearParkedBookkeeping, but a node whose driver pod is already in sync goes
-// straight to upgrade-done and never passes it.
+// Nodes are found by the state label or by the rollout's cordon claim, not by
+// the label alone: the label can be scrubbed by an external tool while the
+// rollout is cordoning, and the cordon it left would otherwise be read by
+// every later rollout as the administrator's.
 //
 // A node parked in upgrade-failed is left alone entirely. Its cordon stays on
 // purpose, the driver did not come up, and its label has to stay with it:
@@ -174,8 +169,8 @@ func (r *UpgradeReconciler) removeNodeUpgradeState(ctx context.Context) error {
 	logger.Info("Resetting node upgrade state from all nodes")
 
 	nodeList := &corev1.NodeList{}
-	if err := r.APIReader.List(ctx, nodeList, client.HasLabels{upgrade.UpgradeStateLabelKey}); err != nil {
-		return fmt.Errorf("list nodes carrying the upgrade state label: %w", err)
+	if err := r.APIReader.List(ctx, nodeList); err != nil {
+		return fmt.Errorf("list nodes for upgrade state teardown: %w", err)
 	}
 
 	// Each node is torn down on its own: one rejected patch must not leave the
@@ -183,13 +178,16 @@ func (r *UpgradeReconciler) removeNodeUpgradeState(ctx context.Context) error {
 	var errs []error
 	for i := range nodeList.Items {
 		node := &nodeList.Items[i]
+		if !upgrade.CarriesRolloutBookkeeping(node) {
+			continue
+		}
 		state := node.Labels[upgrade.UpgradeStateLabelKey]
 		if state == upgrade.UpgradeStateFailed {
 			logger.Info("Leaving upgrade-failed node parked with its label and cordon", "node", node.Name)
 			continue
 		}
 		releaseCordon := upgrade.ShouldReleaseCordonOnTeardown(node)
-		patch, err := upgradeStateTeardownPatch(releaseCordon)
+		patch, err := upgrade.TeardownPatch(releaseCordon)
 		if err != nil {
 			return fmt.Errorf("build teardown patch for node %q: %w", node.Name, err)
 		}
@@ -198,45 +196,11 @@ func (r *UpgradeReconciler) removeNodeUpgradeState(ctx context.Context) error {
 			continue
 		}
 		if releaseCordon {
-			logger.Info("Returned the node to service, lifting any cordon the rollout took",
+			logger.Info("Returned the node to service, lifting the cordon the rollout took",
 				"node", node.Name, "state", state)
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// teardownAnnotationKeys is the node bookkeeping that goes with the state
-// label; removeNodeUpgradeState explains why each entry has to.
-//
-// UpgradeRequestedAnnotationKey is deliberately absent. It is the
-// administrator's instruction, not the rollout's bookkeeping: an attempt they
-// asked for and did not get outlives the pause that interrupted it, and the
-// next rollout consumes it on admission (ProcessUpgradeRequiredNodes). With
-// autoUpgrade off nothing acts on it, so leaving it costs nothing until then.
-var teardownAnnotationKeys = []string{
-	upgrade.UpgradeInitialStateAnnotationKey,
-	upgrade.UpgradeValidationStartTimeAnnotationKey,
-	upgrade.UpgradeWaitForPodCompletionStartTimeAnnotationKey,
-	upgrade.UpgradePodRestartStartTimeAnnotationKey,
-	upgrade.UpgradeSkipReasonAnnotationKey,
-	upgrade.UpgradeAttemptedRevisionAnnotationKey,
-}
-
-func upgradeStateTeardownPatch(releaseCordon bool) ([]byte, error) {
-	annotations := make(map[string]any, len(teardownAnnotationKeys))
-	for _, key := range teardownAnnotationKeys {
-		annotations[key] = nil
-	}
-	patch := map[string]any{
-		"metadata": map[string]any{
-			"labels":      map[string]any{upgrade.UpgradeStateLabelKey: nil},
-			"annotations": annotations,
-		},
-	}
-	if releaseCordon {
-		patch["spec"] = map[string]any{"unschedulable": false}
-	}
-	return json.Marshal(patch)
 }
 
 // clusterPolicyUpgradePredicate also fires on status transitions (state or

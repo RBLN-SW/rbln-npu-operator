@@ -99,28 +99,51 @@ func TestIsPodRunningOrPending(t *testing.T) {
 }
 
 func TestMarkNodeUpgradeSkippedAsync(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := corev1.AddToScheme(scheme); err != nil {
-		t.Fatalf("add corev1 scheme: %v", err)
+	tests := map[string]struct {
+		state      string
+		wantState  string
+		wantReason bool
+	}{
+		"node still in pod-deletion-required is parked": {
+			state: UpgradeStatePodDeletionRequired, wantState: UpgradeStateSkipped, wantReason: true,
+		},
+		// The teardown ran while the eviction was in flight; the verdict is
+		// of a rollout that no longer exists and must not resurrect the label.
+		"node torn down meanwhile is left alone": {
+			state: "", wantState: "",
+		},
 	}
-	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
-		Name:   "evict-worker",
-		Labels: map[string]string{UpgradeStateLabelKey: UpgradeStatePodDeletionRequired},
-	}}
-	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	pm := &PodManager{nodeUpgradeStateProvider: NewNodeUpgradeStateProvider(k8sClient, nil)}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := corev1.AddToScheme(scheme); err != nil {
+				t.Fatalf("add corev1 scheme: %v", err)
+			}
+			labels := map[string]string{}
+			if tc.state != "" {
+				labels[UpgradeStateLabelKey] = tc.state
+			}
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "evict-worker", Labels: labels}}
+			k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+			pm := &PodManager{nodeUpgradeStateProvider: NewNodeUpgradeStateProvider(k8sClient, nil)}
 
-	pm.markNodeUpgradeSkippedAsync(context.Background(), *node, "pod eviction failed: PDB webapp-pdb")
+			// The goroutine holds the node as it was when the eviction started.
+			started := node.DeepCopy()
+			started.Labels = map[string]string{UpgradeStateLabelKey: UpgradeStatePodDeletionRequired}
+			pm.markNodeUpgradeSkippedAsync(context.Background(), *started, "pod eviction failed: PDB webapp-pdb")
 
-	updated := &corev1.Node{}
-	if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: node.Name}, updated); err != nil {
-		t.Fatalf("get node: %v", err)
-	}
-	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateSkipped {
-		t.Fatalf("state = %q, want %q", got, UpgradeStateSkipped)
-	}
-	if reason := updated.Annotations[UpgradeSkipReasonAnnotationKey]; !strings.Contains(reason, "PDB webapp-pdb") {
-		t.Fatalf("skip reason = %q, want it to carry the eviction failure", reason)
+			updated := &corev1.Node{}
+			if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: node.Name}, updated); err != nil {
+				t.Fatalf("get node: %v", err)
+			}
+			if got := updated.Labels[UpgradeStateLabelKey]; got != tc.wantState {
+				t.Fatalf("state = %q, want %q", got, tc.wantState)
+			}
+			_, reason := updated.Annotations[UpgradeSkipReasonAnnotationKey]
+			if reason != tc.wantReason {
+				t.Fatalf("skip reason present = %v, want %v", reason, tc.wantReason)
+			}
+		})
 	}
 }
 
@@ -192,7 +215,10 @@ func TestSchedulePodEviction(t *testing.T) {
 		pods    []*corev1.Pod
 		draObjs []runtime.Object
 		// setup adjusts the clientset before the eviction runs.
-		setup       func(t *testing.T, cs *k8sfake.Clientset)
+		setup func(t *testing.T, cs *k8sfake.Clientset)
+		// tornDown removes the node's state label before the eviction runs,
+		// as an autoUpgrade-off teardown racing the goroutine would.
+		tornDown    bool
 		wantState   string
 		wantReason  []string
 		wantAbsent  []string
@@ -327,6 +353,16 @@ func TestSchedulePodEviction(t *testing.T) {
 			wantState:   UpgradeStatePodRestartRequired,
 			wantDeleted: []string{"vllm", "dra-late"},
 		},
+		// The goroutine outlives the reconcile that started it. A teardown
+		// that ran meanwhile has already returned the node to service; the
+		// verdict must not put the label back on it.
+		"teardown during the eviction leaves the node unlabeled": {
+			spec:        v1beta1.PodDeletionSpec{TimeoutSeconds: 5},
+			pods:        []*corev1.Pod{newPod("vllm", true, false, rsOwner)},
+			tornDown:    true,
+			wantState:   "",
+			wantDeleted: []string{"vllm"},
+		},
 		// A cluster without the DRA API has no claims to find; the pod-spec
 		// filter must still run.
 		"pod-spec NPU pod is evicted when the DRA API is not served": {
@@ -366,7 +402,11 @@ func TestSchedulePodEviction(t *testing.T) {
 				Name:   nodeName,
 				Labels: map[string]string{UpgradeStateLabelKey: UpgradeStatePodDeletionRequired},
 			}}
-			ctrlClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+			stored := node.DeepCopy()
+			if tc.tornDown {
+				stored.Labels = nil
+			}
+			ctrlClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stored).Build()
 			pm := NewPodManager(clientset, NewNodeUpgradeStateProvider(ctrlClient, nil), npuFilter)
 
 			spec := tc.spec

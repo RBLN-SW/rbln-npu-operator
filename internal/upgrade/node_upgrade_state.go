@@ -46,6 +46,23 @@ func (p *NodeUpgradeStateProvider) GetNode(ctx context.Context, nodeName string)
 func (p *NodeUpgradeStateProvider) ChangeNodeUpgradeState(
 	ctx context.Context, node *corev1.Node, newNodeState string,
 ) error {
+	return p.changeNodeUpgradeState(ctx, node, newNodeState, "", false)
+}
+
+// ChangeNodeUpgradeStateFrom writes newNodeState only while the node is still
+// in fromState. It is for a verdict decided outside the reconcile — the
+// eviction goroutine — that may outlive the state it was decided in: a
+// teardown that ran meanwhile removed the label, and an unconditional write
+// would put it back on a node already returned to service.
+func (p *NodeUpgradeStateProvider) ChangeNodeUpgradeStateFrom(
+	ctx context.Context, node *corev1.Node, fromState, newNodeState string,
+) error {
+	return p.changeNodeUpgradeState(ctx, node, newNodeState, fromState, true)
+}
+
+func (p *NodeUpgradeStateProvider) changeNodeUpgradeState(
+	ctx context.Context, node *corev1.Node, newNodeState, fromState string, guarded bool,
+) error {
 	unlock := p.nodeMutex.Lock(node.Name)
 	defer unlock()
 
@@ -55,6 +72,12 @@ func (p *NodeUpgradeStateProvider) ChangeNodeUpgradeState(
 	}
 	oldNodeState := current.Labels[UpgradeStateLabelKey]
 	if oldNodeState == newNodeState {
+		return nil
+	}
+	if guarded && oldNodeState != fromState {
+		log.FromContext(ctx).Info("Node left the state this verdict was decided in; not writing it",
+			"node", node.Name, "expected", logKeyForNodeState(fromState),
+			"current", logKeyForNodeState(oldNodeState), "verdict", newNodeState)
 		return nil
 	}
 
@@ -229,16 +252,28 @@ func markNodeUpgradeFailed(
 }
 
 // markNodeUpgradeSkipped records the skip reason (best-effort) before the
-// state transition so the skipped event can carry it.
+// state transition so the skipped event can carry it. Both writes are
+// guarded on fromState: the verdict comes from the eviction goroutine, which
+// may finish after a teardown took the node out of the rollout, and neither
+// the reason nor the label may land on a node returned to service.
 func markNodeUpgradeSkipped(
-	ctx context.Context, provider *NodeUpgradeStateProvider, node *corev1.Node, reason string,
+	ctx context.Context, provider *NodeUpgradeStateProvider, node *corev1.Node, fromState, reason string,
 ) error {
+	current, err := provider.GetNode(ctx, node.Name)
+	if err != nil {
+		return err
+	}
+	if current.Labels[UpgradeStateLabelKey] != fromState {
+		log.FromContext(ctx).Info("Node left the state its eviction verdict was decided in; not marking it skipped",
+			"node", node.Name, "expected", fromState, "current", logKeyForNodeState(current.Labels[UpgradeStateLabelKey]))
+		return nil
+	}
 	reason = truncateReason(reason)
 	if err := provider.SetNodeUpgradeAnnotation(ctx, node, UpgradeSkipReasonAnnotationKey, reason); err != nil {
 		log.FromContext(ctx).Info("Failed to record upgrade skip reason",
 			"error", err, "node", node.Name, "reason", reason)
 	}
-	return provider.ChangeNodeUpgradeState(ctx, node, UpgradeStateSkipped)
+	return provider.ChangeNodeUpgradeStateFrom(ctx, node, fromState, UpgradeStateSkipped)
 }
 
 // patchNodeLabelsLocked assumes the caller holds the node's mutex.

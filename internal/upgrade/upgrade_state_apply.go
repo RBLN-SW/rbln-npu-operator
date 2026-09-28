@@ -74,6 +74,15 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
 	recordNodeStateMetrics(currentState)
 
 	steps := []applyStateStep{
+		// Nodes that left the driver's scope go first, so the slot census
+		// below no longer counts them.
+		{
+			name:     "departed",
+			errorMsg: "Failed to tear down nodes that left the driver's scope",
+			run: func() error {
+				return m.ProcessDepartedNodes(ctx, currentState)
+			},
+		},
 		{
 			name:      UpgradeStateUnknown,
 			errorMsg:  "Failed to process nodes",

@@ -31,6 +31,9 @@ func (nus *NodeUpgradeState) IsOrphanedPod() bool {
 
 type ClusterUpgradeState struct {
 	NodeStates map[string][]*NodeUpgradeState
+	// DepartedNodes carry rollout bookkeeping but are no longer in the
+	// driver's scope; ProcessDepartedNodes tears them down.
+	DepartedNodes []*corev1.Node
 }
 
 type ClusterUpgradeStateManager interface {

@@ -195,6 +195,74 @@ func TestProcessDoneOrUnknownNodes(t *testing.T) {
 	}
 }
 
+// A cordon nobody will lift on a node no rollout is working on: the rollout's
+// own, left when its state label was lost; or k8s-driver-manager's, left by a
+// manual-mode run that parked on a blocked eviction (or was killed) before
+// the policy flipped to autoUpgrade — the binary never lifts under
+// autoUpgrade, and a node whose driver pod is already in sync is never
+// admitted, so the adoption at the cordon step never runs.
+func TestProcessDoneOrUnknownNodes_ReleasesLeftoverClaimedCordon(t *testing.T) {
+	tests := map[string]struct {
+		state         string
+		unschedulable bool
+		annotations   map[string]string
+		wantUncordon  bool
+	}{
+		"operator claim on a done node": {
+			state: UpgradeStateDone, unschedulable: true,
+			annotations:  map[string]string{consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue},
+			wantUncordon: true,
+		},
+		"driver-manager claim on an unknown node": {
+			state: UpgradeStateUnknown, unschedulable: true,
+			annotations:  map[string]string{consts.DriverManagerCordonClaimAnnotation: "driver"},
+			wantUncordon: true,
+		},
+		"unclaimed cordon is the administrator's": {
+			state: UpgradeStateDone, unschedulable: true,
+		},
+		"requestor mode owns its cordon": {
+			state: UpgradeStateDone, unschedulable: true,
+			annotations: map[string]string{
+				consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue,
+				UpgradeRequestorModeAnnotationKey:         trueString,
+			},
+		},
+		"schedulable node is left alone": {
+			state:       UpgradeStateDone,
+			annotations: map[string]string{consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cm := &mockCordonManager{}
+			mgr := newTestManager(t, withCordonManager(cm))
+
+			ns := newNodeUpgradeState("node-1", tc.state, "rev1")
+			ns.Node.Spec.Unschedulable = tc.unschedulable
+			ns.Node.Annotations = tc.annotations
+			registerNodes(t, mgr, ns.Node)
+
+			state := newClusterState(map[string][]*NodeUpgradeState{tc.state: {ns}})
+			if err := mgr.ProcessDoneOrUnknownNodes(context.Background(), state, tc.state); err != nil {
+				t.Fatalf("ProcessDoneOrUnknownNodes: %v", err)
+			}
+
+			if got := len(cm.uncordonedNodes) == 1; got != tc.wantUncordon {
+				t.Fatalf("uncordoned = %v, want %v", cm.uncordonedNodes, tc.wantUncordon)
+			}
+			var updated corev1.Node
+			if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+				t.Fatalf("get node: %v", err)
+			}
+			if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateDone {
+				t.Fatalf("state = %q, want %q (the node needs no upgrade)", got, UpgradeStateDone)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ProcessUpgradeRequiredNodes
 // ---------------------------------------------------------------------------
@@ -331,46 +399,53 @@ func TestProcessUpgradeRequiredNodes_CordonedNodeRespectsCap(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ProcessCordonRequiredNodes
-// ---------------------------------------------------------------------------
-
 func TestProcessCordonRequiredNodes(t *testing.T) {
 	tests := map[string]struct {
-		cordonErr error
-		wantErr   bool
-		wantState string
+		cordonErr        error
+		foreign          bool
+		annotations      map[string]string
+		wantState        string
+		wantInitialState bool
+		wantErr          bool
 	}{
-		"cordon succeeds and transitions to WaitForJobsRequired": {
+		"cordon taken by the rollout, transitions to WaitForJobsRequired": {
 			wantState: UpgradeStateWaitForJobsRequired,
+		},
+		// The administrator cordoned the node before the rollout reached it.
+		"foreign cordon is recorded before the state moves on": {
+			foreign:          true,
+			wantState:        UpgradeStateWaitForJobsRequired,
+			wantInitialState: true,
+		},
+		// The administrator cordoned the node while it was queued, then
+		// uncordoned it before its turn; the record from a previous attempt
+		// must not make the rollout keep its own cordon at the end.
+		"stale record is dropped when the cordon is the rollout's": {
+			annotations: map[string]string{UpgradeInitialStateAnnotationKey: trueString},
+			wantState:   UpgradeStateWaitForJobsRequired,
 		},
 		"cordon failure returns error": {
 			cordonErr: fmt.Errorf("cordon failed"),
+			wantState: UpgradeStateCordonRequired,
 			wantErr:   true,
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			cm := &mockCordonManager{cordonErr: tc.cordonErr}
+			cm := &mockCordonManager{cordonErr: tc.cordonErr, foreign: tc.foreign}
 			mgr := newTestManager(t, withCordonManager(cm))
 
 			ns := newNodeUpgradeState("node-1", UpgradeStateCordonRequired, "rev1")
+			ns.Node.Annotations = tc.annotations
 			registerNodes(t, mgr, ns.Node)
 
 			state := newClusterState(map[string][]*NodeUpgradeState{
 				UpgradeStateCordonRequired: {ns},
 			})
-
 			err := mgr.ProcessCordonRequiredNodes(context.Background(), state)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
 			}
 
 			var updated corev1.Node
@@ -378,7 +453,10 @@ func TestProcessCordonRequiredNodes(t *testing.T) {
 				t.Fatalf("get node: %v", err)
 			}
 			if got := updated.Labels[UpgradeStateLabelKey]; got != tc.wantState {
-				t.Fatalf("node state = %q, want %q", got, tc.wantState)
+				t.Fatalf("state = %q, want %q", got, tc.wantState)
+			}
+			if _, got := updated.Annotations[UpgradeInitialStateAnnotationKey]; got != tc.wantInitialState {
+				t.Fatalf("initial-state annotation present = %v, want %v", got, tc.wantInitialState)
 			}
 		})
 	}
@@ -1008,8 +1086,11 @@ func TestTransitionToUpgradeRequiredClearsJudgementArtifacts(t *testing.T) {
 
 func TestProcessUpgradeSkippedNodesKeepsCordonExceptions(t *testing.T) {
 	tests := map[string]map[string]string{
-		"initially unschedulable node": {UpgradeInitialStateAnnotationKey: trueString},
-		"requestor-mode node":          {UpgradeRequestorModeAnnotationKey: trueString},
+		"administrator's cordon": {UpgradeInitialStateAnnotationKey: trueString},
+		"requestor-mode node": {
+			consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue,
+			UpgradeRequestorModeAnnotationKey:         trueString,
+		},
 	}
 
 	for name, annotations := range tests {
@@ -1122,6 +1203,19 @@ func TestProcessUpgradeFailedNodes(t *testing.T) {
 			},
 			wantState: UpgradeStateUncordonRequired,
 		},
+		"pod-restart failure with the rollout's claim self-heals to UncordonRequired": {
+			podRevHash: "rev1",
+			dsRevHash:  "rev1",
+			podPhase:   corev1.PodRunning,
+			podReady:   true,
+			annotations: map[string]string{
+				UpgradeFailureStepAnnotationKey:           UpgradeStatePodRestartRequired,
+				consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue,
+			},
+			wantState: UpgradeStateUncordonRequired,
+		},
+		// The administrator's cordon, recorded at the cordon step, is not the
+		// rollout's to lift.
 		"pod-restart failure with initial state annotation self-heals to Done": {
 			podRevHash: "rev1",
 			dsRevHash:  "rev1",
@@ -1196,6 +1290,8 @@ func TestProcessUpgradeFailedNodes(t *testing.T) {
 			mgr := newTestManager(t, withPodManager(pm))
 
 			ns := newNodeUpgradeState("node-1", UpgradeStateFailed, tc.podRevHash)
+			// A parked node keeps the cordon the rollout took.
+			ns.Node.Spec.Unschedulable = true
 			if tc.annotations != nil {
 				ns.Node.Annotations = tc.annotations
 			}
@@ -1339,60 +1435,64 @@ func TestIsDriverPodFailing(t *testing.T) {
 	}
 }
 
-// k8s-driver-manager marks the cordon it takes on its own eviction path with
-// rebellions.ai/npu-driver-upgrade-cordon. A run killed before releasing it
-// leaves the node cordoned with the mark; when autoUpgrade is then turned on,
-// the operator must adopt that cordon as the rollout's own instead of recording
-// it as the administrator's, or nothing ever lifts it: the binary skips its
-// uncordon under auto-upgrade, and the operator skips a cordon it believes
-// predates the rollout. The mark goes too, or a later manual-mode run would
-// read the administrator's next cordon as its own and lift it.
-func TestTransitionToUpgradeRequired_CordonOwnership(t *testing.T) {
-	const claim = "rebellions.ai/npu-driver-upgrade-cordon"
-	tests := map[string]struct {
-		annotations      map[string]string
-		wantInitialState bool
-	}{
-		"unmarked cordon is the administrator's and is recorded": {
-			wantInitialState: true,
-		},
-		"cordon marked by k8s-driver-manager is adopted": {
-			annotations: map[string]string{claim: "driver"},
-		},
-		"pre-rename mark is adopted too": {
-			annotations: map[string]string{claim: "true"},
-		},
+// Admission no longer judges the cordon: the administrator may cordon and
+// uncordon the node any number of times while it waits for a slot, so only the
+// cordon step's view counts. A claim k8s-driver-manager left is adopted there
+// too, by the cordon manager.
+func TestTransitionToUpgradeRequired_LeavesTheCordonToTheCordonStep(t *testing.T) {
+	mgr := newTestManager(t, withPodManager(&mockPodManager{podDigest: "rev0", dsDigest: "rev1"}))
+
+	ns := newNodeUpgradeState("node-1", UpgradeStateDone, "rev0")
+	ns.Node.Spec.Unschedulable = true
+	ns.Node.Annotations = map[string]string{consts.DriverManagerCordonClaimAnnotation: "driver"}
+	registerNodes(t, mgr, ns.Node)
+
+	state := newClusterState(map[string][]*NodeUpgradeState{UpgradeStateDone: {ns}})
+	if err := mgr.ProcessDoneNodes(context.Background(), state); err != nil {
+		t.Fatalf("ProcessDoneNodes: %v", err)
 	}
 
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			// The DaemonSet carries a newer driver than the pod, so the node
-			// is admitted; the mock decides that, not the fixture's digests.
-			mgr := newTestManager(t, withPodManager(&mockPodManager{podDigest: "rev0", dsDigest: "rev1"}))
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUpgradeRequired {
+		t.Fatalf("state = %q, want %q", got, UpgradeStateUpgradeRequired)
+	}
+	if _, recorded := updated.Annotations[UpgradeInitialStateAnnotationKey]; recorded {
+		t.Fatal("admission must not record the cordon; the cordon step judges it")
+	}
+	if got := updated.Annotations[consts.DriverManagerCordonClaimAnnotation]; got != "driver" {
+		t.Fatalf("claim = %q, want the binary's claim left for the cordon step to adopt", got)
+	}
+}
 
-			ns := newNodeUpgradeState("node-1", UpgradeStateDone, "rev0")
-			ns.Node.Spec.Unschedulable = true
-			ns.Node.Annotations = tc.annotations
-			registerNodes(t, mgr, ns.Node)
+// A node parked in upgrade-failed under a build that wrote no claim keeps its
+// cordon across the operator upgrade. Woken under this build, its label moves
+// to upgrade-required and then cordon-required, where the legacy rule no
+// longer applies; the cordon step would read the cordon as the administrator's
+// and never lift it. So the wake stamps the claim first.
+func TestWakeParkedNodeStampsLegacyCordon(t *testing.T) {
+	mgr := newTestManager(t)
 
-			state := newClusterState(map[string][]*NodeUpgradeState{UpgradeStateDone: {ns}})
-			if err := mgr.ProcessDoneNodes(context.Background(), state); err != nil {
-				t.Fatalf("ProcessDoneNodes: %v", err)
-			}
+	ns := newNodeUpgradeState("node-1", UpgradeStateFailed, "rev0")
+	ns.Node.Spec.Unschedulable = true
+	ns.Node.Annotations = map[string]string{UpgradeRequestedAnnotationKey: trueString}
+	registerNodes(t, mgr, ns.Node)
 
-			var updated corev1.Node
-			if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
-				t.Fatalf("get node: %v", err)
-			}
-			if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUpgradeRequired {
-				t.Fatalf("state = %q, want %q", got, UpgradeStateUpgradeRequired)
-			}
-			if _, got := updated.Annotations[UpgradeInitialStateAnnotationKey]; got != tc.wantInitialState {
-				t.Fatalf("initial-state annotation present = %v, want %v", got, tc.wantInitialState)
-			}
-			if _, left := updated.Annotations[claim]; left {
-				t.Fatalf("k8s-driver-manager cordon mark left on the node; the operator owns this cordon now")
-			}
-		})
+	state := newClusterState(map[string][]*NodeUpgradeState{UpgradeStateFailed: {ns}})
+	if err := mgr.ProcessUpgradeFailedNodes(context.Background(), state); err != nil {
+		t.Fatalf("ProcessUpgradeFailedNodes: %v", err)
+	}
+
+	var updated corev1.Node
+	if err := mgr.k8sClient.Get(context.Background(), types.NamespacedName{Name: "node-1"}, &updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUpgradeRequired {
+		t.Fatalf("state = %q, want %q", got, UpgradeStateUpgradeRequired)
+	}
+	if got := updated.Annotations[consts.DriverManagerCordonClaimAnnotation]; got != consts.OperatorCordonClaimValue {
+		t.Fatalf("claim = %q, want %q stamped on the legacy cordon", got, consts.OperatorCordonClaimValue)
 	}
 }

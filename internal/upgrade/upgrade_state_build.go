@@ -59,7 +59,41 @@ func (m *ClusterUpgradeStateManagerImpl) BuildState(ctx context.Context, namespa
 		return nil, err
 	}
 
+	departed, err := m.findDepartedNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	upgradeState.DepartedNodes = departed
+
 	return &upgradeState, nil
+}
+
+// findDepartedNodes returns the nodes carrying the state label that are no
+// longer in the driver's scope: npu.deploy.driver is not "true", so no driver
+// DaemonSet selects the node (every pool's nodeSelector includes it). The
+// workload switched to vm-passthrough, k8s-driver-manager found a host driver
+// (pre-installed), or the label was edited. The state machine sees only nodes
+// with a driver pod, so without this such a node keeps its label, its cordon
+// and its maxParallelUpgrades slot for good.
+//
+// Scope is judged by the label, never by the node's absence from the state:
+// filterStableDaemonSets drops a whole DaemonSet for a pass whenever a pod
+// is being replaced, and a replacement pod not yet scheduled has no NodeName,
+// so every in-flight node is absent now and then.
+func (m *ClusterUpgradeStateManagerImpl) findDepartedNodes(ctx context.Context) ([]*corev1.Node, error) {
+	nodeList := &corev1.NodeList{}
+	if err := m.k8sClient.List(ctx, nodeList, client.HasLabels{UpgradeStateLabelKey}); err != nil {
+		return nil, fmt.Errorf("failed to list nodes carrying the upgrade state label: %w", err)
+	}
+	departed := make([]*corev1.Node, 0, len(nodeList.Items))
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
+		if node.Labels[consts.RBLNDeployDriverLabelKey] == trueString {
+			continue
+		}
+		departed = append(departed, node)
+	}
+	return departed, nil
 }
 
 func (m *ClusterUpgradeStateManagerImpl) GetDriverDaemonSets(ctx context.Context, namespace string,

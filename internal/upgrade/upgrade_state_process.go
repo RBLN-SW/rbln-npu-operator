@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -45,6 +46,35 @@ func driverPodTemplateOutdated(nodeState *NodeUpgradeState) bool {
 		nodeState.DriverDaemonSet.Spec.Template.Annotations[consts.DriverTemplateHashAnnotation]
 }
 
+// ProcessDepartedNodes tears down nodes that left the driver's scope with the
+// same patch the autoUpgrade-off teardown uses. Runs first, so the slot
+// accounting in ProcessUpgradeRequiredNodes no longer counts them.
+//
+// Unlike that teardown, an upgrade-failed node is released too: its cordon
+// kept a driver that did not come up isolated, and no driver DaemonSet
+// targets the node any more, so the cordon guards nothing. Its next role —
+// vm-passthrough under vfio-manager, or a host driver — is somebody else's
+// to manage. Only a cordon the rollout owns is lifted (OwnsCordon).
+func (m *ClusterUpgradeStateManagerImpl) ProcessDepartedNodes(
+	ctx context.Context, currentClusterState *ClusterUpgradeState,
+) error {
+	var errs []error
+	for _, node := range currentClusterState.DepartedNodes {
+		releaseCordon := OwnsCordon(node) && !IsNodeInRequestorMode(node)
+		patch, err := TeardownPatch(releaseCordon)
+		if err != nil {
+			return fmt.Errorf("build teardown patch for node %q: %w", node.Name, err)
+		}
+		if err := m.k8sClient.Patch(ctx, node, client.RawPatch(types.MergePatchType, patch)); err != nil {
+			errs = append(errs, fmt.Errorf("tear down departed node %q: %w", node.Name, err))
+			continue
+		}
+		log.FromContext(ctx).Info("Node left the driver's scope; dropped its upgrade state",
+			"node", node.Name, "state", node.Labels[UpgradeStateLabelKey], "cordonReleased", releaseCordon)
+	}
+	return errors.Join(errs...)
+}
+
 func (m *ClusterUpgradeStateManagerImpl) ProcessDoneOrUnknownNodes(
 	ctx context.Context, currentClusterState *ClusterUpgradeState, nodeStateName string,
 ) error {
@@ -82,6 +112,11 @@ func (m *ClusterUpgradeStateManagerImpl) processDoneOrUnknownNodes(
 			continue
 		}
 
+		if err := m.releaseLeftoverCordon(ctx, nodeState.Node); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
 		if nodeStateName == UpgradeStateUnknown {
 			if err := m.transitionUnknownNodeToDone(ctx, nodeState); err != nil {
 				errs = append(errs, err)
@@ -116,12 +151,6 @@ func (m *ClusterUpgradeStateManagerImpl) shouldRequireUpgradeForDoneOrUnknownNod
 func (m *ClusterUpgradeStateManagerImpl) transitionDoneOrUnknownNodeToUpgradeRequired(
 	ctx context.Context, nodeState *NodeUpgradeState,
 ) error {
-	if IsNodeUnschedulable(nodeState.Node) {
-		if err := m.recordPreexistingCordon(ctx, nodeState.Node); err != nil {
-			return err
-		}
-	}
-
 	// A fresh upgrade must not inherit the previous attempt's judgement artifacts.
 	if err := m.clearParkedBookkeeping(ctx, nodeState.Node); err != nil {
 		return err
@@ -138,25 +167,21 @@ func (m *ClusterUpgradeStateManagerImpl) transitionDoneOrUnknownNodeToUpgradeReq
 	return nil
 }
 
-// recordPreexistingCordon decides whose cordon a node arrives with. An
-// administrator's is recorded in the initial-state annotation so the rollout
-// leaves it in place. One carrying k8s-driver-manager's claim is not the
-// administrator's: the binary took it on its own eviction path, with
-// autoUpgrade off, and was killed before releasing it. The rollout adopts that
-// cordon and lifts it at the end like its own, because neither side would
-// otherwise: the binary skips its uncordon under auto-upgrade, and the operator
-// skips a cordon it believes predates the rollout. The claim goes with the
-// adoption; left behind, a later manual-mode run would read the administrator's
-// next cordon as its own and lift it.
-func (m *ClusterUpgradeStateManagerImpl) recordPreexistingCordon(ctx context.Context, node *corev1.Node) error {
-	if _, claimed := node.Annotations[consts.DriverManagerCordonClaimAnnotation]; claimed {
-		log.FromContext(ctx).Info("Adopting the cordon k8s-driver-manager left on the node; the rollout will lift it",
-			"node", node.Name, "annotation", consts.DriverManagerCordonClaimAnnotation)
-		return m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node, consts.DriverManagerCordonClaimAnnotation)
+// releaseLeftoverCordon lifts a claimed cordon on a node no rollout is working
+// on. The rollout's own claim is here when the state label was lost after the
+// cordon step. k8s-driver-manager's is here when a manual-mode run parked on a
+// blocked eviction, or was killed, and autoUpgrade was then turned on: the
+// binary never lifts a cordon under autoUpgrade, and a node whose driver pod
+// is already in sync is never admitted, so the adoption at the cordon step
+// would never run. The uncordon adopts the claim and clears the blocked mark
+// with it. An unclaimed cordon is an administrator's and stays.
+func (m *ClusterUpgradeStateManagerImpl) releaseLeftoverCordon(ctx context.Context, node *corev1.Node) error {
+	if !IsNodeUnschedulable(node) || !claimedCordon(node) || IsNodeInRequestorMode(node) {
+		return nil
 	}
-	log.FromContext(ctx).Info("Node is unschedulable, adding annotation to track initial state of the node",
-		"node", node.Name, "annotation", UpgradeInitialStateAnnotationKey)
-	return m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(ctx, node, UpgradeInitialStateAnnotationKey, trueString)
+	log.FromContext(ctx).Info("Lifting a claimed cordon left on a node that needs no upgrade",
+		"node", node.Name, "claim", node.Annotations[consts.DriverManagerCordonClaimAnnotation])
+	return m.cordonManager.Uncordon(ctx, node)
 }
 
 func (m *ClusterUpgradeStateManagerImpl) transitionUnknownNodeToDone(
@@ -260,13 +285,18 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessCordonRequiredNodes(
 
 	var errs []error
 	for _, nodeState := range currentClusterState.NodeStates[UpgradeStateCordonRequired] {
-		err := m.cordonManager.Cordon(ctx, nodeState.Node)
+		node := nodeState.Node
+		foreign, err := m.cordonManager.Cordon(ctx, node)
 		if err != nil {
-			log.FromContext(ctx).Error(err, "Node cordon failed", "node", nodeState.Node)
+			log.FromContext(ctx).Error(err, "Node cordon failed", "node", node.Name)
 			errs = append(errs, err)
 			continue
 		}
-		err = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, nodeState.Node, UpgradeStateWaitForJobsRequired)
+		if err := m.recordCordonProvenance(ctx, node, foreign); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		err = m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, UpgradeStateWaitForJobsRequired)
 		if err != nil {
 			log.FromContext(ctx).Error(err, "Failed to change node upgrade state", "state", UpgradeStateWaitForJobsRequired)
 			errs = append(errs, err)
@@ -274,6 +304,29 @@ func (m *ClusterUpgradeStateManagerImpl) ProcessCordonRequiredNodes(
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// recordCordonProvenance keeps the initial-state annotation in step with what
+// the cordon step found: set when the cordon is an administrator's, removed
+// otherwise. Judged here and not at admission because the administrator may
+// cordon and uncordon the node any number of times while it waits for a slot;
+// only the cordon the rollout meets when its turn comes says whether the
+// rollout took it. Written before the state moves on, so a node past this
+// step with neither claim nor annotation can only carry a claim-less build's
+// own cordon (cordonOwnerOf).
+func (m *ClusterUpgradeStateManagerImpl) recordCordonProvenance(ctx context.Context, node *corev1.Node, foreign bool) error {
+	_, recorded := node.Annotations[UpgradeInitialStateAnnotationKey]
+	switch {
+	case foreign && !recorded:
+		log.FromContext(ctx).Info("Node was cordoned before the rollout reached it; the cordon stays",
+			"node", node.Name, "annotation", UpgradeInitialStateAnnotationKey)
+		return m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(ctx, node, UpgradeInitialStateAnnotationKey, trueString)
+	case !foreign && recorded:
+		log.FromContext(ctx).Info("Dropping a stale record of an administrator's cordon; the rollout took this one",
+			"node", node.Name, "annotation", UpgradeInitialStateAnnotationKey)
+		return m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node, UpgradeInitialStateAnnotationKey)
+	}
+	return nil
 }
 
 func (m *ClusterUpgradeStateManagerImpl) ProcessWaitForJobsRequiredNodes(
@@ -386,12 +439,9 @@ func (m *ClusterUpgradeStateManagerImpl) updateNodeToUncordonOrDoneState(ctx con
 	annotationKey := UpgradeInitialStateAnnotationKey
 	isNodeUnderRequestorMode := IsNodeInRequestorMode(node)
 
-	if _, ok := node.Annotations[annotationKey]; ok {
-		if !isNodeUnderRequestorMode {
-			log.FromContext(ctx).Info("Node was Unschedulable at beginning of upgrade, skipping uncordon",
-				"node", node.Name)
-			newUpgradeState = UpgradeStateDone
-		}
+	if IsNodeUnschedulable(node) && !claimedCordon(node) && !isNodeUnderRequestorMode {
+		log.FromContext(ctx).Info("Node's cordon is not the rollout's, skipping uncordon", "node", node.Name)
+		newUpgradeState = UpgradeStateDone
 	}
 
 	err := m.nodeUpgradeStateProvider.ChangeNodeUpgradeState(ctx, node, newUpgradeState)
@@ -618,6 +668,15 @@ func (m *ClusterUpgradeStateManagerImpl) clearParkedBookkeeping(ctx context.Cont
 func (m *ClusterUpgradeStateManagerImpl) wakeParkedNode(
 	ctx context.Context, node *corev1.Node, cause string,
 ) error {
+	// A cordon a claim-less build took is recognised by the parked state it is
+	// found in; once the label moves on, nothing would say it is the
+	// rollout's. TODO(remove after two releases) with cordonOwnedByLegacyOperator.
+	if IsNodeUnschedulable(node) && cordonOwnerOf(node) == cordonOwnedByLegacyOperator {
+		if err := m.nodeUpgradeStateProvider.SetNodeUpgradeAnnotation(ctx, node,
+			consts.DriverManagerCordonClaimAnnotation, consts.OperatorCordonClaimValue); err != nil {
+			return err
+		}
+	}
 	if err := m.clearParkedBookkeeping(ctx, node); err != nil {
 		return err
 	}
@@ -744,8 +803,7 @@ func (m *ClusterUpgradeStateManagerImpl) processUpgradeSkippedNode(
 	node := nodeState.Node
 
 	// The old driver is intact, so the node returns to service on it.
-	_, wasInitiallyUnschedulable := node.Annotations[UpgradeInitialStateAnnotationKey]
-	if IsNodeUnschedulable(node) && !wasInitiallyUnschedulable && !IsNodeInRequestorMode(node) {
+	if IsNodeUnschedulable(node) && claimedCordon(node) && !IsNodeInRequestorMode(node) {
 		if err := m.cordonManager.Uncordon(ctx, node); err != nil {
 			log.FromContext(ctx).Error(err, "Failed to uncordon skipped node", "node", node.Name)
 			return err
