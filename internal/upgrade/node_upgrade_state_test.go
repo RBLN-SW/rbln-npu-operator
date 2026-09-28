@@ -144,3 +144,46 @@ func TestNodeUpgradeStateProviderGetNode(t *testing.T) {
 		}
 	})
 }
+
+func TestChangeNodeUpgradeStateFrom(t *testing.T) {
+	tests := map[string]struct {
+		current   string
+		from      string
+		wantState string
+	}{
+		"moves when the node is still in the expected state": {
+			current: UpgradeStatePodDeletionRequired, from: UpgradeStatePodDeletionRequired, wantState: UpgradeStatePodRestartRequired,
+		},
+		"refuses when the node moved on": {
+			current: UpgradeStateDone, from: UpgradeStatePodDeletionRequired, wantState: UpgradeStateDone,
+		},
+		"refuses when the label is gone": {
+			current: "", from: UpgradeStatePodDeletionRequired, wantState: "",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			labels := map[string]string{}
+			if tc.current != "" {
+				labels[UpgradeStateLabelKey] = tc.current
+			}
+			p := newTestNodeUpgradeStateProvider(t)
+			k8sClient := p.K8sClient
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n", Labels: labels}}
+			if err := k8sClient.Create(context.Background(), node); err != nil {
+				t.Fatalf("create node: %v", err)
+			}
+
+			if err := p.ChangeNodeUpgradeStateFrom(context.Background(), node.DeepCopy(), tc.from, UpgradeStatePodRestartRequired); err != nil {
+				t.Fatalf("ChangeNodeUpgradeStateFrom: %v", err)
+			}
+			updated := &corev1.Node{}
+			if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: "n"}, updated); err != nil {
+				t.Fatalf("get node: %v", err)
+			}
+			if got := updated.Labels[UpgradeStateLabelKey]; got != tc.wantState {
+				t.Fatalf("state = %q, want %q", got, tc.wantState)
+			}
+		})
+	}
+}
