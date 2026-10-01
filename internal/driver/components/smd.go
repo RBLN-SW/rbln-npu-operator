@@ -212,7 +212,7 @@ func (h *SmdPatcher) buildPodSpec(version string) *corev1.PodSpec {
 		}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{Name: smdVarRunVolumeName, MountPath: smdVarRunPath},
-			{Name: hostSysVolumeName, MountPath: hostSysPath, ReadOnly: true},
+			{Name: hostSysVolumeName, MountPath: hostSysPath},
 			{Name: smdDebugVolumeName, MountPath: smdDebugPath},
 			{Name: smdLogVolumeName, MountPath: smdLogPath},
 		}).
