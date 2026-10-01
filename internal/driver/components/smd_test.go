@@ -59,6 +59,22 @@ func assertSmdContainerContract(t *testing.T, container corev1.Container) {
 	if sc.RunAsUser == nil || *sc.RunAsUser != 0 {
 		t.Fatalf("runAsUser = %v, want 0", sc.RunAsUser)
 	}
+	// rblnpciesw (shipped in the smd image from ATOM 3.4.1) opens the PCIe
+	// switch BAR (/sys/bus/pci/devices/<bdf>/resource0) for writing to install
+	// the P2P address trap. A read-only /sys does not error: smd just reports
+	// p2p_enabled=false and device P2P bandwidth halves.
+	var sysMount *corev1.VolumeMount
+	for i := range container.VolumeMounts {
+		if container.VolumeMounts[i].MountPath == hostSysPath {
+			sysMount = &container.VolumeMounts[i]
+		}
+	}
+	if sysMount == nil {
+		t.Fatalf("smd container must mount %s", hostSysPath)
+	}
+	if sysMount.ReadOnly {
+		t.Fatalf("%s mount is read-only; rblnpciesw needs write access to the switch BAR to set the P2P trap", hostSysPath)
+	}
 }
 
 func TestNewSmdPatcher_NilDriver(t *testing.T) {
