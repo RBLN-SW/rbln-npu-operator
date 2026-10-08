@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
@@ -95,18 +96,22 @@ func (r *RBLNDriverReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	logger.V(consts.VDebug).Info("Reconciling RBLNDriver", "driver", req.Name)
 	metrics.ReconcileTotal.WithLabelValues("driver").Inc()
 
+	// An empty request is the startup owner sweep, not a CR lookup. A
+	// driver deleted before this controller's watches started has no event
+	// to replay, so resolve even when no RBLNDriver remains. Running through
+	// this queue serializes the sweep with CR reconciles and retries errors.
+	if req == (ctrl.Request{}) {
+		return ctrl.Result{}, r.reconcileOwners(ctx)
+	}
+
 	instance := &rebellionsaiv1alpha1.RBLNDriver{}
 	if err := r.Get(ctx, req.NamespacedName, instance); err != nil {
 		if kapierrors.IsNotFound(err) {
 			// A deleted RBLNDriver must release or reassign its nodes;
 			// otherwise stale owner labels pin the old routing forever.
-			res, resolveErr := r.ownerResolver.Resolve(ctx)
-			if resolveErr != nil {
-				return ctrl.Result{}, resolveErr
+			if err := r.reconcileOwners(ctx); err != nil {
+				return ctrl.Result{}, err
 			}
-			// Deletion reassignment is exactly the transition the routing
-			// gauges and node events exist to report.
-			r.reportResolution(res)
 			metrics.CleanupDriverSeries(req.Name)
 			return ctrl.Result{}, nil
 		}
@@ -477,6 +482,16 @@ func (r *RBLNDriverReconciler) reportNotReadyWithResult(
 	return res, nil
 }
 
+// reconcileOwners repairs routing without requiring a surviving driver CR.
+func (r *RBLNDriverReconciler) reconcileOwners(ctx context.Context) error {
+	res, err := r.ownerResolver.Resolve(ctx)
+	if err != nil {
+		return err
+	}
+	r.reportResolution(res)
+	return nil
+}
+
 // reportResolution publishes routing gauges and per-node transition events.
 // Gauges reset first: a pass covers every driver, so series from deleted ones
 // must not linger. Events fire on transitions only -- the resolver runs every
@@ -565,6 +580,13 @@ func (r *RBLNDriverReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			// doesn't requeue every driver right back into another resolve.
 			builder.WithPredicates(k8sutil.NodeLabelsChangedExceptPredicate(consts.RBLNDriverOwnerLabelKey)),
 		).
+		// Sources start with the controller; its worker runs only after
+		// leadership is acquired and all watches have synced. Enqueue once
+		// instead of calling the resolver from a concurrent manager runnable.
+		WatchesRawSource(source.Func(func(_ context.Context, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+			queue.Add(reconcile.Request{})
+			return nil
+		})).
 		Complete(r)
 }
 
