@@ -129,3 +129,21 @@ jobs:
           # Render the FBC from the just-pushed bundle, then build + push the catalog image.
           make catalog
           make catalog-build-image
+      # helm resolves OCI chart tags as SemVer and drops the rest, so the moving
+      # dev chart is 0.0.0-dev, not dev. appVersion = commit SHA: the chart's
+      # operator/validator tags are empty and fall back to it, so the dev chart
+      # resolves the immutable images pushed above; operands keep the
+      # values.yaml tags, exactly as the dev bundle does.
+      - uses: azure/setup-helm@v5
+      - name: Package and push Helm chart (dev)
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          export HARBOR_HOST="${REGISTRY%%/*}"
+          yq -i '.operator.image.registry = env(HARBOR_HOST) | .validator.image.registry = env(HARBOR_HOST)' \
+            deployments/rbln-npu-operator/values.yaml
+          echo "$HARBOR_PASSWORD" | helm registry login "$HARBOR_HOST" -u "$HARBOR_USERNAME" --password-stdin
+          make helm-push-oci HELM_REGISTRY="oci://$REGISTRY" \
+            CHART_VERSION=0.0.0-dev CHART_APP_VERSION="$GITHUB_SHA"
+          echo "chart: oci://$REGISTRY/rbln-npu-operator-chart:0.0.0-dev (appVersion $GITHUB_SHA)"
