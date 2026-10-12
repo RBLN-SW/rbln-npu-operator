@@ -13,4 +13,7 @@ LABEL \
     io.k8s.display-name="Rebellions VFIO Manager" \
     com.redhat.component="rbln-vfio-manager"
 
+# Pick up OpenSSL errata that may not yet be included in the UBI base image.
+RUN dnf upgrade --refresh -y openssl openssl-libs && dnf clean all
+
 COPY LICENSE /licenses/LICENSE

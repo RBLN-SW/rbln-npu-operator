@@ -1,5 +1,5 @@
 # Build the manager binary
-ARG GOLANG_VERSION=1.26.8
+ARG GOLANG_VERSION=1.26.9
 
 # The builder always runs on the build host (BUILDPLATFORM) and cross-compiles
 # for TARGETARCH: Go needs no emulation (CGO_ENABLED=0), so a multi-arch
@@ -37,7 +37,10 @@ LABEL \
     io.k8s.display-name="Rebellions NPU Operator" \
     com.redhat.component="rbln-npu-operator"
 
-RUN microdnf install -y util-linux-core && microdnf clean all -y
+# Pick up OpenSSL errata that may not yet be included in the UBI base image.
+RUN microdnf update -y openssl-libs && \
+    microdnf install -y util-linux-core && \
+    microdnf clean all -y
 
 COPY --from=builder /workspace/npu-operator /usr/bin/
 COPY --from=builder /workspace/rbln-validator /usr/bin/
