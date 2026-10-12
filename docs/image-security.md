@@ -62,9 +62,12 @@ Note that `scan-images` builds both images first regardless; override
 Work through these in order — the cheapest fix that clears the finding is
 almost always the right one.
 
-1. **OS package** → bump the base image tag in the relevant Dockerfile. Red Hat
-   ships fixes in UBI patch releases, so `9.6` → `9.8` typically clears the
-   whole OS set at once.
+1. **OS package** → use a patched UBI base image or update the affected package
+   from the UBI repositories during the image build. Both runtime Dockerfiles
+   update OpenSSL because package errata can precede a refreshed base image.
+   When verifying a new erratum, rebuild with
+   `DOCKER_BUILD_OPTIONS='--load --no-cache'` so an older package-update layer
+   cannot be reused.
 2. **Go `stdlib`** → bump `GOLANG_VERSION` in `versions.mk` **and** the
    `ARG GOLANG_VERSION` default in `Dockerfile`. These must move together;
    `make verify-versions` enforces it. No API risk.
