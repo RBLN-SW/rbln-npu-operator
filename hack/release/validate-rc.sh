@@ -45,6 +45,8 @@
 #                                (obedients: https://obedients-api.k8s.rebellions.in/v2)
 #   BUILDKITE_VALIDATE_BRANCH    test-infra branch that holds the pipeline (default dev)
 #   HARBOR_REGISTRY              default harbor.k8s.rebellions.in/rebellions
+#   SENTINEL_CATALOG_IMAGE       pinned catalog from OLM publication; defaults
+#                                to the rc tag for manual/backward-compatible use
 #   SENTINEL_REF                 optional passthrough
 # With neither the trigger URL nor the api settings the script prints a notice
 # and exits 0: a repository without them still publishes rcs, GA just cannot
@@ -109,7 +111,7 @@ fi
 
 env_json=$(jq -n \
 	--arg chart "oci://$registry/rbln-npu-operator-chart" --arg ver "$version-${tag##*-}" \
-	--arg catalog "$registry/rbln-npu-operator-catalog:$tag" \
+	--arg catalog "${SENTINEL_CATALOG_IMAGE:-$registry/rbln-npu-operator-catalog:$tag}" \
 	--arg repo "$repo" --arg sha "$sha" --arg sentinel_ref "${SENTINEL_REF:-}" \
 	'{
 	  RELEASE_MODE: "true", CLUSTERS: "all",

@@ -14,6 +14,13 @@ jobs:
         name: Checkout code
       - uses: ./.github/actions/setup-go
         name: Setup Go
+      - name: Install OLM publishing test prerequisites
+        run: |
+          sudo curl -fsSL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+          command -v jq >/dev/null || { sudo apt-get update && sudo apt-get install -y jq; }
+      - name: Test OLM publishing and validation handoff (no registry)
+        run: python3 -B -m unittest discover -s hack/release -p 'test_*.py' -v
       - name: Generate and validate bundle
         # `make bundle` ends with `operator-sdk bundle validate ./bundle`.
         # The image ref is a placeholder (not pulled during validation).
