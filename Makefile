@@ -421,6 +421,7 @@ bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metada
 	$(OPERATOR_SDK) generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE)
 	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS)
+	./hack/release/sync-bundle-examples.sh bundle/manifests/rbln-npu-operator.clusterserviceversion.yaml
 	$(OPERATOR_SDK) bundle validate ./bundle
 # operator-sdk stamps createdAt on every run (operator-framework/operator-sdk#6285);
 # drop the churn when the timestamp is the only bundle change.
