@@ -252,30 +252,44 @@ kubectl describe rblndriver <name>
 
 ## Multiple driver versions
 
-The Helm chart's `driver.instances` map runs more than one `RBLNDriver`
-version in the same cluster — for example a cluster-wide default plus a
-canary version for a labeled subset of nodes, or a different version per NPU
-family:
+The Helm chart ships ATOM **3.4.1** and REBEL100 **3.5.1** instances with
+`driver.enabled: false` and `driver.deployDefault: false`. Enabling the
+driver deploys the matching family version on each node; an absent family
+stays Ready with zero owned nodes and no driver or SMD DaemonSet. This works
+for single-family and mixed clusters with the same values:
 
 ```yaml
 driver:
   enabled: true
-  image:
-    tag: "3.2.2"          # fallback for any node not claimed below
+  deployDefault: false
   instances:
-    atom-canary:
+    atom:
       image:
-        tag: "3.3.0-rc1"
+        tag: "3.4.1"
       nodeSelector:
         rebellions.ai/npu.family: atom
-        env: canary
+    rebel100:
+      image:
+        tag: "3.5.1"
+      nodeSelector:
+        rebellions.ai/npu.family: rebel100
 ```
+
+`driver.enabled: false` suppresses all driver CRs, including configured
+instances. Override `driver.instances.<family>.image.tag` to change a built-in
+family version; `driver.image.tag` only applies to the optional fallback CR
+and instances without an explicit tag. Additional instances can target a
+canary subset; see the chart's `sample-values-MultiDriver.yaml`.
+
+Helm merges this map with the built-in instances. To replace `rebel100`
+with a differently named instance, set `driver.instances.rebel100: null` in
+your values file; omitting the entry or using `instances: {}` keeps it.
 
 Each key renders its own CR named `rbln-driver-<key>`; keys must be a
 lowercase DNS-1123 label of at most 40 characters (the name is stamped onto
 nodes as a label value, which caps the full CR name at 63 characters).
 kubectl users applying raw CRs instead of Helm can start from
-[`config/samples/v1alpha1_rblndriver_instances.yaml`](config/samples/v1alpha1_rblndriver_instances.yaml).
+[`config/samples/v1alpha1_rblndriver.yaml`](config/samples/v1alpha1_rblndriver.yaml).
 
 ### Automatic family labels
 
@@ -293,7 +307,7 @@ family mapping lives in `internal/consts` (`NPUFamilies`).
 
 Driver images are pulled from family-scoped registry paths:
 `{registry}/{org}/{family}/{name}:{version}-{kernel}-{os}` — e.g.
-`repo.rebellions.ai/rebellions/atom/rbln-driver:3.5.0-<kernel>-<os>`. The
+`repo.rebellions.ai/rebellions/atom/rbln-driver:3.4.1-<kernel>-<os>`. The
 family segment is the node's `rebellions.ai/npu.family` label value. Before
 upgrading the operator, every driver version in use must be published under
 its family path; flat-path images are no longer pulled. A single RBLNDriver
@@ -410,8 +424,8 @@ os/kernel labels), never on your selector. This guarantees exactly one driver
 per node regardless of how selectors overlap.
 
 The winner for a node is the **most specific** matching selector — one that is
-a strict superset of every other matching selector. While the top-level
-`driver.nodeSelector` is left empty (the default), the default instance
+a strict superset of every other matching selector. When
+`driver.deployDefault: true` and `driver.nodeSelector` is left empty, the default instance
 matches every node and automatically falls back for any node no more specific
 instance claims: `{}` ⊂ `{family: atom}` ⊂ `{family: atom, env:
 canary}`. Reserved keys `rebellions.ai/npu.driver.owner` and
@@ -499,6 +513,19 @@ kubectl label nodes --all rebellions.ai/npu.driver.owner-
 
 A stale owner label is harmless on reinstall — the operator recomputes and
 overwrites it on the first reconcile.
+
+## Testing
+
+Run the local Go unit and controller/envtest suites with `make unit-tests`.
+Helm sample rendering and driver configuration checks run in
+[Manifests Checks](.github/workflows/manifests-check.yaml).
+
+E2E scenarios live in the separate
+[npu-operator-sentinel](https://github.com/rebellions-sw/npu-operator-sentinel)
+repository. Buildkite runs them through the
+[PR pipeline](.buildkite/pipeline.pr.yml) and
+[nightly pipeline](.buildkite/pipeline.nightly.yml), using this repository's
+chart and built operator/validator images.
 
 ## Support & Resources
 

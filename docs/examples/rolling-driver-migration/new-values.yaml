@@ -15,13 +15,16 @@ driver:
     image:
       registry: docker.io
       repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.2.2
+      tag: v0.3.0
       pullPolicy: IfNotPresent
   smd:
     image:
       registry: repo.rebellions.ai
       repository: rebellions/rbln-smd
   instances:
+    # Helm merges maps: explicitly remove the chart's built-in rebel100 CR
+    # so it cannot collide with the manual CR or bypass the stage selector.
+    rebel100: null
     atom:
       image:
         tag: "3.2.2"
