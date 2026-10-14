@@ -37,14 +37,14 @@ spec:
     enabled: true
     registry: docker.io
     image: rebellions/k8s-device-plugin
-    version: v0.4.3
+    version: v0.5.0
     imagePullPolicy: IfNotPresent
     useGenericResourceName: true
   draKubeletPlugin:
     enabled: false
     registry: docker.io
     image: rebellions/k8s-dra-driver-npu
-    version: v0.1.4
+    version: v0.2.1
     imagePullPolicy: IfNotPresent
     driverName: npu.rebellions.ai
     kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
@@ -54,7 +54,7 @@ spec:
     enabled: true
     registry: docker.io
     image: rebellions/rbln-metrics-exporter
-    version: v0.3.4
+    version: v0.4.0
     imagePullPolicy: IfNotPresent
   npuFeatureDiscovery:
     enabled: true
