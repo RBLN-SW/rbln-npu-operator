@@ -207,6 +207,7 @@ driver:
   enabled: true
   deployDefault: false          # the family CRs replace the default CR
   instances:
+    rebel100: null              # ATOM-only example: remove the built-in CR
     atom:                       # rendered name: rbln-driver-atom
       image:
         tag: "3.2.2"
@@ -220,6 +221,14 @@ family label **and** `rbln-mig/stage: "new"`. Old-CR and family-CR
 selectors must never match the same node: a node matching both leaves the
 old CR owning no nodes, and all its DaemonSets are deleted at once. The
 stage label guarantees this cannot happen.
+
+Helm merges `driver.instances` with the chart's built-in `atom` and
+`rebel100` entries; omitting a key or setting `instances: {}` does not remove
+it. Set every unused built-in key to `null`, including `rebel100` when using
+an alternative name such as `r100`. Every retained instance must carry the
+stage selector. The explicit driver versions here illustrate an existing
+fleet; choose published versions for your target OS/kernel. Use the new
+chart's driver-manager version (currently `v0.3.0`).
 
 > [!CAUTION]
 > `new-values.yaml` must be your **complete** values file (registry, image
@@ -428,6 +437,7 @@ NPU family, created manually because pre-0.4.6 charts render only one):
     enabled: true
     deployDefault: false
     instances:
+      rebel100: null            # remove the built-in name before adding r100
       atom:
         image:
           tag: "3.2.2"
@@ -456,6 +466,11 @@ chart 0.4.5 → 0.4.6. The values files it references live in
 (the manual second CR),
 [`new-values.yaml`](examples/rolling-driver-migration/new-values.yaml) and
 [`final-values.yaml`](examples/rolling-driver-migration/final-values.yaml).
+
+The new/final values have since been adjusted for today's built-in family
+instances and driver-manager `v0.3.0`; the original fleet's driver versions
+are retained. The observations below describe the original run, not a new
+end-to-end validation of those adjustments.
 
 ```bash
 export NS=rbln-system

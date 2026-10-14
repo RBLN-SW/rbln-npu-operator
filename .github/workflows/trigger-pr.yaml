@@ -69,5 +69,5 @@ jobs:
     with:
       fail-on-findings: true
   # E2E tests (container / vm-passthrough) and the PR image build moved to the
-  # Buildkite PR CI pipeline (.buildkite/pipeline.pr.yml). The Go e2e suite under
-  # test/e2e/ is kept and still runnable via `make -C test/e2e e2e-test`.
+  # Buildkite PR CI pipeline (.buildkite/pipeline.pr.yml), which runs the
+  # separate npu-operator-sentinel repository's scenarios.

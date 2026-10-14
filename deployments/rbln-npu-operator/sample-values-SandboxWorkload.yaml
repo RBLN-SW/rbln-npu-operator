@@ -1,6 +1,9 @@
 # Sample values for the VM/sandbox (vm-passthrough) workload deployment of rbln-npu-operator.
 # Apply with: helm install rbln-npu-operator . -f sample-values-SandboxWorkload.yaml
-# Values omitted here inherit from values.yaml.
+# Common settings mirror values.yaml; workload-specific switches are set below.
+
+# Override chart name for resource naming (keeps names short despite chart rename)
+nameOverride: rbln-npu-operator
 
 # Workload type: "container" (default) or "vm-passthrough".
 workloadType: vm-passthrough
@@ -9,9 +12,24 @@ workloadType: vm-passthrough
 nfd:
   enabled: false
 
+# Keep the CRDs in sync on `helm upgrade` (Helm applies crds/ only on first
+# install and never upgrades them). Set false if a GitOps tool reconciles crds/.
+crds:
+  upgrade:
+    enabled: true
+    imagePullSecrets: []
+    tolerations: []
+    resources: {}
+    # crd-apply hook Job logging. The hook runs pre-install, before the
+    # operator exists, so cluster-level logging configuration cannot reach it.
+    logging:
+      level: info        # error|warning|info|debug
+      format: json       # json|text
+
 # RDS (Rebellions Direct Storage): NPU direct NVMe access. When enabled, the
-# operator deploys a dedicated driver pool onto nodes labeled
-# rebellions.ai/rds.present=true. Binding formats the node's spare NVMe.
+# operator deploys a dedicated driver pool (RBLN_RDS_BINDING=enabled) onto nodes
+# the admin labels rebellions.ai/rds.present=true. Binding formats the node's
+# spare NVMe, so only label such nodes.
 rds:
   enabled: false
   # deviceSelection restricts, per node, which NVMe PCI devices RDS binds
@@ -51,18 +69,41 @@ operator:
     requests:
       cpu: 50m
       memory: 128Mi
-  # Operator manager logging (zap flags). See values.yaml for semantics.
   logging:
+    # zap gate for the operator manager's own logs. Redirected client-go/klog
+    # records surface at V(0) only; raising their verbosity needs a klog -v
+    # container arg AND this level raised to match.
+    # NOTE: invalid values crash the operator at startup (unlike
+    # crds.upgrade.logging, which falls back).
+    # error|info|debug|panic or an integer N>0 (logr V<=N)
     level: info
-    encoder: json
-    timeEncoding: rfc3339nano
-    develMode: false
-  # Operator self-metrics (HTTPS + authn/authz). See values.yaml.
+    encoder: json      # json|console
+    timeEncoding: rfc3339nano  # epoch|millis|nanos|iso8601|rfc3339|rfc3339nano
+    develMode: false  # true = zap development behavior: DPanic panics + full Kubernetes-object dumps in log values; encoder/level are unaffected — set them explicitly above
+  # Operator self-metrics. HTTPS + authn/authz — scrapers need a SA token
+  # bound to the -metrics-reader ClusterRole.
   metrics:
     enabled: true
     port: 8443
     serviceMonitor:
+      # Rendered only when the Prometheus Operator CRD is present. GitOps
+      # flows using `helm template` need --api-versions monitoring.coreos.com/v1.
       enabled: false
+      interval: 30s
+      scrapeTimeout: 10s
+      additionalLabels: {}
+      relabelings: []
+  # Verify each composed driver image exists in its registry (manifest HEAD,
+  # authenticated with the driver CR's imagePullSecrets) before rendering the
+  # pool DaemonSet. Only a 404 fails the pool, with a DriverImageNotFound
+  # condition naming the exact missing image instead of a silent
+  # ImagePullBackOff; every other outcome (401/403, timeout, TLS or DNS
+  # failure) only logs a warning and proceeds, leaving kubelet the final
+  # arbiter. Set false to skip the check entirely -- a mirror-only or
+  # disconnected cluster, or one where node-level credentials the operator
+  # cannot see (ServiceAccount pull secret, kubelet config.json, ECR/GCR
+  # instance identity) authenticate the pull.
+  driverImageCheck: true
   # Pod security context
   securityContext:
     runAsNonRoot: true
@@ -98,18 +139,27 @@ operator:
 
 # Driver configuration
 driver:
+  # Master switch: false renders no RBLNDriver CRs, including instances below.
+  # Set true to deploy the per-family release versions.
   enabled: false
+  # Deploy the default RBLNDriver CR (rbln-driver): the fallback for every NPU
+  # node not claimed by an entry in driver.instances. Set false to run only
+  # explicitly targeted instances (requires at least one instance).
+  deployDefault: false
   # Driver upgrade policy rendered under spec.driver.upgradePolicy.
   # If autoUpgrade is false, the remaining options are ignored.
   upgradePolicy:
     autoUpgrade: false
     maxParallelUpgrades: 1
+    # Time budget for the driver pod swap (image pull + module reload). On
+    # expiry the node is marked upgrade-failed. 0 disables the timeout.
     podRestartTimeoutSeconds: 1800
     waitForCompletion:
       timeoutSeconds: 0
       podSelector: ""
-    # Applies to both evictions: the operator's during an automatic upgrade,
-    # and k8s-driver-manager's own when autoUpgrade is off.
+    # Applies to every NPU pod eviction: the operator's during an automatic
+    # upgrade, k8s-driver-manager's own when autoUpgrade is off, and
+    # k8s-driver-manager's before a node is switched to vm-passthrough.
     npuPodDeletion:
       force: false
       timeoutSeconds: 300
@@ -119,7 +169,9 @@ driver:
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-driver
-    tag: "3.2.2"
+    # Used by the optional fallback CR and instances without their own tag.
+    # The built-in family instances pin their versions below.
+    tag: "3.5.1"
     pullPolicy: IfNotPresent
   imagePullSecrets:
   - drivercred
@@ -164,6 +216,42 @@ driver:
       pullPolicy: IfNotPresent
   #  imagePullSecrets:
   #  - my-registry-secret
+  # rbln-smd node daemon deployed per RBLNDriver CR. No tag: the smd image tag
+  # always follows the driver version (driver.image.tag / per-instance tag).
+  smd:
+    image:
+      registry: repo.rebellions.ai
+      repository: rebellions/rbln-smd
+  # Per-family release defaults, deployed only when driver.enabled=true.
+  # A family with no matching nodes creates no driver or smd DaemonSet.
+  # NFD and the operator-managed NodeFeatureRule supply npu.family labels.
+  # Each key becomes a CR named rbln-driver-<key>. Fields not set on an
+  # instance inherit from the driver block above (maps deep-merge; LISTS such
+  # as tolerations/env/imagePullSecrets REPLACE the inherited value).
+  # nodeSelector is never inherited and is required per instance; overlap is
+  # resolved by specificity (a selector that is a strict superset wins), and
+  # incomparable ties are reported on the CR as ConflictingNodeSelector.
+  # Example:
+  # instances:
+  #   atom-canary:
+  #     image:
+  #       tag: "3.4.1"  # replace with a published candidate to test an upgrade
+  #     nodeSelector:
+  #       rebellions.ai/npu.family: atom
+  #       env: canary
+  # Override instances.<family>.image.tag to change a family version;
+  # changing driver.image.tag does not override these explicit pins.
+  instances:
+    atom:
+      image:
+        tag: "3.4.1"
+      nodeSelector:
+        rebellions.ai/npu.family: atom
+    rebel100:
+      image:
+        tag: "3.5.1"
+      nodeSelector:
+        rebellions.ai/npu.family: rebel100
 
 
 # NPU Device Plugin configuration
@@ -177,6 +265,14 @@ devicePlugin:
   # Advertise the generic resource name (rebellions.ai/npu) in addition to product-specific ones.
   # the controller forwards it to the device plugin container as USE_GENERIC_RESOURCE_NAME.
   useGenericResourceName: true
+  # OTLP gRPC endpoint (host:port, or a scheme-qualified URL) for device-plugin allocation traces.
+  # The controller forwards it to the container as OTEL_EXPORTER_OTLP_ENDPOINT; empty disables tracing.
+  otlpEndpoint: ""
+  # Operand log gate. Unset (the default) leaves the image's own info/json in
+  # place; the controller renders an env var only for the keys you set here.
+  # logging:
+  #   level: debug     # error|warning|warn|info|debug
+  #   format: text     # json|text
 
 # NPU DRA kubelet plugin configuration
 draKubeletPlugin:
@@ -190,6 +286,10 @@ draKubeletPlugin:
   kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
   kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
   healthcheckPort: 51515
+  # See devicePlugin.logging.
+  # logging:
+  #   level: debug
+  #   format: text
 
 # NPU Metrics Exporter configuration
 metricsExporter:
@@ -199,6 +299,10 @@ metricsExporter:
     repository: rebellions/rbln-metrics-exporter
     tag: v0.4.0
     pullPolicy: IfNotPresent
+  # See devicePlugin.logging.
+  # logging:
+  #   level: debug
+  #   format: text
 
 # NPU Feature Discovery configuration
 npuFeatureDiscovery:
@@ -206,8 +310,13 @@ npuFeatureDiscovery:
   image:
     registry: docker.io
     repository: rebellions/rbln-npu-feature-discovery
+    # v0.2.2+ ignores --rbln-daemon-url; the operator no longer passes it.
     tag: v0.2.3
     pullPolicy: IfNotPresent
+  # See devicePlugin.logging.
+  # logging:
+  #   level: debug
+  #   format: text
 
 # Container Toolkit configuration
 containerToolkit:
@@ -219,21 +328,28 @@ containerToolkit:
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}
+  # rbln-ctk-daemon refresh interval (Go duration string, e.g. "5s", "1m"). "0s" disables auto-refresh.
+  refreshInterval: 5s
   env: []
 
-# Sandbox Device Plugin for VM workloads.
-# The image is the standalone sandbox-device-plugin binary
-# (github.com/RBLN-SW/sandbox-device-plugin), not the shared k8s-device-plugin
+# Sandbox Device Plugin for VM workloads
 sandboxDevicePlugin:
   enabled: true
+  # Standalone sandbox-device-plugin binary
+  # (github.com/RBLN-SW/sandbox-device-plugin).
   image:
     registry: docker.io
     repository: rebellions/sandbox-device-plugin
     tag: v0.1.1
     pullPolicy: IfNotPresent
+  # See devicePlugin.logging.
+  # logging:
+  #   level: debug
+  #   format: text
 
-  # Per-model: empty RBLN_PT_ALIAS → rebellions.ai/RBLN-<MODEL>_{PF,VF}.
-  # KubeVirt permittedHostDevices must whitelist each name in use.
+  # Per-model: empty RBLN_PT_ALIAS → one resource per (model, function),
+  # e.g. rebellions.ai/RBLN-CA22_PF. KubeVirt permittedHostDevices must
+  # whitelist each name in use.
 
 # VFIO Manager for VM workloads
 vfioManager:
@@ -249,10 +365,11 @@ vfioManager:
       repository: rebellions/rbln-k8s-driver-manager
       tag: v0.3.0
       pullPolicy: IfNotPresent
-    # Before binding vfio-pci, k8s-driver-manager evicts the node's
+    # Appended after the env the operator renders, so a duplicate name set here
+    # wins. Before binding vfio-pci, k8s-driver-manager evicts the node's
     # container-mode NPU pods under driver.upgradePolicy.npuPodDeletion. To keep
-    # the switch from evicting anything, add (this entry wins over the
-    # operator's own):
+    # that switch from evicting anything (an NPU pod left running then blocks it
+    # until moved by hand), add:
     #   - name: ENABLE_NPU_POD_EVICTION
     #     value: "false"
     env: []

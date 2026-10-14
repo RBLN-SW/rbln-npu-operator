@@ -1,25 +1,74 @@
+# Per-family release drivers: ATOM 3.4.1 and REBEL100 3.5.1.
+# Included by kustomization.yaml alongside the RBLNClusterPolicy.
+# Requires NFD and the operator-managed NodeFeatureRule for npu.family labels.
+# Works with either family alone or both: a driver with no matching nodes
+# stays Ready and creates no driver or smd DaemonSet.
 apiVersion: rebellions.ai/v1alpha1
 kind: RBLNDriver
 metadata:
   labels:
     app.kubernetes.io/name: rbln-npu-operator
-  name: rbln-driver
+  name: rbln-driver-atom
 spec:
   registry: repo.rebellions.ai
   # Effective pull path: {registry}/{org}/<family>/rbln-driver:{version}-<kernel>-<os>
   # -- the family segment is injected automatically from each node's
   # rebellions.ai/npu.family label; never write it into `image` here.
   image: rebellions/rbln-driver
-  version: "3.2.2"
+  version: "3.4.1"
   imagePullPolicy: IfNotPresent
   imagePullSecrets:
   - drivercred
-  # An empty nodeSelector owns every NPU node, and the operator already splits
-  # DaemonSets per family/os/kernel on its own. Narrow it only to pin a group
-  # to its own driver version; npu.driver.owner and npu.deploy.driver are
-  # reserved keys and drop the CR from routing entirely.
-  # nodeSelector:
-  #   rebellions.ai/npu.family: atom   # or rebel100
+  nodeSelector:
+    rebellions.ai/npu.family: atom
+  # tolerations:
+  # - key: node-role.kubernetes.io/control-plane
+  #   operator: Exists
+  #   effect: NoSchedule
+  # annotations:
+  #   example.com/owner: "rebellions"
+  priorityClassName: system-node-critical
+  resources:
+    requests:
+      cpu: 250m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+  # env:
+  # - name: RBLN_DRIVER_LOG_LEVEL
+  #   value: info
+  manager:
+    registry: docker.io
+    image: rebellions/rbln-k8s-driver-manager
+    version: v0.3.0
+    imagePullPolicy: IfNotPresent
+    # imagePullSecrets:
+    # - my-registry-secret
+  # rbln-smd node daemon deployed alongside this driver; it has no version
+  # field -- its image tag always equals spec.version above.
+  smd:
+    registry: repo.rebellions.ai
+    image: rebellions/rbln-smd
+---
+apiVersion: rebellions.ai/v1alpha1
+kind: RBLNDriver
+metadata:
+  labels:
+    app.kubernetes.io/name: rbln-npu-operator
+  name: rbln-driver-rebel100
+spec:
+  registry: repo.rebellions.ai
+  # Effective pull path: {registry}/{org}/<family>/rbln-driver:{version}-<kernel>-<os>
+  # -- the family segment is injected automatically from each node's
+  # rebellions.ai/npu.family label; never write it into `image` here.
+  image: rebellions/rbln-driver
+  version: "3.5.1"
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets:
+  - drivercred
+  nodeSelector:
+    rebellions.ai/npu.family: rebel100
   # tolerations:
   # - key: node-role.kubernetes.io/control-plane
   #   operator: Exists

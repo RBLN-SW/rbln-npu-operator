@@ -12,21 +12,25 @@ driver:
   image:
     registry: repo.rebellions.ai
     repository: rebellions/rbln-driver
-    tag: "3.2.2"              # inherited default for instances
+    tag: "3.5.1"              # inherited default for instances without a tag
   imagePullSecrets:
   - drivercred
   instances:
     atom:
+      image:
+        tag: "3.4.1"
       nodeSelector:
         rebellions.ai/npu.family: atom
     atom-canary:
       image:
-        tag: "3.3.0-rc1"
+        # Starts at the release version; replace with a published candidate
+        # when testing an upgrade on nodes labeled env=canary.
+        tag: "3.4.1"
       nodeSelector:
         rebellions.ai/npu.family: atom
         env: canary
     rebel100:
       image:
-        tag: "3.5.0"
+        tag: "3.5.1"
       nodeSelector:
         rebellions.ai/npu.family: rebel100
