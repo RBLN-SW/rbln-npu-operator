@@ -25,5 +25,7 @@ jobs:
         # `make bundle` ends with `operator-sdk bundle validate ./bundle`.
         # The image ref is a placeholder (not pulled during validation).
         run: make bundle VERSION=v0.0.0-dev IMAGE=example.com/rbln-npu-operator:dev USE_IMAGE_DIGESTS=false
+      - name: Verify OperatorHub example images
+        run: hack/release/sync-bundle-examples.sh bundle/manifests/rbln-npu-operator.clusterserviceversion.yaml --check
       - name: Render and validate FBC catalog (from the on-disk bundle)
         run: make catalog VERSION=v0.0.0-dev CATALOG_BUNDLE=bundle
