@@ -96,12 +96,8 @@ unit-tests: envtest
 	@KUBEBUILDER_ASSETS_PATH="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)"; \
 	echo "KUBEBUILDER_ASSETS: $$KUBEBUILDER_ASSETS_PATH"; \
 	echo "Running Go tests..."; \
-	KUBEBUILDER_ASSETS="$$KUBEBUILDER_ASSETS_PATH" go test -v -race -shuffle=on $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$$KUBEBUILDER_ASSETS_PATH" go test -v -race -shuffle=on ./... -coverprofile cover.out
 	@echo "Tests completed."
-
-.PHONY: test-e2e
-test-e2e: ## Run the e2e tests against a Kind k8s instance that is spun up.
-	go test ./test/e2e/ -v -ginkgo.v
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

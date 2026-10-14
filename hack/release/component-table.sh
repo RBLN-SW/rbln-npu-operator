@@ -33,4 +33,15 @@ for entry in \
 	echo "| $name | \`$(yq "${path}.registry" "$values")/$(yq "${path}.repository" "$values"):$(yq "${path}.tag" "$values")\` |"
 done
 echo
-echo "Driver (\`rbln-driver\`) and \`rbln-smd\` versions are chosen per \`RBLNDriver\` CR and are not pinned by this release."
+echo "### Default driver versions"
+echo
+echo "Driver deployment is disabled by default. Enabling \`driver.enabled\` uses these family instances; each \`rbln-smd\` tag follows its driver's version. Override \`driver.instances.<family>.image.tag\` to change it."
+echo
+echo "| NPU family | Driver version | rbln-smd version |"
+echo "|---|---|---|"
+while IFS= read -r family; do
+	version=$(yq ".driver.instances[\"$family\"].image.tag // .driver.image.tag" "$values")
+	echo "| $family | \`$version\` | \`$version\` |"
+done < <(yq '.driver.instances | keys | .[]' "$values")
+echo
+echo "The optional fallback CR uses \`driver.image.tag\` (\`$(yq '.driver.image.tag' "$values")\`) when \`driver.deployDefault=true\`. These are Helm defaults; other \`RBLNDriver\` CRs choose their own versions."

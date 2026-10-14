@@ -23,6 +23,23 @@ jobs:
             helm template ci deployments/rbln-npu-operator -f "$f" > /dev/null
           done
           helm template ci deployments/rbln-npu-operator --set operator.driverImageCheck=false > /dev/null
+          # Configured family instances are legal while disabled; no driver
+          # CR may be rendered until the master switch is enabled.
+          for custom_instance in false true; do
+            args=(--set driver.enabled=false)
+            if [ "$custom_instance" = true ]; then
+              args+=(--set driver.instances.a.nodeSelector.family=atom)
+            fi
+            rendered=$(helm template ci deployments/rbln-npu-operator "${args[@]}")
+            if grep -q '^kind: RBLNDriver$' <<< "$rendered"; then
+              echo "driver.enabled=false rendered a driver CR" >&2
+              exit 1
+            fi
+          done
+          rendered=$(helm template ci deployments/rbln-npu-operator --set driver.enabled=true --set driver.deployDefault=false)
+          test "$(grep -c '^kind: RBLNDriver$' <<< "$rendered")" -eq 2
+          grep -q '^  name: rbln-driver-atom$' <<< "$rendered"
+          grep -q '^  name: rbln-driver-rebel100$' <<< "$rendered"
           # driver.instances guardrails: every combination below is a
           # violation and must fail to render. A plain `! helm template ...`
           # cannot gate this: bash errexit exempts !-inverted commands, so a
@@ -34,8 +51,7 @@ jobs:
             fi
           }
           must_fail --set driver.enabled=true --set driver.instances.a.image.tag=x
-          must_fail --set driver.enabled=false --set driver.instances.a.nodeSelector.family=atom
-          must_fail --set driver.enabled=true --set driver.deployDefault=false
+          must_fail --set driver.enabled=true --set driver.deployDefault=false --set driver.instances=null
           must_fail --set driver.enabled=true --set 'driver.instances.a.nodeSelector.rebellions\.ai/npu\.driver\.owner=x'
           must_fail --set driver.enabled=true --set 'driver.nodeSelector.rebellions\.ai/npu\.deploy\.driver=true'
           must_fail --set driver.enabled=true --set driver.instances.a.nodeSelector.family=atom --set driver.instances.a.bogus=x
