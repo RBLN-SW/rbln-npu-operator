@@ -242,7 +242,7 @@ devicePlugin:
   image:
     registry: docker.io
     repository: rebellions/k8s-device-plugin
-    tag: v0.4.3
+    tag: v0.5.0
     pullPolicy: IfNotPresent
   # Advertise the generic resource name (rebellions.ai/npu) in addition to product-specific ones.
   # the controller forwards it to the device plugin container as USE_GENERIC_RESOURCE_NAME.
@@ -262,7 +262,7 @@ draKubeletPlugin:
   image:
     registry: docker.io
     repository: rebellions/k8s-dra-driver-npu
-    tag: v0.1.4
+    tag: v0.2.1
     pullPolicy: IfNotPresent
   driverName: npu.rebellions.ai
   kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
@@ -279,7 +279,7 @@ metricsExporter:
   image:
     registry: docker.io
     repository: rebellions/rbln-metrics-exporter
-    tag: v0.3.4
+    tag: v0.4.0
     pullPolicy: IfNotPresent
   # See devicePlugin.logging.
   # logging:
