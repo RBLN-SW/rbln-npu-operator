@@ -9,7 +9,7 @@ name: release
 # release notes and deletes the backport label. The jobs after it are what only
 # the operator needs:
 #
-#   rc   OLM pre-validation and the rc catalog image, the component digests
+#   rc   OLM bundle/catalog publication and pre-validation, the component digests
 #        pinned at the rc (the GA bundle reuses them), Red Hat preflight, and
 #        the test-infra matrix validation that posts the `rc-validation` commit
 #        status the kit reads before a GA is published.
@@ -59,10 +59,12 @@ jobs:
   # network runs there.
 
   rc-olm-check:
-    name: rc OLM pre-validation
-    needs: release
+    name: rc OLM bundle and catalog
+    needs: [release, rc-digests]
     if: needs.release.outputs.kind == 'rc'
     runs-on: rbln-sw-k8s-general
+    outputs:
+      catalog_image: ${{ steps.publish.outputs.catalog_image }}
     steps:
       - uses: actions/checkout@v4
       - name: Derive the Harbor host
@@ -80,25 +82,20 @@ jobs:
             sudo apt-get update && sudo apt-get install -y make
           fi
       - uses: ./.github/actions/setup-go
-      - name: Install yq
+      - name: Install regctl, yq and jq
         run: |
           mkdir -p "$HOME/.local/bin" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          curl -sSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o "$HOME/.local/bin/yq"
-          chmod +x "$HOME/.local/bin/yq"
-      - name: Read the OCP range from versions.mk
-        run: echo "OCP_RANGE=$(grep '^OCP_RANGE' versions.mk | cut -d'=' -f2 | tr -d ' ?')" >> "$GITHUB_ENV"
-      - name: Generate bundle against the rc image
-        run: |
-          make bundle VERSION="$GITHUB_REF_NAME" \
-            IMAGE="$HARBOR_REGISTRY/rbln-npu-operator:$GITHUB_REF_NAME" USE_IMAGE_DIGESTS=false
-          yq -i '.annotations."com.redhat.openshift.versions" = env(OCP_RANGE)' bundle/metadata/annotations.yaml
-      - name: Bundle validate (optional suites the Red Hat pipeline also runs)
-        run: |
-          make operator-sdk
-          ./bin/operator-sdk bundle validate ./bundle --select-optional suite=operatorframework
-          ./bin/operator-sdk bundle validate ./bundle --select-optional name=operatorhub
-      - name: Render and validate a single-bundle FBC catalog
-        run: make catalog VERSION="$GITHUB_REF_NAME" CATALOG_BUNDLE=bundle
+          REGCTL_VERSION=$(grep '^REGCTL_VERSION' versions.mk | cut -d'=' -f2 | tr -d ' ?')
+          curl -fsSL "https://github.com/regclient/regclient/releases/download/${REGCTL_VERSION}/regctl-linux-amd64" \
+            -o "$HOME/.local/bin/regctl"
+          curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o "$HOME/.local/bin/yq"
+          chmod +x "$HOME/.local/bin/regctl" "$HOME/.local/bin/yq"
+          command -v jq >/dev/null || { sudo apt-get update && sudo apt-get install -y jq; }
+      - name: Download the component image lock from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.rc-digests.outputs.artifact_name }}
+          path: digests
       - name: Upgrade-graph check against upstream certified-operators
         run: hack/release/olm-graph-check.sh "${{ needs.release.outputs.version }}"
       # The rc validation installs the operator through OLM on OpenShift from
@@ -110,11 +107,25 @@ jobs:
           registry: ${{ env.HARBOR_HOST }}
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_PASSWORD }}
-      - name: Build and push the rc catalog image
+      - name: Publish the rc bundle, catalog and test metadata
+        id: publish
+        env:
+          VERSION: ${{ github.ref_name }}
+          OLM_IMAGE_TAG: ${{ github.ref_name }}
+          REGISTRY: ${{ env.HARBOR_REGISTRY }}
+          HELM_CHART: oci://${{ env.HARBOR_REGISTRY }}/rbln-npu-operator-chart
         run: |
-          make catalog-build-image VERSION="$GITHUB_REF_NAME" REGISTRY="$HARBOR_REGISTRY" \
-            PLATFORM=linux/amd64 PUSH_ON_BUILD=true
-          echo "catalog: $HARBOR_REGISTRY/rbln-npu-operator-catalog:$GITHUB_REF_NAME"
+          export HELM_CHART_VERSION="${GITHUB_REF_NAME#v}"
+          hack/release/publish-olm.sh digests/component-digests.env
+      - name: Attach OLM test metadata to the rc pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          prerelease: true
+          files: dist/olm/olm-artifacts.json
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Pin the component images the chart names, by digest, at the rc, and attach
   # the file to the kit's pre-release (assets do not expire like workflow
@@ -126,6 +137,8 @@ jobs:
     needs: release
     if: needs.release.outputs.kind == 'rc'
     runs-on: rbln-sw-k8s-general
+    outputs:
+      artifact_name: ${{ steps.resolve.outputs.artifact_name }}
     steps:
       - uses: actions/checkout@v4
       - name: Derive the Harbor host
@@ -143,30 +156,21 @@ jobs:
           regctl registry login "$HARBOR_HOST" -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}"
           regctl registry login docker.io -u "${{ secrets.DOCKERHUB_USERNAME }}" -p "${{ secrets.DOCKERHUB_PASSWORD }}"
       - name: Resolve digests
-        env:
-          VALUES_FILE: deployments/rbln-npu-operator/values.yaml
+        id: resolve
         run: |
-          set -euo pipefail
-          # resolve <key> <yq path>
-          resolve() {
-            local key=$1 path=$2 image
-            image="$(yq "${path}.registry" "$VALUES_FILE")/$(yq "${path}.repository" "$VALUES_FILE"):$(yq "${path}.tag" "$VALUES_FILE")"
-            echo "$key=$image@$(regctl image digest "$image")"
-          }
           mkdir -p digests
-          {
-            echo "OPERATOR=$HARBOR_REGISTRY/rbln-npu-operator:$GITHUB_REF_NAME@$(regctl image digest "$HARBOR_REGISTRY/rbln-npu-operator:$GITHUB_REF_NAME")"
-            echo "VALIDATOR=$HARBOR_REGISTRY/rbln-npu-operator-validator:$GITHUB_REF_NAME@$(regctl image digest "$HARBOR_REGISTRY/rbln-npu-operator-validator:$GITHUB_REF_NAME")"
-            resolve DEVICE_PLUGIN .devicePlugin.image
-            resolve METRICS_EXPORTER .metricsExporter.image
-            resolve NPU_FEATURE_DISCOVERY .npuFeatureDiscovery.image
-            resolve VFIO_MANAGER .vfioManager.image
-            resolve CONTAINER_TOOLKIT .containerToolkit.image
-            resolve DRA_KUBELET_PLUGIN .draKubeletPlugin.image
-            resolve SANDBOX_DEVICE_PLUGIN .sandboxDevicePlugin.image
-            resolve DRIVER_MANAGER .driver.manager.image
-          } > digests/component-digests.env
+          hack/release/resolve-component-digests.sh \
+            "$HARBOR_REGISTRY/rbln-npu-operator:$GITHUB_REF_NAME" \
+            "$HARBOR_REGISTRY/rbln-npu-operator-validator:$GITHUB_REF_NAME" \
+            > digests/component-digests.env
           cat digests/component-digests.env
+          echo "artifact_name=rc-component-digests-${GITHUB_REF_NAME}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - name: Share the component image lock with OLM publishing
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.resolve.outputs.artifact_name }}
+          path: digests/component-digests.env
+          if-no-files-found: error
       # The kit created the pre-release for this tag before this job started
       # (needs: release); only the asset is added here.
       - name: Attach the digests to the rc pre-release
@@ -249,6 +253,7 @@ jobs:
           BUILDKITE_VALIDATE_PIPELINE: ${{ vars.BUILDKITE_VALIDATE_PIPELINE }}
           BUILDKITE_VALIDATE_BRANCH: ${{ vars.BUILDKITE_VALIDATE_BRANCH }}
           SENTINEL_REF: ${{ vars.RC_VALIDATION_SENTINEL_REF }}
+          SENTINEL_CATALOG_IMAGE: ${{ needs.rc-olm-check.outputs.catalog_image }}
         run: hack/release/validate-rc.sh "$GITHUB_REF_NAME"
 
   # Gated on the tag name, not on the kit's outputs: a failure inside the kit
@@ -284,7 +289,7 @@ jobs:
           if [ "$R_PRE" = failure ]; then pre=":warning: Preflight found issues (warn-only, see run)"; [ "$color" = good ] && color=warning; fi
           branch="release-${GITHUB_REF_NAME#v}"; branch=${branch%-rc*}
           rows="$(mark "$R_KIT") Images amd64 + arm64 → \`$HARBOR_REGISTRY\`, Helm chart \`${GITHUB_REF_NAME#v}\` → Harbor OCI, GitHub pre-release
-          $(mark "$R_OLM") OLM pre-validation, upgrade graph, catalog image
+          $(mark "$R_OLM") OLM validation, upgrade graph, bundle/catalog images and test metadata
           $(mark "$R_DIG") Component digests pinned
           $pre
           $(mark "$R_VAL") Matrix validation triggered
