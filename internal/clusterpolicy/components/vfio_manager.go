@@ -531,7 +531,11 @@ func (h *vfioManagerPatcher) buildPodSpec() *corev1.PodSpec {
 				WithName(h.name).
 				WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
 				WithCommands([]string{"/bin/bash", "-c"}).
-				WithArgs([]string{"/bin/vfio-manage.sh bind --all && sleep inf"}).
+				WithArgs([]string{`/bin/vfio-manage.sh bind --all || exit $?
+# Keep bash as PID 1 and use wait so termination signals interrupt the idle wait.
+trap 'exit 0' TERM INT
+sleep inf &
+wait $!`}).
 				WithResources(h.desiredSpec.Resources, "100m", "200Mi").
 				WithVolumeMounts([]corev1.VolumeMount{
 					{Name: h.name, MountPath: "/bin/vfio-manage.sh", SubPath: "vfio-manage.sh", ReadOnly: true},
