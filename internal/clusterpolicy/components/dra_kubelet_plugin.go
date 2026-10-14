@@ -317,6 +317,9 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 // VFIO binding for vm-passthrough nodes.
 func (h *draKubeletPluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
 	initContainer := buildDRAReadyInitContainer(owner.Spec.Validator)
+	initContainer.Env = append(initContainer.Env, corev1.EnvVar{
+		Name: "DEFAULT_WORKLOAD_TYPE", Value: owner.Spec.WorkloadType,
+	})
 	draContainer := h.buildDRAContainer()
 
 	return k8sutil.NewPodSpecBuilder().

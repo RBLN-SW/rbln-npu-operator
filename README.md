@@ -107,6 +107,8 @@ and a label change is honored at the next pod (re)start without any intermediate
 The driver-managed `rbln-smd` keeps its own driver-ready init container. On
 `vm-passthrough` nodes, the DRA component gate waits for every Rebellions NPU
 to bind to `vfio-pci` instead of waiting for toolkit or partition markers.
+The gate uses the node's workload label when valid and otherwise falls back
+to the policy's `spec.workloadType`, matching the operator's node selection.
 
 `partition-ready` is written by the partition-manager operand (`partitionManager` in the
 policy spec, disabled by default): a per-node agent that converges every Rebellions PF to

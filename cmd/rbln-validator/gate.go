@@ -109,8 +109,13 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 			continue
 		}
 
-		if cfg.component == consts.RBLNDRAKubeletPluginName &&
-			labels[consts.RBLNWorkloadConfigLabelKey] == consts.RBLNWorkloadConfigVMPassthrough {
+		// Match the operator's workload resolution: a valid node label wins,
+		// otherwise the policy default determines which stack runs here.
+		workload := labels[consts.RBLNWorkloadConfigLabelKey]
+		if workload != consts.RBLNWorkloadConfigContainer && workload != consts.RBLNWorkloadConfigVMPassthrough {
+			workload = cfg.defaultWorkload
+		}
+		if cfg.component == consts.RBLNDRAKubeletPluginName && workload == consts.RBLNWorkloadConfigVMPassthrough {
 			result, err := rt.validateVFIO(vfiovalidator.Config{
 				OutputDir:            cfg.outputDir,
 				SleepIntervalSeconds: cfg.sleepIntervalSeconds,

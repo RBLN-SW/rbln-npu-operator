@@ -276,12 +276,33 @@ func TestComponentGateTableCoversAllGatedOperands(t *testing.T) {
 // waiting for toolkit-ready, or let container nodes advertise unpartitioned PFs.
 func TestRunGateDRAWorkloads(t *testing.T) {
 	for _, tc := range []struct {
-		name          string
-		workload      string
-		toolkitReady  bool
-		wantVFIOCalls int
+		name            string
+		workload        string
+		defaultWorkload string
+		toolkitReady    bool
+		wantVFIOCalls   int
 	}{
 		{name: "ContainerWaitsForPartition", workload: consts.RBLNWorkloadConfigContainer, toolkitReady: true},
+		{
+			name: "VMDefaultWithoutNodeLabel", defaultWorkload: consts.RBLNWorkloadConfigVMPassthrough,
+			wantVFIOCalls: 2,
+		},
+		{
+			name: "VMDefaultWithInvalidNodeLabel", workload: "invalid",
+			defaultWorkload: consts.RBLNWorkloadConfigVMPassthrough, wantVFIOCalls: 2,
+		},
+		{
+			name: "ContainerLabelOverridesVMDefault", workload: consts.RBLNWorkloadConfigContainer,
+			defaultWorkload: consts.RBLNWorkloadConfigVMPassthrough, toolkitReady: true,
+		},
+		{
+			name: "VMLabelOverridesContainerDefault", workload: consts.RBLNWorkloadConfigVMPassthrough,
+			defaultWorkload: consts.RBLNWorkloadConfigContainer, wantVFIOCalls: 2,
+		},
+		{
+			name: "ContainerDefaultWithoutNodeLabel", defaultWorkload: consts.RBLNWorkloadConfigContainer,
+			toolkitReady: true,
+		},
 		{name: "VMWaitsForVFIOWithoutToolkit", workload: consts.RBLNWorkloadConfigVMPassthrough, wantVFIOCalls: 2},
 		{
 			name: "VMDoesNotTrustStaleToolkitMarker", workload: consts.RBLNWorkloadConfigVMPassthrough,
@@ -302,14 +323,15 @@ func TestRunGateDRAWorkloads(t *testing.T) {
 			sleeps, vfioCalls := 0, 0
 			rt := gateRuntime{
 				getNodeLabels: func(context.Context, string) (map[string]string, error) {
-					return map[string]string{
-						consts.RBLNWorkloadConfigLabelKey: tc.workload,
-						consts.RBLNPartitionLabelKey:      consts.RBLNPartitionModeVF4,
-					}, nil
+					labels := map[string]string{consts.RBLNPartitionLabelKey: consts.RBLNPartitionModeVF4}
+					if tc.workload != "" {
+						labels[consts.RBLNWorkloadConfigLabelKey] = tc.workload
+					}
+					return labels, nil
 				},
 				validateVFIO: func(vfiovalidator.Config) (vfiovalidator.Result, error) {
 					vfioCalls++
-					if tc.workload != consts.RBLNWorkloadConfigVMPassthrough {
+					if tc.wantVFIOCalls == 0 {
 						t.Fatal("container DRA must wait for partition-ready without probing VFIO")
 					}
 					if sleeps == 0 {
@@ -322,15 +344,14 @@ func TestRunGateDRAWorkloads(t *testing.T) {
 					if sleeps > 1 {
 						t.Fatal("DRA gate did not pass once its workload prerequisites were ready")
 					}
-					if tc.workload == consts.RBLNWorkloadConfigContainer {
+					if tc.wantVFIOCalls == 0 {
 						writeMarker(consts.PartitionReadyFileName)
 					}
 				},
 			}
-			cfg := &gateConfig{
-				outputDir: outputDir, sleepIntervalSeconds: 1,
-				component: consts.RBLNDRAKubeletPluginName, nodeName: "node-1",
-			}
+			t.Setenv("NODE_NAME", "node-1")
+			t.Setenv("DEFAULT_WORKLOAD_TYPE", tc.defaultWorkload)
+			cfg := (&rootConfig{outputDir: outputDir, sleepIntervalSeconds: 1}).gateConfig(consts.RBLNDRAKubeletPluginName)
 			if err := runGate(context.Background(), cfg, rt); err != nil {
 				t.Fatal(err)
 			}

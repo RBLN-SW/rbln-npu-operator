@@ -195,3 +195,19 @@ func TestDRAKubeletPluginCleanUp(t *testing.T) {
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
 	assertNoNodeViewerRBAC(t, c, name)
 }
+
+func TestDRAKubeletPluginGatePolicyDefault(t *testing.T) {
+	for _, workload := range []string{consts.RBLNWorkloadConfigContainer, consts.RBLNWorkloadConfigVMPassthrough} {
+		t.Run(workload, func(t *testing.T) {
+			scheme := newTestScheme(t)
+			c := newFakeClient(t, scheme)
+			owner := newTestOwner()
+			owner.Spec.WorkloadType = workload
+			p := NewDRAKubeletPluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "").(*draKubeletPluginPatcher)
+			pod := p.buildPodSpec(owner)
+			if got := envValue(pod.InitContainers[0].Env, "DEFAULT_WORKLOAD_TYPE"); got != workload {
+				t.Fatalf("DRA gate default workload = %q, want policy workload %q", got, workload)
+			}
+		})
+	}
+}
