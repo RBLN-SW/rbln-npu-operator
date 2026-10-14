@@ -36,6 +36,23 @@ The RBLN NPU Operator is designed to:
    helm install rbln-npu-operator ./rbln-npu-operator
    ```
 
+Driver deployment is disabled by default (`driver.enabled: false`). Set
+`--set driver.enabled=true` to deploy ATOM **3.4.1** and REBEL100 **3.5.1**
+through the built-in family instances (`driver.deployDefault: false`). The
+same configuration supports ATOM-only, REBEL100-only, and mixed clusters:
+an instance with no matching nodes stays Ready with no driver or SMD
+DaemonSet. NFD must supply the node labels used for routing.
+
+Override `driver.instances.atom.image.tag` or
+`driver.instances.rebel100.image.tag` to change these versions. Changing
+`driver.image.tag` alone does not override the family pins. Setting
+`driver.enabled: false` suppresses all driver CRs even with instances configured.
+
+When upgrading an existing default `rbln-driver` deployment, review the
+[migration guide](../../docs/rolling-driver-migration.md) before adopting
+these defaults: disabling the fallback CR changes node ownership and replaces
+its driver DaemonSets.
+
 ### Using Sample Configurations
 
 This chart provides three pre-configured sample values files for different workload types:

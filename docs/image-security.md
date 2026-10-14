@@ -122,15 +122,10 @@ resolution.
 
 ### Helm
 
-`helm.sh/helm/v3` tracks one Kubernetes minor per Helm minor (`v3.20.x` pins
-`k8s.io/*` v0.35.x) and pulls a registry client stack — `containerd`,
-`oras-go` — into the tree. Keep it on the Helm minor whose `k8s.io/*` pin
-matches the family above: moving Helm alone drags `client-go` to another minor
-and trips the skew check; moving `k8s.io/*` alone leaves Helm pinning the old
-one. When an advisory lands in Helm's registry stack, bump the affected module
-directly first (`containerd` moves freely within `v1.7.x`); a Helm bump is the
-fallback. Helm is only imported by the e2e suite, so it never reaches the
-shipped binaries, but Trivy and govulncheck still see it in the module graph.
+Helm is used as a CLI for chart packaging and validation. Its Go SDK is no
+longer a module dependency: the legacy Go E2E suite was removed, and
+Buildkite runs E2E scenarios from the separate `npu-operator-sentinel`
+repository. Maintain the test runner's Helm dependencies there.
 
 ### go-containerregistry
 

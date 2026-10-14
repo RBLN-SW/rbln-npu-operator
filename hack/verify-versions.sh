@@ -122,6 +122,8 @@ deployments/rbln-npu-operator/sample-values-ContainerWorkload.yaml
 deployments/rbln-npu-operator/sample-values-SandboxWorkload.yaml
 config/samples/v1beta1_rblnclusterpolicy.yaml
 config/samples/v1alpha1_rblndriver.yaml
+docs/examples/rolling-driver-migration/new-values.yaml
+docs/examples/rolling-driver-migration/final-values.yaml
 "
 dm_ref=""
 dm_count=0

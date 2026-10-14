@@ -1,6 +1,4 @@
-{{- if and (not .Values.driver.enabled) .Values.driver.instances }}
-{{- fail "driver.instances requires driver.enabled=true (instances would be silently ignored otherwise)" }}
-{{- end }}
+{{- /* Family instances are configured by default; enabled gates all driver CRs. */}}
 {{- if .Values.driver.enabled }}
 {{- if and (not .Values.driver.deployDefault) (not .Values.driver.instances) }}
 {{- fail "driver.deployDefault=false requires at least one entry in driver.instances" }}
