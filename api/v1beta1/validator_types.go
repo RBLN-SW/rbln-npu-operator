@@ -9,6 +9,12 @@ import (
 
 // ValidatorSpec describes configuration options for validation daemonset
 type ValidatorSpec struct {
+	// UpdateStrategy configures the validator DaemonSet rollout. When omitted
+	// or removed, its existing strategy is preserved; new DaemonSets default to
+	// RollingUpdate with maxUnavailable=1 and maxSurge=0.
+	// +optional
+	UpdateStrategy *DaemonSetUpdateStrategySpec `json:"updateStrategy,omitempty"`
+
 	// Toolkit validator spec
 	Toolkit ToolkitValidatorSpec `json:"toolkit,omitempty"`
 

@@ -154,6 +154,7 @@ func (h *devicePluginPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1
 			WithLabels(h.desiredSpec.Labels).
 			WithAnnotations(h.desiredSpec.Annotations).
 			WithPodSpec(podSpec)
+		applyUpdateStrategy(ds, h.desiredSpec.UpdateStrategy)
 		return ctrl.SetControllerReference(owner, ds, h.scheme)
 	})
 	if err != nil {

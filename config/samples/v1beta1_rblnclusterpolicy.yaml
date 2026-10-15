@@ -5,6 +5,9 @@ metadata:
     app.kubernetes.io/name: rbln-npu-operator
   name: rbln-cluster-policy
 spec:
+  # In a direct CR, updateStrategy: null leaves the strategy unmanaged.
+  # Unlike {} in Helm values, {} here explicitly selects RollingUpdate defaults.
+  # Driver and SMD retain OnDelete and use driver.upgradePolicy instead.
   workloadType: container
   rds:
     enabled: false
@@ -34,6 +37,18 @@ spec:
         timeoutSeconds: 300
         deleteEmptyDirData: false
   devicePlugin:
+    # Leave null to preserve the existing strategy. New DaemonSets default to
+    # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+    # Replace updateStrategy: null with one of these examples to configure it.
+    # Automatic rolling updates:
+    # updateStrategy:
+    #   type: RollingUpdate
+    #   rollingUpdate:
+    #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+    # Manual pod replacement (omit rollingUpdate):
+    # updateStrategy:
+    #   type: OnDelete
+    updateStrategy: null
     enabled: true
     registry: docker.io
     image: rebellions/k8s-device-plugin
@@ -41,6 +56,18 @@ spec:
     imagePullPolicy: IfNotPresent
     useGenericResourceName: true
   draKubeletPlugin:
+    # Leave null to preserve the existing strategy. New DaemonSets default to
+    # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+    # Replace updateStrategy: null with one of these examples to configure it.
+    # Automatic rolling updates:
+    # updateStrategy:
+    #   type: RollingUpdate
+    #   rollingUpdate:
+    #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+    # Manual pod replacement (omit rollingUpdate):
+    # updateStrategy:
+    #   type: OnDelete
+    updateStrategy: null
     enabled: false
     registry: docker.io
     image: rebellions/k8s-dra-driver-npu
@@ -51,30 +78,90 @@ spec:
     kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
     healthcheckPort: 51515
   metricsExporter:
+    # Leave null to preserve the existing strategy. New DaemonSets default to
+    # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+    # Replace updateStrategy: null with one of these examples to configure it.
+    # Automatic rolling updates:
+    # updateStrategy:
+    #   type: RollingUpdate
+    #   rollingUpdate:
+    #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+    # Manual pod replacement (omit rollingUpdate):
+    # updateStrategy:
+    #   type: OnDelete
+    updateStrategy: null
     enabled: true
     registry: docker.io
     image: rebellions/rbln-metrics-exporter
     version: v0.4.0
     imagePullPolicy: IfNotPresent
   npuFeatureDiscovery:
+    # Leave null to preserve the existing strategy. New DaemonSets default to
+    # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+    # Replace updateStrategy: null with one of these examples to configure it.
+    # Automatic rolling updates:
+    # updateStrategy:
+    #   type: RollingUpdate
+    #   rollingUpdate:
+    #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+    # Manual pod replacement (omit rollingUpdate):
+    # updateStrategy:
+    #   type: OnDelete
+    updateStrategy: null
     enabled: true
     registry: docker.io
     image: rebellions/rbln-npu-feature-discovery
     version: v0.2.3
     imagePullPolicy: IfNotPresent
   containerToolkit:
+    # Leave null to preserve the existing strategy. New DaemonSets default to
+    # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+    # Replace updateStrategy: null with one of these examples to configure it.
+    # Automatic rolling updates:
+    # updateStrategy:
+    #   type: RollingUpdate
+    #   rollingUpdate:
+    #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+    # Manual pod replacement (omit rollingUpdate):
+    # updateStrategy:
+    #   type: OnDelete
+    updateStrategy: null
     enabled: true
     registry: docker.io
     image: rebellions/rbln-container-toolkit
     version: v0.2.6
     imagePullPolicy: IfNotPresent
   sandboxDevicePlugin:
+    # Leave null to preserve the existing strategy. New DaemonSets default to
+    # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+    # Replace updateStrategy: null with one of these examples to configure it.
+    # Automatic rolling updates:
+    # updateStrategy:
+    #   type: RollingUpdate
+    #   rollingUpdate:
+    #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+    # Manual pod replacement (omit rollingUpdate):
+    # updateStrategy:
+    #   type: OnDelete
+    updateStrategy: null
     enabled: false
     registry: docker.io
     image: rebellions/sandbox-device-plugin
     version: v0.1.1
     imagePullPolicy: IfNotPresent
   vfioManager:
+    # Leave null to preserve the existing strategy. New DaemonSets default to
+    # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+    # Replace updateStrategy: null with one of these examples to configure it.
+    # Automatic rolling updates:
+    # updateStrategy:
+    #   type: RollingUpdate
+    #   rollingUpdate:
+    #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+    # Manual pod replacement (omit rollingUpdate):
+    # updateStrategy:
+    #   type: OnDelete
+    updateStrategy: null
     enabled: false
     registry: docker.io
     image: rebellions/rbln-vfio-manager
@@ -86,6 +173,18 @@ spec:
       version: v0.3.0
       imagePullPolicy: IfNotPresent
   validator:
+    # Leave null to preserve the existing strategy. New DaemonSets default to
+    # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+    # Replace updateStrategy: null with one of these examples to configure it.
+    # Automatic rolling updates:
+    # updateStrategy:
+    #   type: RollingUpdate
+    #   rollingUpdate:
+    #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+    # Manual pod replacement (omit rollingUpdate):
+    # updateStrategy:
+    #   type: OnDelete
+    updateStrategy: null
     # Standalone sample uses Docker Hub latest. `make bundle` aligns images with
     # generated CSV relatedImages, including the dev/RC/GA registry and tag.
     registry: docker.io

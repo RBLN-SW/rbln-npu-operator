@@ -54,6 +54,10 @@ spec:
     {{- end }}
   {{- end }}
   devicePlugin:
+    {{- with .Values.devicePlugin.updateStrategy }}
+    updateStrategy:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     enabled: {{ .Values.devicePlugin.enabled }}
     registry: {{ .Values.devicePlugin.image.registry | quote }}
     image: {{ .Values.devicePlugin.image.repository | quote }}
@@ -69,6 +73,10 @@ spec:
     {{- end }}
 
   draKubeletPlugin:
+    {{- with .Values.draKubeletPlugin.updateStrategy }}
+    updateStrategy:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     enabled: {{ .Values.draKubeletPlugin.enabled }}
     registry: {{ .Values.draKubeletPlugin.image.registry | quote }}
     image: {{ .Values.draKubeletPlugin.image.repository | quote }}
@@ -84,6 +92,10 @@ spec:
     {{- end }}
 
   metricsExporter:
+    {{- with .Values.metricsExporter.updateStrategy }}
+    updateStrategy:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     enabled: {{ .Values.metricsExporter.enabled }}
     registry: {{ .Values.metricsExporter.image.registry | quote }}
     image: {{ .Values.metricsExporter.image.repository | quote }}
@@ -95,6 +107,10 @@ spec:
     {{- end }}
 
   npuFeatureDiscovery:
+    {{- with .Values.npuFeatureDiscovery.updateStrategy }}
+    updateStrategy:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     enabled: {{ .Values.npuFeatureDiscovery.enabled }}
     registry: {{ .Values.npuFeatureDiscovery.image.registry | quote }}
     image: {{ .Values.npuFeatureDiscovery.image.repository | quote }}
@@ -106,6 +122,10 @@ spec:
     {{- end }}
 
   containerToolkit:
+    {{- with .Values.containerToolkit.updateStrategy }}
+    updateStrategy:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     enabled: {{ .Values.containerToolkit.enabled }}
     registry: {{ .Values.containerToolkit.image.registry | quote }}
     image: {{ .Values.containerToolkit.image.repository | quote }}
@@ -128,6 +148,10 @@ spec:
     {{- end }}
 
   sandboxDevicePlugin:
+    {{- with .Values.sandboxDevicePlugin.updateStrategy }}
+    updateStrategy:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     enabled: {{ .Values.sandboxDevicePlugin.enabled }}
     registry: {{ .Values.sandboxDevicePlugin.image.registry | quote }}
     image: {{ .Values.sandboxDevicePlugin.image.repository | quote }}
@@ -139,6 +163,10 @@ spec:
     {{- end }}
 
   vfioManager:
+    {{- with .Values.vfioManager.updateStrategy }}
+    updateStrategy:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     enabled: {{ .Values.vfioManager.enabled }}
     registry: {{ .Values.vfioManager.image.registry | quote }}
     image: {{ .Values.vfioManager.image.repository | quote }}
@@ -155,6 +183,10 @@ spec:
       {{- end }}
 
   validator:
+    {{- with .Values.validator.updateStrategy }}
+    updateStrategy:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     registry: {{ .Values.validator.image.registry | quote }}
     image: {{ .Values.validator.image.repository | quote }}
     imagePullPolicy: {{ .Values.validator.image.pullPolicy | quote }}
