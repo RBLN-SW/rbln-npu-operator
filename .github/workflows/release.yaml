@@ -310,11 +310,12 @@ jobs:
       pr_url: ${{ steps.pr.outputs.pr_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install yq
+      - name: Install yq and jq
         run: |
           curl -sSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" \
             -o /usr/local/bin/yq
           chmod +x /usr/local/bin/yq
+          command -v jq >/dev/null || { sudo apt-get update && sudo apt-get install -y jq; }
       - name: Read the OCP range from versions.mk
         run: echo "OCP_RANGE=$(grep '^OCP_RANGE' versions.mk | cut -d'=' -f2 | tr -d ' ?')" >> "$GITHUB_ENV"
       # Operator and validator digests come from the kit's promotion (copied by
