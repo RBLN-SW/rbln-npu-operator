@@ -46,6 +46,8 @@ func TestDRAKubeletPluginPatch(t *testing.T) {
 	// DaemonSet
 	ds := assertDaemonSetBasics(t, c, name, owner.Name)
 	assertNodeSelector(t, ds, "rebellions.ai/npu.deploy.dra-kubelet-plugin")
+	assertGateInitContainer(t, ds, consts.RBLNDRAKubeletPluginName)
+	assertNodeViewerRBAC(t, c, name, owner.Name)
 
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
 	assertContainerImage(t, mainContainer, "rebellions/k8s-dra-driver-npu", "latest")
@@ -73,23 +75,12 @@ func TestDRAKubeletPluginPatch(t *testing.T) {
 		t.Fatal("ClusterRoleBinding subject should reference the component ServiceAccount")
 	}
 
-	// dra-ready init container: waits for toolkit-ready (container nodes) or
-	// vfio-pci binding (vm-passthrough nodes). A plain toolkit-validation init
-	// would deadlock passthrough nodes, and no init at all lets the plugin race
-	// the driver container at boot.
-	inits := ds.Spec.Template.Spec.InitContainers
-	if len(inits) != 1 || inits[0].Name != "dra-ready" {
-		names := make([]string, 0, len(inits))
-		for _, ic := range inits {
-			names = append(names, ic.Name)
-		}
-		t.Fatalf("expected exactly one init container named dra-ready, got %v", names)
-	}
-	draReady := inits[0]
-	assertContainerImage(t, draReady, "rebellions/rbln-validator", "v1.0")
+	// The component gate retains the VFIO probe and read-only sysfs mount
+	// for vm-passthrough nodes, where toolkit-ready never appears.
+	draReady := ds.Spec.Template.Spec.InitContainers[0]
 	assertPrivileged(t, draReady)
-	if len(draReady.Args) != 1 || draReady.Args[0] != "dra-ready" {
-		t.Fatalf("dra-ready args = %v, want [dra-ready]", draReady.Args)
+	if draReady.SecurityContext.RunAsUser == nil || *draReady.SecurityContext.RunAsUser != 0 {
+		t.Fatal("DRA component gate must run as root for the VFIO probe")
 	}
 	assertContainerHasVolumeMount(t, draReady, consts.ValidationsVolumeName)
 	assertContainerHasVolumeMount(t, draReady, "host-sys")
@@ -97,11 +88,11 @@ func TestDRAKubeletPluginPatch(t *testing.T) {
 		switch m.Name {
 		case "host-sys":
 			if !m.ReadOnly {
-				t.Fatal("dra-ready must mount /sys read-only; it only reads driver symlinks")
+				t.Fatal("DRA component gate must mount /sys read-only; it only reads driver symlinks")
 			}
 		case consts.ValidationsVolumeName:
 			if m.MountPropagation == nil || *m.MountPropagation != corev1.MountPropagationHostToContainer {
-				t.Fatal("dra-ready validations mount must use HostToContainer propagation so a later toolkit-ready is visible")
+				t.Fatal("DRA component gate validations mount must use HostToContainer propagation so a later toolkit-ready is visible")
 			}
 		}
 	}
@@ -202,4 +193,21 @@ func TestDRAKubeletPluginCleanUp(t *testing.T) {
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name + draClusterBindSuffix}, &rbacv1.ClusterRoleBinding{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: "npu.rebellions.ai"}, &resourcev1.DeviceClass{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
+	assertNoNodeViewerRBAC(t, c, name)
+}
+
+func TestDRAKubeletPluginGatePolicyDefault(t *testing.T) {
+	for _, workload := range []string{consts.RBLNWorkloadConfigContainer, consts.RBLNWorkloadConfigVMPassthrough} {
+		t.Run(workload, func(t *testing.T) {
+			scheme := newTestScheme(t)
+			c := newFakeClient(t, scheme)
+			owner := newTestOwner()
+			owner.Spec.WorkloadType = workload
+			p := NewDRAKubeletPluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "").(*draKubeletPluginPatcher)
+			pod := p.buildPodSpec(owner)
+			if got := envValue(pod.InitContainers[0].Env, "DEFAULT_WORKLOAD_TYPE"); got != workload {
+				t.Fatalf("DRA gate default workload = %q, want policy workload %q", got, workload)
+			}
+		})
+	}
 }

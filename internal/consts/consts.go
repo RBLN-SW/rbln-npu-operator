@@ -76,6 +76,16 @@ const (
 	DriverManagerInitContainerName = "k8s-driver-manager"
 )
 
+// NPU partitioning labels (admin contract) and partition mode tokens
+const (
+	RBLNPartitionLabelKey         = "rebellions.ai/npu.partition"
+	RBLNPartitionIndexLabelPrefix = "rebellions.ai/npu.partition."
+
+	RBLNPartitionModeVF1  = "vf1"
+	RBLNPartitionModeVF4  = "vf4"
+	RBLNPartitionModeNone = "none"
+)
+
 // Container runtimes
 const (
 	Containerd = "containerd"
@@ -191,6 +201,11 @@ const (
 	RBLNMetricExporterName = "metrics-exporter"
 )
 
+// Partition manager constants
+const (
+	RBLNPartitionManagerName = "partition-manager"
+)
+
 // NPU feature discovery constants
 const (
 	RBLNFeatureDiscoveryName = "npu-feature-discovery"
@@ -301,3 +316,7 @@ const OperatorCordonClaimValue = "operator"
 // evict. It lives exactly as long as the claim, so the operator clears it in
 // the same write that adopts or lifts the cordon.
 const DriverManagerEvictionBlockedAnnotation = "rebellions.ai/npu-pod-eviction-blocked"
+
+// PartitionReadyFileName is written by the partition-manager once VF
+// partitioning is applied on the node; operand gates wait for it.
+const PartitionReadyFileName = "partition-ready"

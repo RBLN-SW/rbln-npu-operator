@@ -44,9 +44,8 @@ func TestMetricsExporterPatch(t *testing.T) {
 	assertContainerImage(t, mainContainer, "rebellions/metrics-exporter", "latest")
 	assertPrivileged(t, mainContainer)
 
-	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(ds.Spec.Template.Spec.InitContainers))
-	}
+	assertGateInitContainer(t, ds, consts.RBLNMetricExporterName)
+	assertNodeViewerRBAC(t, c, name, owner.Name)
 
 	// Service
 	svc := &corev1.Service{}
@@ -94,4 +93,5 @@ func TestMetricsExporterCleanUp(t *testing.T) {
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &appsv1.DaemonSet{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name + "-service", Namespace: testNamespace}, &corev1.Service{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
+	assertNoNodeViewerRBAC(t, c, name)
 }
