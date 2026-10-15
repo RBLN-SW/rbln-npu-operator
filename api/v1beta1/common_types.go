@@ -46,6 +46,12 @@ type LoggingSpec struct {
 
 // PodSpec defines common configuration for individual DaemonSet components
 type PodSpec struct {
+	// UpdateStrategy configures this component's DaemonSet rollout. When omitted
+	// or removed, its existing strategy is preserved; new DaemonSets default to
+	// RollingUpdate with maxUnavailable=1 and maxSurge=0.
+	// +optional
+	UpdateStrategy *DaemonSetUpdateStrategySpec `json:"updateStrategy,omitempty"`
+
 	// ImagePullPolicy specifies the image pull policy for the DaemonSet pods
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Enum=Always;IfNotPresent;Never

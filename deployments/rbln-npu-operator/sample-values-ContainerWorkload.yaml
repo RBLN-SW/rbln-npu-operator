@@ -256,6 +256,20 @@ driver:
 
 # NPU Device Plugin configuration
 devicePlugin:
+  # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
+  # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+  # Replace updateStrategy: {} with one of the examples below to configure it.
+  # Automatic rolling updates:
+  # updateStrategy:
+  #   type: RollingUpdate
+  #   rollingUpdate:
+  #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+  # Manual pod replacement:
+  # updateStrategy:
+  #   type: OnDelete
+  # When switching to OnDelete with merged values or --reuse-values, also set
+  # updateStrategy.rollingUpdate=null to clear any previous rollingUpdate block.
+  updateStrategy: {}
   enabled: true
   image:
     registry: docker.io
@@ -276,6 +290,20 @@ devicePlugin:
 
 # NPU DRA kubelet plugin configuration
 draKubeletPlugin:
+  # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
+  # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+  # Replace updateStrategy: {} with one of the examples below to configure it.
+  # Automatic rolling updates:
+  # updateStrategy:
+  #   type: RollingUpdate
+  #   rollingUpdate:
+  #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+  # Manual pod replacement:
+  # updateStrategy:
+  #   type: OnDelete
+  # When switching to OnDelete with merged values or --reuse-values, also set
+  # updateStrategy.rollingUpdate=null to clear any previous rollingUpdate block.
+  updateStrategy: {}
   enabled: false
   image:
     registry: docker.io
@@ -293,6 +321,20 @@ draKubeletPlugin:
 
 # NPU Metrics Exporter configuration
 metricsExporter:
+  # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
+  # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+  # Replace updateStrategy: {} with one of the examples below to configure it.
+  # Automatic rolling updates:
+  # updateStrategy:
+  #   type: RollingUpdate
+  #   rollingUpdate:
+  #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+  # Manual pod replacement:
+  # updateStrategy:
+  #   type: OnDelete
+  # When switching to OnDelete with merged values or --reuse-values, also set
+  # updateStrategy.rollingUpdate=null to clear any previous rollingUpdate block.
+  updateStrategy: {}
   enabled: true
   image:
     registry: docker.io
@@ -306,6 +348,20 @@ metricsExporter:
 
 # NPU Feature Discovery configuration
 npuFeatureDiscovery:
+  # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
+  # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+  # Replace updateStrategy: {} with one of the examples below to configure it.
+  # Automatic rolling updates:
+  # updateStrategy:
+  #   type: RollingUpdate
+  #   rollingUpdate:
+  #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+  # Manual pod replacement:
+  # updateStrategy:
+  #   type: OnDelete
+  # When switching to OnDelete with merged values or --reuse-values, also set
+  # updateStrategy.rollingUpdate=null to clear any previous rollingUpdate block.
+  updateStrategy: {}
   enabled: true
   image:
     registry: docker.io
@@ -320,6 +376,20 @@ npuFeatureDiscovery:
 
 # Container Toolkit configuration
 containerToolkit:
+  # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
+  # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+  # Replace updateStrategy: {} with one of the examples below to configure it.
+  # Automatic rolling updates:
+  # updateStrategy:
+  #   type: RollingUpdate
+  #   rollingUpdate:
+  #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+  # Manual pod replacement:
+  # updateStrategy:
+  #   type: OnDelete
+  # When switching to OnDelete with merged values or --reuse-values, also set
+  # updateStrategy.rollingUpdate=null to clear any previous rollingUpdate block.
+  updateStrategy: {}
   enabled: true
   image:
     registry: docker.io
@@ -334,6 +404,20 @@ containerToolkit:
 
 # Sandbox Device Plugin for VM workloads
 sandboxDevicePlugin:
+  # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
+  # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+  # Replace updateStrategy: {} with one of the examples below to configure it.
+  # Automatic rolling updates:
+  # updateStrategy:
+  #   type: RollingUpdate
+  #   rollingUpdate:
+  #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+  # Manual pod replacement:
+  # updateStrategy:
+  #   type: OnDelete
+  # When switching to OnDelete with merged values or --reuse-values, also set
+  # updateStrategy.rollingUpdate=null to clear any previous rollingUpdate block.
+  updateStrategy: {}
   enabled: false
   # Standalone sandbox-device-plugin binary
   # (github.com/RBLN-SW/sandbox-device-plugin).
@@ -353,6 +437,20 @@ sandboxDevicePlugin:
 
 # VFIO Manager for VM workloads
 vfioManager:
+  # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
+  # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+  # Replace updateStrategy: {} with one of the examples below to configure it.
+  # Automatic rolling updates:
+  # updateStrategy:
+  #   type: RollingUpdate
+  #   rollingUpdate:
+  #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+  # Manual pod replacement:
+  # updateStrategy:
+  #   type: OnDelete
+  # When switching to OnDelete with merged values or --reuse-values, also set
+  # updateStrategy.rollingUpdate=null to clear any previous rollingUpdate block.
+  updateStrategy: {}
   enabled: false
   image:
     registry: docker.io
@@ -376,6 +474,20 @@ vfioManager:
 
 # Validator configuration
 validator:
+  # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
+  # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
+  # Replace updateStrategy: {} with one of the examples below to configure it.
+  # Automatic rolling updates:
+  # updateStrategy:
+  #   type: RollingUpdate
+  #   rollingUpdate:
+  #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
+  # Manual pod replacement:
+  # updateStrategy:
+  #   type: OnDelete
+  # When switching to OnDelete with merged values or --reuse-values, also set
+  # updateStrategy.rollingUpdate=null to clear any previous rollingUpdate block.
+  updateStrategy: {}
   image:
     registry: docker.io
     repository: rebellions/rbln-npu-operator-validator

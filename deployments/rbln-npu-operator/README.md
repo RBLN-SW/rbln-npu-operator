@@ -104,6 +104,63 @@ migration notes.
    helm install rbln-npu-operator ./rbln-npu-operator -f my-values.yaml
    ```
 
+### Component update strategies
+
+Each of `devicePlugin`, `draKubeletPlugin`, `sandboxDevicePlugin`,
+`metricsExporter`, `npuFeatureDiscovery`, `containerToolkit`, `vfioManager`,
+and `validator` accepts an optional `updateStrategy` in Helm values. The same
+field is available under `spec.<component>.updateStrategy` in an
+`RBLNClusterPolicy`.
+
+```yaml
+devicePlugin:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+metricsExporter:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: "10%"
+containerToolkit:
+  updateStrategy:
+    type: OnDelete
+```
+
+- The default is an empty map (`updateStrategy: {}` in Helm values), which
+  Helm treats as unset and does not render. An explicit `null` also leaves it unset.
+  In a direct `RBLNClusterPolicy` manifest, omit the field or use
+  `updateStrategy: null`; `{}` there explicitly selects RollingUpdate defaults.
+  Existing DaemonSet strategies, including manual overrides, are preserved.
+  New DaemonSets keep the existing Kubernetes defaults: `RollingUpdate`,
+  `maxUnavailable: 1`, and `maxSurge: 0`. Adding this feature alone does not
+  change pod templates or restart existing component pods.
+- An explicitly configured strategy defaults to `RollingUpdate` and
+  `maxUnavailable: 1`. `maxUnavailable` accepts a positive integer or a quoted
+  percentage from `"1%"` to `"100%"`, independently for each DaemonSet.
+  Surge updates are not exposed; configured rolling updates use `maxSurge: 0`.
+- `OnDelete` requires `rollingUpdate` to be omitted. When switching using
+  merged Helm values (including `--reuse-values`), set
+  `<component>.updateStrategy.rollingUpdate=null` to clear any previous block.
+  An image/template change then waits until the old pods are deleted before
+  taking effect. `Ready` reports running pod availability, not that every pod
+  uses the latest template.
+- Removing the setting stops managing the strategy and preserves its current
+  value. To restore automatic rolling updates, explicitly set
+  `updateStrategy: {type: RollingUpdate}` and clear any previous
+  `rollingUpdate` block. Pending template changes can roll out as soon as this
+  switch is applied.
+- Driver and SMD are excluded and retain `OnDelete`. Continue using
+  `driver.upgradePolicy` for the driver upgrade workflow.
+
+The updated CRD must be installed before using these fields; the hook below
+handles this for Helm upgrades by default. With externally managed CRDs,
+apply the new schema first. Old values without these keys remain valid.
+Rolling back to an operator version without this feature does not reset a
+strategy already applied to a DaemonSet. Restore the desired strategy before
+rollback if necessary.
+
 ### Upgrades and CRDs
 
 Helm applies the CRDs under `crds/` only on the **first** `helm install` and, by

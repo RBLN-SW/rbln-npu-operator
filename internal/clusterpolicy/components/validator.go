@@ -351,6 +351,7 @@ func (h *validatorPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1bet
 			WithLabels(labels).
 			WithAnnotations(annotations).
 			WithPodSpec(podSpec)
+		applyUpdateStrategy(ds, h.desiredSpec.UpdateStrategy)
 		return ctrl.SetControllerReference(owner, ds, h.scheme)
 	})
 	if err != nil {
