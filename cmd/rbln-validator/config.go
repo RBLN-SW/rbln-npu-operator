@@ -8,6 +8,7 @@ import (
 
 	drivervalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/driver"
 	vfiovalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/vfiopci"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
 const (
@@ -16,6 +17,8 @@ const (
 
 	envOutputDir            = "OUTPUT_DIR"
 	envSleepIntervalSeconds = "SLEEP_INTERVAL_SECONDS"
+	envNodeName             = "NODE_NAME"
+	envDefaultWorkloadType  = "DEFAULT_WORKLOAD_TYPE"
 )
 
 type rootConfig struct {
@@ -26,6 +29,14 @@ type rootConfig struct {
 type toolkitConfig struct {
 	outputDir            string
 	sleepIntervalSeconds int
+}
+
+type gateConfig struct {
+	outputDir            string
+	sleepIntervalSeconds int
+	component            string
+	nodeName             string
+	defaultWorkload      string
 }
 
 func newRootConfig() *rootConfig {
@@ -57,6 +68,16 @@ func (o *rootConfig) toolkitConfig() *toolkitConfig {
 	return &toolkitConfig{
 		outputDir:            o.outputDir,
 		sleepIntervalSeconds: o.sleepIntervalSeconds,
+	}
+}
+
+func (o *rootConfig) gateConfig(component string) *gateConfig {
+	return &gateConfig{
+		outputDir:            o.outputDir,
+		sleepIntervalSeconds: o.sleepIntervalSeconds,
+		component:            component,
+		nodeName:             os.Getenv(envNodeName),
+		defaultWorkload:      envString(envDefaultWorkloadType, consts.RBLNWorkloadConfigContainer),
 	}
 }
 
