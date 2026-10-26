@@ -28,6 +28,12 @@ or implement a separate test-report verdict.
   `RNPM_VALIDATE_COMMIT` optionally pin the test-infra checkout.
 - `SENTINEL_CATALOG_IMAGE` is required and supplied by `rc-olm-check`.
 
+For manual validation, `hack/release/validate-rc.sh vX.Y.Z-rcN` preserves an
+explicit `SENTINEL_CATALOG_IMAGE` (including a digest). If omitted, this wrapper
+uses the RC-tagged catalog under `HARBOR_REGISTRY`, whose manual default is
+`harbor.k8s.rebellions.in/rebellions`. Automated release validation continues to
+require the pinned catalog output from `rc-olm-check`.
+
 ## Request contract
 
 `build.enabled=false` disables both the build step and commit-SHA image-tag
