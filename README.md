@@ -585,3 +585,8 @@ chart and built operator/validator images.
 - Issues & feature requests: open a GitHub issue in this repository.
 - Kubebuilder reference: [kubebuilder.io](https://book.kubebuilder.io)
 - For cluster-specific guidance, contact your Rebellions support representative.
+
+## RC validation
+
+Release candidates are tested through RNPM using their published images.
+See [RC validation setup and image inputs](docs/rc-validation.md).
