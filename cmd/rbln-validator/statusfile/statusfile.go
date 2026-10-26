@@ -40,6 +40,17 @@ func Prepare(outputDir, readyFile string) error {
 	return EnsureOutputDir(outputDir)
 }
 
+// Missing returns the subset of filenames that do not exist under dir.
+func Missing(dir string, filenames []string) []string {
+	missing := make([]string, 0, len(filenames))
+	for _, name := range filenames {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
 func CreateWithContent(statusFile, content string) error {
 	dir := filepath.Dir(statusFile)
 	tmpFile, err := os.CreateTemp(dir, filepath.Base(statusFile)+".*.tmp")

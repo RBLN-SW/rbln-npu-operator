@@ -319,6 +319,15 @@ draKubeletPlugin:
   #   level: debug
   #   format: text
 
+# NPU Partition Manager configuration
+partitionManager:
+  enabled: false
+  image:
+    registry: docker.io
+    repository: rebellions/k8s-partition-manager
+    tag: v0.1.0
+    pullPolicy: IfNotPresent
+
 # NPU Metrics Exporter configuration
 metricsExporter:
   # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use

@@ -77,6 +77,12 @@ spec:
     kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
     kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
     healthcheckPort: 51515
+  partitionManager:
+    enabled: false
+    registry: docker.io
+    image: rebellions/k8s-partition-manager
+    version: v0.1.0
+    imagePullPolicy: IfNotPresent
   metricsExporter:
     # Leave null to preserve the existing strategy. New DaemonSets default to
     # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
