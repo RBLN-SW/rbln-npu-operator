@@ -1,5 +1,5 @@
 # Build the manager binary
-ARG GOLANG_VERSION=1.26.9
+ARG GOLANG_VERSION=1.26.10
 
 # The builder always runs on the build host (BUILDPLATFORM) and cross-compiles
 # for TARGETARCH: Go needs no emulation (CGO_ENABLED=0), so a multi-arch

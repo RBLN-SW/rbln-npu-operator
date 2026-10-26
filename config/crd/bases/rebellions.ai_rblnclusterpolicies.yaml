@@ -7192,6 +7192,43 @@ spec:
                           type: string
                       type: object
                     type: array
+                  updateStrategy:
+                    description: |-
+                      UpdateStrategy configures this component's DaemonSet rollout. When omitted
+                      or removed, its existing strategy is preserved; new DaemonSets default to
+                      RollingUpdate with maxUnavailable=1 and maxSurge=0.
+                    properties:
+                      rollingUpdate:
+                        description: RollingUpdate configures rolling updates. Omit
+                          when Type is OnDelete.
+                        properties:
+                          maxUnavailable:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            default: 1
+                            description: |-
+                              MaxUnavailable is a positive pod count or a percentage from 1% to 100%.
+                              Defaults to 1. The limit applies independently to each DaemonSet.
+                            x-kubernetes-int-or-string: true
+                            x-kubernetes-validations:
+                            - message: maxUnavailable must be a positive integer or
+                                a percentage from 1% to 100%
+                              rule: 'type(self) == int ? self > 0 && self <= 2147483647
+                                : self.matches(''^([1-9][0-9]?|100)%$'')'
+                        type: object
+                      type:
+                        default: RollingUpdate
+                        description: Type selects automatic rolling updates or replacement
+                          only after pod deletion.
+                        enum:
+                        - RollingUpdate
+                        - OnDelete
+                        type: string
+                    type: object
+                    x-kubernetes-validations:
+                    - message: rollingUpdate must be omitted when type is OnDelete
+                      rule: '!has(self.type) || self.type != ''OnDelete'' || !has(self.rollingUpdate)'
                   version:
                     default: latest
                     description: RBLN Partition Manager image tag
