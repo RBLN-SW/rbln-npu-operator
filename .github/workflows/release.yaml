@@ -222,39 +222,36 @@ jobs:
           name: preflight-${{ github.ref_name }}
           path: artifacts/
 
-  # Hand the rc to the test-infra matrix pipeline once every artifact it
-  # installs (chart, images, catalog) is on Harbor. The verdict comes back as
-  # the `rc-validation` commit status on the rc commit, which the kit reads
-  # before a GA is published. One validation per rc; a newer rc cancels the
-  # validation of the older one.
+  # RNPM runs the published RC chart and reports its normal OB build result
+  # directly to the Operator RC commit as rc-validation.
   rc-validate:
-    name: rc validation (test-infra matrix)
+    name: RNPM RC matrix validation
     needs: [release, rc-olm-check]
+    if: needs.release.outputs.kind == 'rc'
     runs-on: rbln-sw-k8s-general
+    timeout-minutes: 360
     outputs:
-      build_url: ${{ steps.trigger.outputs.build_url }}
+      build_url: ${{ steps.validate.outputs.build_url }}
+      run_id: ${{ steps.validate.outputs.run_id }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - name: Install jq
-        run: command -v jq >/dev/null || { sudo apt-get update && sudo apt-get install -y jq; }
-      - name: Trigger the validation build
-        id: trigger
+          ref: ${{ needs.release.outputs.sha }}
+      - name: Trigger RNPM and wait for its RC verdict
+        id: validate
         env:
-          # Preferred: the pipeline's webhook trigger URL (no API token on the
-          # GitHub side; obedients applies the body's env). The API token path
-          # is optional and additionally lets the script cancel the previous
-          # rc's validation.
-          BUILDKITE_TRIGGER_URL: ${{ secrets.OBEDIENTS_VALIDATE_TRIGGER_URL }}
-          BUILDKITE_API_TOKEN: ${{ secrets.OBEDIENTS_API_TOKEN }}
-          BUILDKITE_API_URL: ${{ vars.BUILDKITE_API_URL }}
-          BUILDKITE_ORG: ${{ vars.BUILDKITE_ORG }}
-          BUILDKITE_VALIDATE_PIPELINE: ${{ vars.BUILDKITE_VALIDATE_PIPELINE }}
-          BUILDKITE_VALIDATE_BRANCH: ${{ vars.BUILDKITE_VALIDATE_BRANCH }}
+          RNPM_URL: ${{ vars.RNPM_URL || 'https://rnpm.k8s.rebellions.in' }}
+          RNPM_TOKEN: ${{ secrets.RNPM_TOKEN }}
+          RNPM_RC_BUNDLE_ID: ${{ vars.RNPM_RC_BUNDLE_ID }}
+          RC_TAG: ${{ github.ref_name }}
+          RC_SHA: ${{ needs.release.outputs.sha }}
+          RC_BRANCH: ${{ needs.release.outputs.branch }}
+          HARBOR_REGISTRY: ${{ vars.CLOUD_COMPONENT_HARBOR_REGISTRY }}
           SENTINEL_REF: ${{ vars.RC_VALIDATION_SENTINEL_REF }}
           SENTINEL_CATALOG_IMAGE: ${{ needs.rc-olm-check.outputs.catalog_image }}
-        run: hack/release/validate-rc.sh "$GITHUB_REF_NAME"
+          RNPM_VALIDATE_BRANCH: ${{ vars.RNPM_VALIDATE_BRANCH || vars.BUILDKITE_VALIDATE_BRANCH || 'dev' }}
+          RNPM_VALIDATE_COMMIT: ${{ vars.RNPM_VALIDATE_COMMIT || 'HEAD' }}
+        run: python3 .github/scripts/rnpm_rc.py
 
   # Gated on the tag name, not on the kit's outputs: a failure inside the kit
   # must still be reported here, and the outputs may be empty then.
@@ -292,8 +289,8 @@ jobs:
           $(mark "$R_OLM") OLM validation, upgrade graph, bundle/catalog images and test metadata
           $(mark "$R_DIG") Component digests pinned
           $pre
-          $(mark "$R_VAL") Matrix validation triggered
-          _Verdict lands as the \`rc-validation\` status on the rc commit; GA waits for it._"
+          $(mark "$R_VAL") RNPM Matrix validation
+          _RNPM reports the OB verdict as \`rc-validation\` on the rc commit; GA requires success._"
           links=(--link "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME|pre-release")
           [ -n "$BUILD_URL" ] && links+=(--link "$BUILD_URL|validation build")
           .release-kit/scripts/slack-notify.sh --color "$color" "${links[@]}" --details "$rows" \

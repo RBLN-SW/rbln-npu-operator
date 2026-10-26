@@ -1,0 +1,10 @@
+{
+  "bundle_id": "c2b388aa-6b89-4337-9521-01501f0a1998",
+  "ob_pipeline": "scheduled-jigsaw-npu-operator-matrix-validation",
+  "matrix": true,
+  "images": [],
+  "execution_repository": "rebellions-sw/npu-operator-test-infra",
+  "execution_branch": "dev",
+  "timeout_seconds": 21000,
+  "repository": "RBLN-SW/rbln-npu-operator"
+}
