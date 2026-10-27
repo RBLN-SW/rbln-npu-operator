@@ -574,9 +574,10 @@ Helm sample rendering and driver configuration checks run in
 
 E2E scenarios live in the separate
 [npu-operator-sentinel](https://github.com/rebellions-sw/npu-operator-sentinel)
-repository. Buildkite runs them through the
-[PR pipeline](.buildkite/pipeline.pr.yml) and
-[nightly pipeline](.buildkite/pipeline.nightly.yml), using this repository's
+repository. Obedients loads the RNPM-managed pipelines through the
+[PR bootstrap](.buildkite/pipeline.rnpm.pr.yml) and
+[nightly bootstrap](.buildkite/pipeline.rnpm.nightly.yml). RNPM's registered
+bundles define image builds and Sentinel scenarios, using this repository's
 chart and built operator/validator images.
 
 ## Support & Resources

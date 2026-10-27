@@ -61,7 +61,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RUN_NUMBER: ${{ github.run_number }}
           SECURITY_URL: ${{ github.server_url }}/${{ github.repository }}/security/code-scanning
-        # Message shape follows .buildkite/notify conventions: coloured
+        # Send a coloured
         # attachment, "<emoji> *<product> <link|#run>*" title, status, divider,
         # context, detail.
         run: |

@@ -18,7 +18,7 @@
 # images are built at v<app-version> and the chart is packaged with a matching
 # v-prefixed --app-version.
 #
-# $$ vs ${} (same rule as pipeline.pr.yml): Buildkite interpolates ${VAR} from the
+# $$ vs ${}: Buildkite interpolates ${VAR} from the
 # env block at pipeline-upload time; the CHART_VERSION / APP_VERSION build env vars
 # and the injected REBEL_SW_DEV_* secrets only exist at runtime, so they are
 # written as $$VAR for bash to expand at execution.
@@ -43,7 +43,7 @@ env:
 
 steps:
   # 1. Build & push operator + validator images to Harbor at the RC app-version.
-  #    DinD pattern + commands copied from pipeline.pr.yml's build-image step.
+  #    Use a DinD sidecar for the versioned image builds.
   - label: ":docker: build & push operator + validator images"
     key: build-images
     timeout_in_minutes: 30
