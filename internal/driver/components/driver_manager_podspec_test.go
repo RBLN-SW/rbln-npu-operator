@@ -358,9 +358,10 @@ func TestBuildDriverPodSpec_HasDriverStateVolume(t *testing.T) {
 }
 
 // Sharing the parent lets both rootfs binds and their removal propagate to
-// the host. A separate child hostPath would hide the mount to be removed.
+// the host. Any mount nested under the parent, not only the retired driver/
+// child hostPath, would hide the host mount to be removed behind it.
 // The same parent also keeps rbln-driver.state outside the exported rootfs.
-func TestBuildDriverPodSpec_SharesRootfsParentWithoutChildMount(t *testing.T) {
+func TestBuildDriverPodSpec_SharesRootfsParentWithoutNestedMounts(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		rds  bool
@@ -373,10 +374,15 @@ func TestBuildDriverPodSpec_SharesRootfsParentWithoutChildMount(t *testing.T) {
 			pool := nodePool{osRelease: "ubuntu", osVersion: "22.04", kernel: "5.15.0-100-generic", family: "atom", rds: tc.rds}
 			spec := h.buildDriverPodSpec(pool, "repo.rebellions.ai/rebellions/atom/rbln-driver:3.0.0-5.15.0-100-generic-ubuntu22.04")
 
+			if hasVolume(spec.Volumes, "host-driver") {
+				t.Errorf("retired host-driver volume must not be rendered")
+			}
+			childPath := hostRunRBLNPath + "/driver"
 			var parentVolumes int
 			for _, volume := range spec.Volumes {
-				if volume.Name == "host-driver" || volume.HostPath != nil && volume.HostPath.Path == "/run/rbln/driver" {
-					t.Errorf("separate driver child volume must not be rendered: %+v", volume)
+				if volume.HostPath != nil &&
+					(volume.HostPath.Path == childPath || strings.HasPrefix(volume.HostPath.Path, childPath+"/")) {
+					t.Errorf("hostPath at the driver/ child must not be rendered: %+v", volume)
 				}
 				if volume.Name != hostRunRBLNVolumeName {
 					continue
@@ -401,8 +407,8 @@ func assertSharedRootfsParent(t *testing.T, container corev1.Container, parentPa
 	t.Helper()
 	var parentMounts int
 	for _, mount := range container.VolumeMounts {
-		if mount.Name == "host-driver" || mount.MountPath == parentPath+"/driver" {
-			t.Errorf("%s must not have a separate driver child mount: %+v", container.Name, mount)
+		if strings.HasPrefix(mount.MountPath, parentPath+"/") {
+			t.Errorf("%s must not nest a mount under the shared parent: %+v", container.Name, mount)
 		}
 		if mount.Name != hostRunRBLNVolumeName {
 			continue

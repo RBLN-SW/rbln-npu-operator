@@ -294,10 +294,11 @@ func (h *driverManagerPatcher) buildDriverContainer(
 
 	volumeMounts := []corev1.VolumeMount{
 		{
-			// The entrypoint binds / onto this parent's driver/ child to
-			// export its rootfs. Share the parent so both the bind and its
+			// The driver container exports its rootfs at this parent's
+			// driver/ child. Share the parent so both the export and its
 			// removal reach the host. rbln-driver.state is written alongside
-			// driver/, keeping its path and lifetime independent of that bind.
+			// driver/, keeping its path and lifetime independent of that
+			// export. See docs/driver-upgrade.md.
 			Name:             hostRunRBLNVolumeName,
 			MountPath:        hostRunRBLNDriverMountPath,
 			MountPropagation: ptr(corev1.MountPropagationBidirectional),
