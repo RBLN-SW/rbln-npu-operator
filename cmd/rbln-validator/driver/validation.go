@@ -5,6 +5,8 @@ import "log/slog"
 type Config struct {
 	OutputDir            string
 	SleepIntervalSeconds int
+	NodeName             string
+	Namespace            string
 }
 
 type Result struct {

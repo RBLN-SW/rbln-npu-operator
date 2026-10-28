@@ -92,7 +92,7 @@ func TestDriverManagerPatcher_Patch(t *testing.T) {
 
 	// ConfigMap (startup probe)
 	cm := &corev1.ConfigMap{}
-	assertObjectExists(t, c, types.NamespacedName{Name: driverManagerName + "-" + startupProbeConfigMapSuffix, Namespace: testNamespace}, cm)
+	assertObjectExists(t, c, types.NamespacedName{Name: p.(*driverManagerPatcher).startupProbeConfigMapName(), Namespace: testNamespace}, cm)
 	if _, ok := cm.Data[startupProbeScriptName]; !ok {
 		t.Fatalf("ConfigMap missing key %q", startupProbeScriptName)
 	}

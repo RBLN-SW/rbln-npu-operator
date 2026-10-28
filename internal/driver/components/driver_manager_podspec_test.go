@@ -238,7 +238,7 @@ func TestHandleConfigMap(t *testing.T) {
 
 	cm := &corev1.ConfigMap{}
 	assertObjectExists(t, c, types.NamespacedName{
-		Name:      driverManagerName + "-" + startupProbeConfigMapSuffix,
+		Name:      h.startupProbeConfigMapName(),
 		Namespace: testNamespace,
 	}, cm)
 
@@ -632,7 +632,7 @@ func wantRDSExclusionAffinity() *corev1.Affinity {
 // Verify that the init container uses the correct configMap name format
 func TestStartupProbeConfigMapName(t *testing.T) {
 	h := newTestPatcher(t, "")
-	want := driverManagerName + "-" + startupProbeConfigMapSuffix
+	want := driverManagerName + "-" + startupProbeConfigMapSuffix + "-" + k8sutil.GetObjectHash(driverStartupProbeData())[:16]
 	got := h.startupProbeConfigMapName()
 	if got != want {
 		t.Fatalf("startupProbeConfigMapName() = %q, want %q", got, want)
@@ -666,7 +666,7 @@ func TestHandleConfigMap_Idempotent(t *testing.T) {
 	// Verify ConfigMap still exists and has correct data
 	cm := &corev1.ConfigMap{}
 	assertObjectExists(t, c, types.NamespacedName{
-		Name:      driverManagerName + "-" + startupProbeConfigMapSuffix,
+		Name:      h.startupProbeConfigMapName(),
 		Namespace: testNamespace,
 	}, cm)
 	if _, ok := cm.Data[startupProbeScriptName]; !ok {

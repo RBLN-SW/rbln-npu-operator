@@ -85,6 +85,9 @@ func (h *containerToolkitPatcher) Patch(ctx context.Context, owner *rblnv1beta1.
 	if err := h.reconcileRoleBinding(ctx, owner); err != nil {
 		return err
 	}
+	if err := h.reconcileNodeViewerClusterRBAC(ctx, owner); err != nil {
+		return err
+	}
 	if err := h.handleConfigMap(ctx, owner); err != nil {
 		return err
 	}
@@ -94,6 +97,9 @@ func (h *containerToolkitPatcher) Patch(ctx context.Context, owner *rblnv1beta1.
 func (h *containerToolkitPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "Container Toolkit")
 	if err := h.deleteDaemonSet(ctx); err != nil {
+		return err
+	}
+	if err := h.deleteNodeViewerClusterRBAC(ctx); err != nil {
 		return err
 	}
 	if err := h.deleteIfExists(ctx, &corev1.ConfigMap{
@@ -257,7 +263,7 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithImage(k8sutil.ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, validatorSpec.ImagePullPolicy).
 		WithCommands([]string{validatorDefaultCommand}).
 		WithArgs(driverArgs).
-		WithEnvs(baseEnv).
+		WithEnvs(mergeEnvVars(baseEnv, k8sutil.NodeIdentityEnv())).
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged: ptr(true),
 			RunAsUser:  ptr(int64(0)),

@@ -83,7 +83,11 @@ func NewDriverService(
 	}
 	s.driverManager = dmp
 
-	smd, err := components.NewSmdPatcher(client, apiReader, log, s.namespace, driver, scheme, s.openshiftVersion)
+	var validatorSpec rblnv1beta1.ValidatorSpec
+	if clusterPolicy != nil {
+		validatorSpec = clusterPolicy.Spec.Validator
+	}
+	smd, err := components.NewSmdPatcher(client, apiReader, log, s.namespace, driver, scheme, s.openshiftVersion, validatorSpec)
 	if err != nil {
 		return nil, err
 	}

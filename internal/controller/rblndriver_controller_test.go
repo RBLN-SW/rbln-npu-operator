@@ -129,11 +129,24 @@ var _ = Describe("RBLNDriver Controller", Ordered, func() {
 			By("creating the driver ClusterRoleBinding")
 			expectClusterResource(ctx, &rbacv1.ClusterRoleBinding{}, "rbln-driver", 5*time.Second)
 
-			By("creating the startup probe ConfigMap")
-			expectResource(ctx, &corev1.ConfigMap{}, "rbln-driver-startup-probe", driverNS, 5*time.Second)
-
 			By("creating a DaemonSet for the detected node pool")
-			expectResource(ctx, &appsv1.DaemonSet{}, "test-driver-atom-ubuntu22.04-5.15.0-100-generic", driverNS, 5*time.Second)
+			ds := &appsv1.DaemonSet{}
+			expectResource(ctx, ds, "test-driver-atom-ubuntu22.04-5.15.0-100-generic", driverNS, 5*time.Second)
+
+			By("referencing an immutable startup probe revision")
+			probeName := ""
+			for _, volume := range ds.Spec.Template.Spec.Volumes {
+				if volume.ConfigMap != nil && strings.HasPrefix(volume.ConfigMap.Name, "rbln-driver-startup-probe-") {
+					probeName = volume.ConfigMap.Name
+				}
+			}
+			Expect(probeName).NotTo(BeEmpty())
+			cm := &corev1.ConfigMap{}
+			expectResource(ctx, cm, probeName, driverNS, 5*time.Second)
+			Expect(cm.Immutable).NotTo(BeNil())
+			Expect(*cm.Immutable).To(BeTrue())
+			cm.Data["startup-probe.sh"] += "\n# incompatible replacement"
+			Expect(kapierrors.IsInvalid(k8sClient.Update(ctx, cm))).To(BeTrue())
 		})
 	})
 

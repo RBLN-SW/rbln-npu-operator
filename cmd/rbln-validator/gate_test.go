@@ -228,6 +228,7 @@ func TestRunGate(t *testing.T) {
 
 			sleepCalls := 0
 			rt := gateRuntime{
+				checkDriver:   func(context.Context) error { return nil },
 				getNodeLabels: tc.fields.getter.get,
 				sleep: func(time.Duration) {
 					sleepCalls++
@@ -251,6 +252,32 @@ func TestRunGate(t *testing.T) {
 				t.Fatalf("%s: sleepCalls = %d, want %d", tc.reason, sleepCalls, tc.want.sleepCallCount)
 			}
 		})
+	}
+}
+
+func TestGateRejectsStaleToolkitMarkerUntilDriverRecovers(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, toolkitReadyFile), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checks, sleeps := 0, 0
+	rt := gateRuntime{
+		getNodeLabels: func(context.Context, string) (map[string]string, error) { return nil, nil },
+		checkDriver: func(context.Context) error {
+			checks++
+			if checks <= 2 {
+				return errors.New("driver not ready or API unavailable")
+			}
+			return nil
+		},
+		sleep: func(time.Duration) { sleeps++ },
+	}
+	cfg := &gateConfig{nodeName: "node", outputDir: dir, component: consts.RBLNDevicePluginName}
+	if err := runGate(context.Background(), cfg, rt); err != nil {
+		t.Fatal(err)
+	}
+	if sleeps != 2 || checks != 3 {
+		t.Fatalf("stale toolkit marker bypassed current driver: checks=%d sleeps=%d", checks, sleeps)
 	}
 }
 
@@ -322,6 +349,7 @@ func TestRunGateDRAWorkloads(t *testing.T) {
 			}
 			sleeps, vfioCalls := 0, 0
 			rt := gateRuntime{
+				checkDriver: func(context.Context) error { return nil },
 				getNodeLabels: func(context.Context, string) (map[string]string, error) {
 					labels := map[string]string{consts.RBLNPartitionLabelKey: consts.RBLNPartitionModeVF4}
 					if tc.workload != "" {

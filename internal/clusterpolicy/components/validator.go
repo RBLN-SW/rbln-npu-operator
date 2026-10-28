@@ -210,6 +210,7 @@ func (h *validatorPatcher) buildPodSpec() *corev1.PodSpec {
 		validatorSpec.Env,
 	)
 	driverEnv := mergeEnvVars(baseEnv, validatorSpec.Driver.Env)
+	driverEnv = mergeEnvVars(driverEnv, k8sutil.NodeIdentityEnv())
 	toolkitEnv := mergeEnvVars(baseEnv, validatorSpec.Toolkit.Env)
 
 	driverInit := k8sutil.NewContainerBuilder().

@@ -44,8 +44,7 @@ var subscriptionPathMap = map[string]mountPathToVolumeSource{
 
 // ─── ConfigMap ──────────────────────────────────────────────────────────────
 
-func (h *driverManagerPatcher) handleConfigMap(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {
-	script := `#!/bin/sh
+const driverStartupProbeScript = `#!/bin/sh
 set -eu
 
 # Cross-component "driver container ready" signal published on the host
@@ -71,17 +70,26 @@ publish_component_ready() {
   mv "${TMP_FILE}" "${COMPONENT_READY_FILE}"
 }
 
+# The container root is fresh on restart; the emptyDir install marker is not.
+# Do not accept an old install marker before the entrypoint wrapper clears it.
+if [ ! -f "` + driverEntrypointStartedFile + `" ]; then
+  rm -f "${COMPONENT_READY_FILE}"
+  exit 1
+fi
+
 # Defense in depth: kernel module is the ground truth for "driver is
 # loaded right now"; marker is the ground truth for "the entrypoint
 # finished the install pipeline". Either alone has a failure mode
 # (module true mid-fw-update; stale marker from a botched cleanup), so
 # require both.
 if [ ! -f /sys/module/rebellions/refcnt ]; then
+  rm -f "${COMPONENT_READY_FILE}"
   echo "Rebellions kernel module not loaded"
   exit 1
 fi
 
 if [ ! -f "${DRIVER_READY_MARKER}" ]; then
+  rm -f "${COMPONENT_READY_FILE}"
   echo "Driver install marker not present at ${DRIVER_READY_MARKER}"
   exit 1
 fi
@@ -89,6 +97,11 @@ fi
 publish_component_ready
 `
 
+func driverStartupProbeData() map[string]string {
+	return map[string]string{startupProbeScriptName: driverStartupProbeScript}
+}
+
+func (h *driverManagerPatcher) handleConfigMap(ctx context.Context, owner *rebellionsaiv1alpha1.RBLNDriver) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      h.startupProbeConfigMapName(),
@@ -96,7 +109,8 @@ publish_component_ready
 		},
 	}
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, cm, func() error {
-		cm.Data = map[string]string{startupProbeScriptName: script}
+		cm.Data = driverStartupProbeData()
+		cm.Immutable = ptr(true)
 		return controllerutil.SetOwnerReference(owner, cm, h.scheme)
 	})
 	if err != nil {
@@ -155,7 +169,7 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath strin
 			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		},
 		{
-			Name: h.startupProbeConfigMapName(),
+			Name: h.startupProbeVolumeName(),
 			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
 				LocalObjectReference: corev1.LocalObjectReference{Name: h.startupProbeConfigMapName()},
 				Items:                []corev1.KeyToPath{{Key: startupProbeScriptName, Path: startupProbeScriptName, Mode: ptr(int32(0o755))}},
@@ -307,7 +321,7 @@ func (h *driverManagerPatcher) buildDriverContainer(
 		{Name: hostDevVolumeName, MountPath: hostDevPath},
 		{Name: driverReadyVolumeName, MountPath: defaultDriverReadyDir},
 		{
-			Name:      h.startupProbeConfigMapName(),
+			Name:      h.startupProbeVolumeName(),
 			MountPath: startupProbeScriptPath,
 			SubPath:   startupProbeScriptName,
 			ReadOnly:  true,
@@ -320,8 +334,13 @@ func (h *driverManagerPatcher) buildDriverContainer(
 
 	container := k8sutil.NewContainerBuilder().
 		WithName(driverManagerContainer).
-		WithCommands([]string{driverInstallerCommand}).
-		WithArgs([]string{driverInstallerInitArg}).
+		WithCommands([]string{"/bin/sh", "-ec"}).
+		WithArgs([]string{
+			"rm -f " + driverEntrypointStartedFile + " " + consts.ValidationsMountPath + "/" + driverCtrReadyFile +
+				" " + defaultDriverReadyDir + "/" + defaultDriverReadyFile + "\n" +
+				": > " + driverEntrypointStartedFile + "\nexec \"$@\"",
+			"--", driverInstallerCommand, driverInstallerInitArg,
+		}).
 		WithEnvs(driverContainerEnvs(h.desiredSpec.Env, rds)).
 		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 		WithLifeCycle(&corev1.Lifecycle{

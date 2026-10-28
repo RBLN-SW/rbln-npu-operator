@@ -15,6 +15,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
+	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/driver/components"
 )
 
@@ -127,7 +128,7 @@ func TestPatchComponents_GatesSmdOnDriverPools(t *testing.T) {
 					},
 				},
 			}
-			smd, err := components.NewSmdPatcher(c, c, logf.Log, "rbln-system", owner, scheme, "")
+			smd, err := components.NewSmdPatcher(c, c, logf.Log, "rbln-system", owner, scheme, "", rblnv1beta1.ValidatorSpec{})
 			if err != nil {
 				t.Fatalf("NewSmdPatcher() error: %v", err)
 			}

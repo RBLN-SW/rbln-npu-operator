@@ -13,6 +13,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
+	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
@@ -81,7 +82,7 @@ func TestNewSmdPatcher_NilDriver(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
 
-	_, err := NewSmdPatcher(c, c, logf.Log, testNamespace, nil, scheme, "")
+	_, err := NewSmdPatcher(c, c, logf.Log, testNamespace, nil, scheme, "", smdTestValidator())
 	if err == nil {
 		t.Fatal("expected error for nil driver, got nil")
 	}
@@ -93,7 +94,7 @@ func TestSmdPatcher_Patch(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newSmdTestOwner()
-	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "")
+	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "", smdTestValidator())
 	if err != nil {
 		t.Fatalf("NewSmdPatcher() error: %v", err)
 	}
@@ -162,12 +163,13 @@ func TestSmdPatcher_Patch(t *testing.T) {
 	if initContainer.Name != smdInitContainerName {
 		t.Fatalf("init container name = %q, want %q", initContainer.Name, smdInitContainerName)
 	}
-	if want := "docker.io/rebellions/rbln-k8s-driver-manager:1.0.0"; initContainer.Image != want {
+	if want := "registry.example.com/validator/operator:v-test"; initContainer.Image != want {
 		t.Fatalf("init container image = %q, want %q", initContainer.Image, want)
 	}
-	if !strings.Contains(initContainer.Args[0], driverCtrReadyFile) {
-		t.Fatalf("init container args %q must wait for %s", initContainer.Args[0], driverCtrReadyFile)
+	if len(initContainer.Args) != 1 || initContainer.Args[0] != "driver-ready" {
+		t.Fatalf("init container must check live driver readiness: %v", initContainer.Args)
 	}
+	assertSmdGateIdentity(t, initContainer)
 
 	var controllerRef *metav1.OwnerReference
 	for i := range ds.OwnerReferences {
@@ -193,7 +195,7 @@ func TestSmdPatcher_Patch_CustomImageCoordinates(t *testing.T) {
 		Registry: "registry.example.com",
 		Image:    "myorg/custom-smd",
 	}
-	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "")
+	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "", smdTestValidator())
 	if err != nil {
 		t.Fatalf("NewSmdPatcher() error: %v", err)
 	}
@@ -222,7 +224,7 @@ func TestSmdPatcher_Patch_GateOff(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newSmdTestOwner()
-	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "")
+	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "", smdTestValidator())
 	if err != nil {
 		t.Fatalf("NewSmdPatcher() error: %v", err)
 	}
@@ -259,7 +261,7 @@ func TestSmdPatcher_Patch_EmptyVersionKeepsExisting(t *testing.T) {
 
 	owner := newSmdTestOwner()
 	owner.Spec.Version = ""
-	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "")
+	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "", smdTestValidator())
 	if err != nil {
 		t.Fatalf("NewSmdPatcher() error: %v", err)
 	}
@@ -285,7 +287,7 @@ func TestSmdPatcher_Patch_UpdatesTemplateOnVersionBump(t *testing.T) {
 
 	owner := newSmdTestOwner()
 	owner.Spec.Version = "2.0.0"
-	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "")
+	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "", smdTestValidator())
 	if err != nil {
 		t.Fatalf("NewSmdPatcher() error: %v", err)
 	}
@@ -317,7 +319,7 @@ func TestSmdPatcher_Patch_DeletesLegacyDaemonSet(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newSmdTestOwner()
-	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "")
+	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "", smdTestValidator())
 	if err != nil {
 		t.Fatalf("NewSmdPatcher() error: %v", err)
 	}
@@ -343,7 +345,7 @@ func TestSmdPatcher_Patch_RefusesCrossInstanceAdoption(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newSmdTestOwner()
-	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "")
+	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "", smdTestValidator())
 	if err != nil {
 		t.Fatalf("NewSmdPatcher() error: %v", err)
 	}
@@ -403,7 +405,7 @@ func TestSmdPatcher_Status(t *testing.T) {
 			c := newFakeClient(t, scheme, seed...)
 
 			owner := newSmdTestOwner()
-			p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "")
+			p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "", smdTestValidator())
 			if err != nil {
 				t.Fatalf("NewSmdPatcher() error: %v", err)
 			}
@@ -429,5 +431,41 @@ func TestSmdPatcher_Status(t *testing.T) {
 					tc.seed.Status.NumberReady, tc.seed.Status.DesiredNumberScheduled)
 			}
 		})
+	}
+}
+
+func smdTestValidator() rblnv1beta1.ValidatorSpec {
+	return rblnv1beta1.ValidatorSpec{Registry: "registry.example.com", Image: "validator/operator", Version: "v-test"}
+}
+
+func TestSmdGateUsesValidatorPullSecrets(t *testing.T) {
+	scheme := newTestScheme(t)
+	c := newFakeClient(t, scheme)
+	owner := newSmdTestOwner()
+	owner.Spec.ImagePullSecrets = []string{"driver-secret", "shared-secret"}
+	validator := smdTestValidator()
+	validator.ImagePullSecrets = []string{"shared-secret", "validator-secret"}
+	p, err := NewSmdPatcher(c, c, logf.Log, testNamespace, owner, scheme, "", validator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := p.buildPodSpec(owner.Spec.Version)
+	if len(spec.ImagePullSecrets) != 3 || spec.ImagePullSecrets[2].Name != "validator-secret" {
+		t.Fatalf("validator pull credentials missing or duplicated: %+v", spec.ImagePullSecrets)
+	}
+}
+
+func assertSmdGateIdentity(t *testing.T, container corev1.Container) {
+	t.Helper()
+	for name, field := range map[string]string{"NODE_NAME": "spec.nodeName", "OPERATOR_NAMESPACE": "metadata.namespace"} {
+		found := false
+		for _, env := range container.Env {
+			if env.Name == name && env.ValueFrom != nil && env.ValueFrom.FieldRef != nil && env.ValueFrom.FieldRef.FieldPath == field {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("SMD readiness gate missing %s fieldRef %s", name, field)
+		}
 	}
 }

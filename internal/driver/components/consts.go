@@ -10,7 +10,7 @@ const (
 	driverManagerInstanceLabelKey             = "rebellions.ai/driver-instance"
 	driverManagerDeployLabelKey               = "rebellions.ai/npu.deploy.driver"
 	driverManagerInitContainer                = consts.DriverManagerInitContainerName
-	driverManagerContainer                    = "rbln-driver-container"
+	driverManagerContainer                    = consts.DriverContainerName
 	driverManagerCommand                      = "driver-manager"
 	driverManagerSyncDriverLabel              = "reconcile-driver-state"
 	driverConfigDigestEnv                     = consts.DriverConfigDigestEnv
@@ -36,6 +36,7 @@ const (
 	driverReadyFileEnvName                    = "RBLN_DRIVER_READY_FILE"
 	defaultDriverReadyDir                     = "/run/rbln/driver-state"
 	defaultDriverReadyFile                    = "ready"
+	driverEntrypointStartedFile               = "/run/rbln/.driver-entrypoint-started"
 	rdsPresentLabelKey                        = "rebellions.ai/rds.present"
 	rdsBindingEnvName                         = "RBLN_RDS_BINDING"
 	rdsBindingEnabledValue                    = "enabled"

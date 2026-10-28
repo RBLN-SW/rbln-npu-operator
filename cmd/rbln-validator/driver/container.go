@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -8,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/rebellions-sw/rbln-npu-operator/internal/driverready"
 )
 
 var driverLibrarySearchPaths = []string{
@@ -21,13 +24,35 @@ var driverLibrarySearchPaths = []string{
 }
 
 func validateDriverContainer(cfg Config, silent bool) error {
+	checker, err := driverready.New(cfg.NodeName, cfg.Namespace, nil)
+	if err != nil {
+		return err
+	}
 	if err := assertDriverContainerReady(cfg.OutputDir, cfg.SleepIntervalSeconds, silent); err != nil {
 		return fmt.Errorf("error checking driver container status: %w", err)
 	}
 
+	return waitForDriverInstall(cfg, func() error { return checker.Check(context.Background()) },
+		// The host-root parent observes rootfs replacements; a separate child
+		// hostPath can keep exposing the old filesystem after it is unmounted.
+		func() error { return validateDriverInstall(hostRootMountPath + driverInstallDirDefault) }, time.Sleep)
+}
+
+func waitForDriverInstall(cfg Config, checkReady, validateInstall func() error, sleep func(time.Duration)) error {
 	for {
 		slog.Info("Attempting to validate a driver container installation")
-		if err := validateDriverInstall(driverInstallDirDefault); err != nil {
+		err := checkReady()
+		if err == nil {
+			_, err = os.Stat(filepath.Join(cfg.OutputDir, driverContainerReadyFile))
+		}
+		if err == nil {
+			err = validateInstall()
+		}
+		if err == nil {
+			// A library check must not carry readiness across a container restart.
+			err = checkReady()
+		}
+		if err != nil {
 			slog.Info(
 				"Failed to validate the driver, retrying",
 				"sleepSeconds",
@@ -35,7 +60,7 @@ func validateDriverContainer(cfg Config, silent bool) error {
 				"error",
 				err,
 			)
-			time.Sleep(time.Duration(cfg.SleepIntervalSeconds) * time.Second)
+			sleep(time.Duration(cfg.SleepIntervalSeconds) * time.Second)
 			continue
 		}
 		return nil
