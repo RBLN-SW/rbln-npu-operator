@@ -24,8 +24,6 @@ const (
 	driverManagerStartupProbePeriodSeconds    = 10
 	driverManagerStartupProbeTimeoutSeconds   = 120
 	driverManagerStartupProbeFailureThreshold = 60
-	hostDriverVolumeName                      = "host-driver"
-	hostDriverPath                            = "/run/rbln/driver"
 	hostRootVolumeName                        = "host-root"
 	hostRootPath                              = "/"
 	hostDevVolumeName                         = "host-dev"
@@ -51,11 +49,10 @@ const (
 	rdsBindConfWorkDir                        = "/rds-bind-conf"
 	rdsBindConfContainerPath                  = "/etc/rebellions/rblnfs-bind.conf"
 	rdsBindConfFileName                       = "rblnfs-bind.conf"
-	// hostRunRBLNPath is the host directory k8s-driver-manager reads its
-	// driver state file (rbln-driver.state) from. It is mounted whole, not
-	// just its driver/ staging tree, so a file the driver container writes
-	// there outlives the pod. The driver container sees it under /host, as it
-	// does the rest of the host.
+	// hostRunRBLNPath holds the driver/ rootfs mount and rbln-driver.state.
+	// Both containers share this parent bidirectionally so rootfs creation
+	// and removal reach the host, while the state file outlives the pod.
+	// The driver container sees the parent under /host.
 	hostRunRBLNVolumeName      = "host-run-rbln"
 	hostRunRBLNPath            = "/run/rbln"
 	hostRunRBLNDriverMountPath = "/host/run/rbln"

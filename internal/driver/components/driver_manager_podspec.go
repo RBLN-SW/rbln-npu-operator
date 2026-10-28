@@ -117,12 +117,6 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath strin
 
 	volumes := []corev1.Volume{
 		{
-			Name: hostDriverVolumeName,
-			VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
-				Path: hostDriverPath, Type: ptr(corev1.HostPathDirectoryOrCreate),
-			}},
-		},
-		{
 			Name: hostRunRBLNVolumeName,
 			VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
 				Path: hostRunRBLNPath, Type: ptr(corev1.HostPathDirectoryOrCreate),
@@ -235,22 +229,13 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 		}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{
-				// k8s-driver-manager's unmountRootfs() resolves the driver
-				// staging tree at this exact path; without Bidirectional
-				// propagation an unmount inside the init container would not
-				// be visible to the host, leaving stale binds across reinstalls.
-				Name:             hostDriverVolumeName,
-				MountPath:        hostDriverPath,
+				// Share the parent so unmounting its driver/ child propagates
+				// to the host. A separate child hostPath would hide the host
+				// mount behind a container volume mount. The state file stays
+				// in this parent, outside the rootfs that gets unmounted.
+				Name:             hostRunRBLNVolumeName,
+				MountPath:        hostRunRBLNPath,
 				MountPropagation: ptr(corev1.MountPropagationBidirectional),
-			},
-			{
-				// k8s-driver-manager reads the driver state file
-				// (rbln-driver.state) here to decide whether the loaded
-				// driver already matches DRIVER_CONFIG_DIGEST. The host
-				// directory itself, nested around the staging tree above:
-				// the file must survive the driver pod, and the tree does not.
-				Name:      hostRunRBLNVolumeName,
-				MountPath: hostRunRBLNPath,
 			},
 			{
 				Name:             hostRootVolumeName,
@@ -309,14 +294,15 @@ func (h *driverManagerPatcher) buildDriverContainer(
 
 	volumeMounts := []corev1.VolumeMount{
 		{
-			Name:             hostDriverVolumeName,
-			MountPath:        "/host/run/rbln/driver",
+			// The driver container exports its rootfs at this parent's
+			// driver/ child. Share the parent so both the export and its
+			// removal reach the host. rbln-driver.state is written alongside
+			// driver/, keeping its path and lifetime independent of that
+			// export. See docs/driver-upgrade.md.
+			Name:             hostRunRBLNVolumeName,
+			MountPath:        hostRunRBLNDriverMountPath,
 			MountPropagation: ptr(corev1.MountPropagationBidirectional),
 		},
-		// Where the driver container records DRIVER_CONFIG_DIGEST after a
-		// successful install (rbln-driver.state), for k8s-driver-manager to
-		// read on the next pod start. See docs/driver-upgrade.md.
-		{Name: hostRunRBLNVolumeName, MountPath: hostRunRBLNDriverMountPath},
 		{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
 		{Name: hostDevVolumeName, MountPath: hostDevPath},
 		{Name: driverReadyVolumeName, MountPath: defaultDriverReadyDir},
