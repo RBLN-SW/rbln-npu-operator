@@ -74,6 +74,26 @@ The operator provides the plumbing for that file. The driver DaemonSet mounts th
 
 Until the driver image implements the write, every driver-manager run logs `No previous driver configuration found` and takes the reinstall path, so any driver pod restart with `autoUpgrade: false` costs a cordon, an NPU pod eviction and a module reload even when nothing about the driver changed.
 
+### Driver Rootfs Mount Propagation
+
+Both containers mount the host's `/run/rbln` with `Bidirectional` propagation, at the paths described above. There is no separate `host-driver` volume or mount at the `driver/` child. The driver entrypoint creates that directory and runs `mount --bind / /host/run/rbln/driver`; sharing the parent preserves this rootfs export and lets removal of the child mount propagate back to the host. Mounting the child as a separate hostPath would hide it behind a container volume mount, allowing cleanup to succeed inside the container while leaving the host rootfs mounted.
+
+The state file remains `/run/rbln/rbln-driver.state` on the host, outside the exported rootfs. The install marker remains in the pod's `emptyDir` at `/run/rbln/driver-state/ready`, and the cross-component marker remains `/run/rbln/validations/.driver-ctr-ready`. No CRD fields, Helm values, digest algorithm or readiness conditions change. Mount propagation now covers the whole `/run/rbln` parent; custom entrypoints must restrict their mount operations to the intended child and must not unmount the parent. Containers already require privileged mode.
+
+`DRIVER_CONFIG_DIGEST` hashes only `spec.containers`, including their `volumeMounts`; it excludes `initContainers` and pod-level `volumes`. The separate pod template hash covers the whole PodSpec. Changing only the init container would therefore leave the config digest unchanged, but this migration also removes the main driver container's child mount and changes its parent mount propagation. **Both hashes change even with the same driver image.**
+
+With `autoUpgrade: true`, the config digest mismatch starts the existing upgrade workflow, subject to its scheduling and eviction policy. With `autoUpgrade: false`, the `OnDelete` DaemonSet leaves existing pods running; the next pod recreation applies the new layout and takes the changed-digest reinstall path. Restarting only the driver container in an existing pod does not update its volume mounts. Plan for NPU workload disruption when that reinstall occurs.
+
+To control the migration:
+
+1. If an immediate automatic rollout is not acceptable, set `autoUpgrade: false` before updating the operator. Existing pods keep the old layout until they are recreated; this is a way to schedule the change, not to apply it without a restart.
+2. Recreate driver pods during a maintenance window, or re-enable automatic upgrades with the desired concurrency and eviction policy. Account for a driver reinstall and possible NPU workload eviction even when the driver image is unchanged.
+3. On each migrated node, verify that the new pod uses only the shared parent and reaches readiness, that the exported rootfs is accessible on the host, and that the host has exactly one mount at `/run/rbln/driver`. Check that count in the host mount namespace, not inside the driver pod. Existing accumulated mounts are not removed merely by updating the DaemonSet; resolve any remaining layers during maintenance before continuing the rollout.
+
+For custom integrations, update admission rules or pod mutations that refer to the removed `host-driver` volume or allow `Bidirectional` propagation only at the child path. Custom driver images must create `/host/run/rbln/driver` before binding: kubelet now creates only `/run/rbln`. The existing entrypoint already does this with `mkdir -p ${RUN_DIR}/driver`.
+
+Rolling the operator back to the overlapping layout changes the digest again and restores the propagation defect. Before a rollback, verify that the selected driver image supports that older layout; an entrypoint that relies on unmounting a child of the shared parent is incompatible with a separate child hostPath. Keep the corrected operator layout or select a compatible image combination, and schedule any resulting pod replacement as another reinstall.
+
 ------------------------------------------------------------------------
 
 ## Upgrade Flow

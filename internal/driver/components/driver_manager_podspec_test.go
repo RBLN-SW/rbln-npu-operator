@@ -203,28 +203,6 @@ func TestBuildDriverManagerInitContainer(t *testing.T) {
 		}
 	}
 
-	// Without a Bidirectional mount at exactly hostDriverPath the init
-	// container cannot observe, let alone unmount, the host's staging tree,
-	// which leaves stale bind mounts across reinstalls.
-	var hostDriverMount *corev1.VolumeMount
-	for i := range c.VolumeMounts {
-		if c.VolumeMounts[i].Name == hostDriverVolumeName {
-			hostDriverMount = &c.VolumeMounts[i]
-			break
-		}
-	}
-	if hostDriverMount == nil {
-		t.Fatalf("init container missing %q volume mount", hostDriverVolumeName)
-	}
-	if hostDriverMount.MountPath != hostDriverPath {
-		t.Fatalf("host-driver mountPath = %q, want %q", hostDriverMount.MountPath, hostDriverPath)
-	}
-	if hostDriverMount.MountPropagation == nil ||
-		*hostDriverMount.MountPropagation != corev1.MountPropagationBidirectional {
-		t.Fatalf("host-driver mountPropagation = %v, want Bidirectional",
-			hostDriverMount.MountPropagation)
-	}
-
 	var hostSysMount *corev1.VolumeMount
 	for i := range c.VolumeMounts {
 		if c.VolumeMounts[i].Name == hostSysVolumeName {
@@ -379,46 +357,66 @@ func TestBuildDriverPodSpec_HasDriverStateVolume(t *testing.T) {
 	t.Fatalf("pod spec missing %q volume", driverReadyVolumeName)
 }
 
-// k8s-driver-manager decides at every driver pod start whether the loaded
-// driver has to be replaced by comparing DRIVER_CONFIG_DIGEST with the digest
-// the driver container recorded in the host's /run/rbln/rbln-driver.state.
-// Both containers therefore need the host directory itself, not only the
-// /run/rbln/driver staging tree that is torn down with the driver: the init
-// container reads the file at its own path, the driver container writes it
-// under /host like the rest of the host filesystem.
-func TestBuildDriverPodSpec_MountsHostRunRBLNIntoBothContainers(t *testing.T) {
-	h := newTestPatcher(t, "")
-	pool := nodePool{osRelease: "ubuntu", osVersion: "22.04", kernel: "5.15.0-100-generic", family: "atom"}
+// Sharing the parent lets both rootfs binds and their removal propagate to
+// the host. A separate child hostPath would hide the mount to be removed.
+// The same parent also keeps rbln-driver.state outside the exported rootfs.
+func TestBuildDriverPodSpec_SharesRootfsParentWithoutChildMount(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rds  bool
+	}{
+		{name: "base"},
+		{name: "rds", rds: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestPatcher(t, "")
+			pool := nodePool{osRelease: "ubuntu", osVersion: "22.04", kernel: "5.15.0-100-generic", family: "atom", rds: tc.rds}
+			spec := h.buildDriverPodSpec(pool, "repo.rebellions.ai/rebellions/atom/rbln-driver:3.0.0-5.15.0-100-generic-ubuntu22.04")
 
-	spec := h.buildDriverPodSpec(pool, "repo.rebellions.ai/rebellions/atom/rbln-driver:3.0.0-5.15.0-100-generic-ubuntu22.04")
-
-	var volume *corev1.Volume
-	for i := range spec.Volumes {
-		if spec.Volumes[i].Name == hostRunRBLNVolumeName {
-			volume = &spec.Volumes[i]
-		}
-	}
-	if volume == nil {
-		t.Fatalf("pod spec missing %q volume", hostRunRBLNVolumeName)
-	}
-	if volume.HostPath == nil || volume.HostPath.Path != "/run/rbln" ||
-		volume.HostPath.Type == nil || *volume.HostPath.Type != corev1.HostPathDirectoryOrCreate {
-		t.Fatalf("%s volume = %+v, want hostPath /run/rbln DirectoryOrCreate", hostRunRBLNVolumeName, volume.VolumeSource)
-	}
-
-	mountPath := func(c *corev1.Container) string {
-		for _, m := range c.VolumeMounts {
-			if m.Name == hostRunRBLNVolumeName {
-				return m.MountPath
+			var parentVolumes int
+			for _, volume := range spec.Volumes {
+				if volume.Name == "host-driver" || volume.HostPath != nil && volume.HostPath.Path == "/run/rbln/driver" {
+					t.Errorf("separate driver child volume must not be rendered: %+v", volume)
+				}
+				if volume.Name != hostRunRBLNVolumeName {
+					continue
+				}
+				parentVolumes++
+				if volume.HostPath == nil || volume.HostPath.Path != "/run/rbln" ||
+					volume.HostPath.Type == nil || *volume.HostPath.Type != corev1.HostPathDirectoryOrCreate {
+					t.Errorf("%s volume = %+v, want hostPath /run/rbln DirectoryOrCreate", hostRunRBLNVolumeName, volume.VolumeSource)
+				}
 			}
+			if parentVolumes != 1 {
+				t.Errorf("got %d parent volumes, want 1", parentVolumes)
+			}
+
+			assertSharedRootfsParent(t, spec.InitContainers[0], "/run/rbln")
+			assertSharedRootfsParent(t, spec.Containers[0], "/host/run/rbln")
+		})
+	}
+}
+
+func assertSharedRootfsParent(t *testing.T, container corev1.Container, parentPath string) {
+	t.Helper()
+	var parentMounts int
+	for _, mount := range container.VolumeMounts {
+		if mount.Name == "host-driver" || mount.MountPath == parentPath+"/driver" {
+			t.Errorf("%s must not have a separate driver child mount: %+v", container.Name, mount)
 		}
-		return ""
+		if mount.Name != hostRunRBLNVolumeName {
+			continue
+		}
+		parentMounts++
+		if mount.MountPath != parentPath || mount.ReadOnly || mount.SubPath != "" || mount.SubPathExpr != "" {
+			t.Errorf("%s must mount the writable parent at %s without subPath: %+v", container.Name, parentPath, mount)
+		}
+		if mount.MountPropagation == nil || *mount.MountPropagation != corev1.MountPropagationBidirectional {
+			t.Errorf("%s parent mount propagation = %v, want Bidirectional", container.Name, mount.MountPropagation)
+		}
 	}
-	if got := mountPath(&spec.InitContainers[0]); got != "/run/rbln" {
-		t.Fatalf("%s mount in %s = %q, want /run/rbln", hostRunRBLNVolumeName, driverManagerInitContainer, got)
-	}
-	if got := mountPath(&spec.Containers[0]); got != "/host/run/rbln" {
-		t.Fatalf("%s mount in %s = %q, want /host/run/rbln", hostRunRBLNVolumeName, driverManagerContainer, got)
+	if parentMounts != 1 {
+		t.Errorf("%s has %d parent mounts, want 1", container.Name, parentMounts)
 	}
 }
 
