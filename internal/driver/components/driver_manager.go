@@ -97,6 +97,8 @@ func (h *driverManagerPatcher) Patch(ctx context.Context, owner *rebellionsaiv1a
 	if err := h.handleClusterRoleBinding(ctx, owner); err != nil {
 		return err
 	}
+	// Publish this revision before referencing it; older templates keep
+	// their own ConfigMap even when a pool update below is deferred or fails.
 	if err := h.handleConfigMap(ctx, owner); err != nil {
 		return err
 	}

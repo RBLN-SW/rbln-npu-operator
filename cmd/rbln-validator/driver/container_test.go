@@ -2,6 +2,7 @@ package driver
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -9,6 +10,32 @@ import (
 	"testing"
 	"time"
 )
+
+func TestWaitForDriverInstallRechecksProducer(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, driverContainerReadyFile)
+	if err := os.WriteFile(marker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checks, validations, sleeps := 0, 0, 0
+	check := func() error {
+		checks++
+		// First attempt sees a crashed container despite the marker. The
+		// second attempt loses readiness during library validation.
+		if checks == 1 || checks == 3 {
+			return errors.New("container not Ready")
+		}
+		return nil
+	}
+	err := waitForDriverInstall(Config{OutputDir: dir}, check, func() error {
+		validations++
+		return nil
+	}, func(time.Duration) { sleeps++ })
+	if err != nil || checks != 5 || validations != 2 || sleeps != 2 {
+		t.Fatalf("producer state was not rechecked: checks=%d validations=%d sleeps=%d err=%v",
+			checks, validations, sleeps, err)
+	}
+}
 
 func TestWaitForFile(t *testing.T) {
 	t.Run("returns immediately when the marker exists", func(t *testing.T) {

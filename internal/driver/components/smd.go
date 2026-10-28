@@ -3,6 +3,7 @@ package components
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -16,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
+	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
 )
@@ -26,7 +28,8 @@ import (
 // to the driver's spec.version.
 type SmdPatcher struct {
 	basePatcher
-	desiredSpec *rebellionsaiv1alpha1.RBLNDriverSpec
+	desiredSpec   *rebellionsaiv1alpha1.RBLNDriverSpec
+	validatorSpec rblnv1beta1.ValidatorSpec
 }
 
 func NewSmdPatcher(
@@ -37,6 +40,7 @@ func NewSmdPatcher(
 	driver *rebellionsaiv1alpha1.RBLNDriver,
 	scheme *runtime.Scheme,
 	openshiftVersion string,
+	validatorSpec rblnv1beta1.ValidatorSpec,
 ) (*SmdPatcher, error) {
 	if driver == nil {
 		return nil, fmt.Errorf("driver is nil")
@@ -52,7 +56,8 @@ func NewSmdPatcher(
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 		},
-		desiredSpec: &driver.Spec,
+		desiredSpec:   &driver.Spec,
+		validatorSpec: validatorSpec,
 	}, nil
 }
 
@@ -65,6 +70,9 @@ func (h *SmdPatcher) Patch(ctx context.Context, owner *rebellionsaiv1alpha1.RBLN
 		return err
 	}
 	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
+		return err
+	}
+	if err := k8sutil.ReconcileNodePodReader(ctx, h.client, h.scheme, owner, h.namespace, h.name, h.name+"-driver-reader", false); err != nil {
 		return err
 	}
 
@@ -190,6 +198,12 @@ func (h *SmdPatcher) handleDaemonSet(ctx context.Context, owner *rebellionsaiv1a
 
 func (h *SmdPatcher) buildPodSpec(version string) *corev1.PodSpec {
 	initContainer := h.buildDriverReadyInitContainer()
+	pullSecrets := append([]string(nil), h.desiredSpec.ImagePullSecrets...)
+	for _, name := range h.validatorSpec.ImagePullSecrets {
+		if !slices.Contains(pullSecrets, name) {
+			pullSecrets = append(pullSecrets, name)
+		}
+	}
 
 	// No command override: every rbln-smd image ships an ENTRYPOINT pointing at
 	// its own binary, so leaving it unset keeps the operator out of the way when
@@ -223,7 +237,7 @@ func (h *SmdPatcher) buildPodSpec(version string) *corev1.PodSpec {
 		WithHostNetwork(true).
 		WithNodeSelector(h.smdNodeSelector()).
 		WithTolerations(h.desiredSpec.Tolerations).
-		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithImagePullSecrets(pullSecrets).
 		WithPriorityClassName(h.desiredSpec.PriorityClassName).
 		WithVolumes([]corev1.Volume{
 			smdHostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
@@ -238,18 +252,15 @@ func (h *SmdPatcher) buildPodSpec(version string) *corev1.PodSpec {
 		Build()
 }
 
-// buildDriverReadyInitContainer blocks the smd container until this node's
-// driver container publishes its ready marker, ordering smd start after the
-// driver install per node. It runs the driver-manager image: that image is
-// already pulled on every driver-owned node by the driver DaemonSet and,
-// unlike the smd image, is guaranteed to ship a shell.
+// The operator's validator checks the current driver container as well as
+// its marker; a shell file-existence check would accept a crashed producer.
 func (h *SmdPatcher) buildDriverReadyInitContainer() *corev1.Container {
-	marker := consts.ValidationsMountPath + "/" + driverCtrReadyFile
 	return k8sutil.NewContainerBuilder().
 		WithName(smdInitContainerName).
-		WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Manager.Registry, h.desiredSpec.Manager.Image), h.desiredSpec.Manager.Version, h.desiredSpec.Manager.ImagePullPolicy).
-		WithCommands([]string{"sh", "-c"}).
-		WithArgs([]string{"until [ -f " + marker + " ]; do echo waiting for the rbln driver to be ready; sleep 5; done"}).
+		WithImage(k8sutil.ComposeImageReference(h.validatorSpec.Registry, h.validatorSpec.Image), h.validatorSpec.Version, h.validatorSpec.ImagePullPolicy).
+		WithCommands([]string{"rbln-validator"}).
+		WithArgs([]string{"driver-ready"}).
+		WithEnvs(k8sutil.NodeIdentityEnv()).
 		WithSecurityContext(&corev1.SecurityContext{Privileged: ptr(true)}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{

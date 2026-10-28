@@ -18,6 +18,7 @@ const (
 	envOutputDir            = "OUTPUT_DIR"
 	envSleepIntervalSeconds = "SLEEP_INTERVAL_SECONDS"
 	envNodeName             = "NODE_NAME"
+	envOperatorNamespace    = "OPERATOR_NAMESPACE"
 	envDefaultWorkloadType  = "DEFAULT_WORKLOAD_TYPE"
 )
 
@@ -61,6 +62,8 @@ func (o *rootConfig) driverConfig() drivervalidator.Config {
 	return drivervalidator.Config{
 		OutputDir:            o.outputDir,
 		SleepIntervalSeconds: o.sleepIntervalSeconds,
+		NodeName:             os.Getenv(envNodeName),
+		Namespace:            os.Getenv(envOperatorNamespace),
 	}
 }
 

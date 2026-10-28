@@ -123,10 +123,10 @@ func buildGateInitContainer(componentName string, validatorSpec rblnv1beta1.Vali
 		WithImage(k8sutil.ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, validatorSpec.ImagePullPolicy).
 		WithCommands([]string{"rbln-validator"}).
 		WithArgs([]string{"gate", "--component", componentName}).
-		WithEnvs([]corev1.EnvVar{
-			{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{APIVersion: "v1", FieldPath: "spec.nodeName"}}},
-		}).
-		WithSecurityContext(&corev1.SecurityContext{Privileged: ptr(true)}).
+		WithEnvs(k8sutil.NodeIdentityEnv()).
+		// driver-ready is an atomic, root-owned 0600 status record. The
+		// validator image otherwise defaults to an unprivileged UID.
+		WithSecurityContext(&corev1.SecurityContext{Privileged: ptr(true), RunAsUser: ptr(int64(0))}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{
 				Name:             consts.ValidationsVolumeName,
@@ -139,63 +139,13 @@ func buildGateInitContainer(componentName string, validatorSpec rblnv1beta1.Vali
 
 const nodeViewerSuffix = "-node-viewer"
 
-// reconcileNodeViewerClusterRBAC grants the component's ServiceAccount read
-// access to Node objects: the component-gate init container resolves the
-// node's partition labels directly from the API.
+// reconcileNodeViewerClusterRBAC supports the gate's node and driver Pod checks.
 func (b *basePatcher) reconcileNodeViewerClusterRBAC(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	role := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: b.name + nodeViewerSuffix}}
-
-	res, err := controllerutil.CreateOrPatch(ctx, b.client, role, func() error {
-		role.Rules = []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{""},
-				Resources: []string{"nodes"},
-				Verbs:     []string{"get"},
-			},
-		}
-		return ctrl.SetControllerReference(owner, role, b.scheme)
-	})
-	if err != nil {
-		b.log.Error(err, "Failed to reconcile node-viewer ClusterRole", "name", role.Name)
-		return err
-	}
-	b.log.Info("Reconciled node-viewer ClusterRole", "name", role.Name, "result", res)
-
-	binding := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: b.name + nodeViewerSuffix}}
-
-	res, err = controllerutil.CreateOrPatch(ctx, b.client, binding, func() error {
-		binding.RoleRef = rbacv1.RoleRef{
-			APIGroup: rbacv1.GroupName,
-			Kind:     "ClusterRole",
-			Name:     b.name + nodeViewerSuffix,
-		}
-		binding.Subjects = []rbacv1.Subject{
-			{
-				Kind:      rbacv1.ServiceAccountKind,
-				Name:      b.name,
-				Namespace: b.namespace,
-			},
-		}
-		return ctrl.SetControllerReference(owner, binding, b.scheme)
-	})
-	if err != nil {
-		b.log.Error(err, "Failed to reconcile node-viewer ClusterRoleBinding", "name", binding.Name)
-		return err
-	}
-	b.log.Info("Reconciled node-viewer ClusterRoleBinding", "name", binding.Name, "result", res)
-	return nil
+	return k8sutil.ReconcileNodePodReader(ctx, b.client, b.scheme, owner, b.namespace, b.name, b.name+nodeViewerSuffix, true)
 }
 
-// deleteNodeViewerClusterRBAC removes the node-viewer ClusterRole and binding.
 func (b *basePatcher) deleteNodeViewerClusterRBAC(ctx context.Context) error {
-	if err := b.deleteIfExists(ctx, &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: b.name + nodeViewerSuffix},
-	}); err != nil {
-		return err
-	}
-	return b.deleteIfExists(ctx, &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{Name: b.name + nodeViewerSuffix},
-	})
+	return k8sutil.DeleteNodePodReader(ctx, b.client, b.namespace, b.name+nodeViewerSuffix)
 }
 
 func buildVFIOPCIValidationInitContainer(validatorSpec rblnv1beta1.ValidatorSpec) *corev1.Container {

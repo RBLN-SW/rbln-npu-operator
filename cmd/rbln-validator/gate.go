@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -13,9 +14,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	drivervalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/driver"
 	"github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/statusfile"
 	vfiovalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/vfiopci"
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/rebellions-sw/rbln-npu-operator/internal/driverready"
 
 	"github.com/spf13/cobra"
 )
@@ -41,6 +44,7 @@ var componentWaitsForPartition = map[string]bool{
 type gateRuntime struct {
 	getNodeLabels func(ctx context.Context, nodeName string) (map[string]string, error)
 	validateVFIO  func(vfiovalidator.Config) (vfiovalidator.Result, error)
+	checkDriver   func(context.Context) error
 	sleep         func(time.Duration)
 }
 
@@ -75,7 +79,16 @@ func newGateCommand(config *rootConfig) *cobra.Command {
 		Short: "Block until the component's readiness files for this node exist",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGate(cmd.Context(), config.gateConfig(component), defaultGateRuntime())
+			cfg := config.gateConfig(component)
+			checker, err := driverready.New(cfg.nodeName, os.Getenv(envOperatorNamespace), func() (bool, error) {
+				return drivervalidator.HostDriverValidated(cfg.outputDir)
+			})
+			if err != nil {
+				return err
+			}
+			rt := defaultGateRuntime()
+			rt.checkDriver = checker.Check
+			return runGate(cmd.Context(), cfg, rt)
 		},
 	}
 	cmd.Flags().StringVar(&component, "component", "", "component name to gate")
@@ -136,6 +149,12 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 				"invalid partition labels, fix the node labels to unblock",
 				"node", cfg.nodeName, "err", err, "sleepSeconds", cfg.sleepIntervalSeconds,
 			)
+			rt.sleep(interval)
+			continue
+		}
+
+		if err := rt.checkDriver(ctx); err != nil {
+			slog.Info("waiting for current driver container", "node", cfg.nodeName, "err", err)
 			rt.sleep(interval)
 			continue
 		}

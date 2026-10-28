@@ -220,6 +220,14 @@ func (h *driverManagerPatcher) reapDaemonSets(ctx context.Context, stale []*apps
 }
 
 func (h *driverManagerPatcher) startupProbeConfigMapName() string {
+	// A retained or OnDelete template must keep its matching probe even if
+	// another pool or driver instance reconciles a newer version first.
+	return fmt.Sprintf("%s-%s", h.startupProbeVolumeName(), k8sutil.GetObjectHash(driverStartupProbeData())[:16])
+}
+
+func (h *driverManagerPatcher) startupProbeVolumeName() string {
+	// Only the Pod-level ConfigMap reference changes with probe content;
+	// keeping the mount name stable avoids changing the driver config digest.
 	return fmt.Sprintf("%s-%s", h.name, startupProbeConfigMapSuffix)
 }
 

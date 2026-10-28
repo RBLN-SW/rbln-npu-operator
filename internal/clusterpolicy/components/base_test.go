@@ -12,6 +12,13 @@ import (
 	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
 )
 
+func TestComponentGateCanReadRootOwnedDriverStatus(t *testing.T) {
+	gate := buildGateInitContainer(consts.RBLNDevicePluginName, rblnv1beta1.ValidatorSpec{})
+	if gate.SecurityContext == nil || gate.SecurityContext.RunAsUser == nil || *gate.SecurityContext.RunAsUser != 0 {
+		t.Fatal("component gate must run as root to read the validator's 0600 driver-ready record")
+	}
+}
+
 func TestIsReady(t *testing.T) {
 	const (
 		name      = "test-component"

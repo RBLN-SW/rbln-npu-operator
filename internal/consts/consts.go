@@ -62,6 +62,7 @@ const (
 	RBLNNPUFamilyLabelKey = "rebellions.ai/npu.family"
 
 	RBLNDeployDriverPreInstalled = "pre-installed"
+	DriverContainerName          = "rbln-driver-container"
 
 	// RBLNDeployPausedForDriverUpgrade is the value k8s-driver-manager writes on
 	// a node's npu.deploy.* keys while it (re)installs the driver, evicting that
