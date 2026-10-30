@@ -11,6 +11,8 @@ maintainers:
   - name: Rebellions Team
     email: sw-sdk-cloud@rebellions.ai
     url: https://rebellions.ai/
+annotations:
+  artifacthub.io/license: Apache-2.0
 keywords:
   - NPU
   - AI
