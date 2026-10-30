@@ -591,3 +591,16 @@ chart and built operator/validator images.
 
 Release candidates are tested through RNPM using their published images.
 See [RC validation setup and image inputs](docs/rc-validation.md).
+
+## License
+
+Copyright 2025-2026 Rebellions Inc.
+
+This project is licensed under the [Apache License 2.0](LICENSE). See
+[NOTICE](NOTICE) for attributions to the upstream projects this operator is
+derived from and [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) for the licenses
+of the Go modules compiled into the binaries.
+
+The RBLN NPU driver, rbln-smd, rbln-smi and the NPU runtime libraries that the
+operator deploys or calls are separate products distributed under the
+Rebellions Software User License Agreement.

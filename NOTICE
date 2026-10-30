@@ -1,0 +1,52 @@
+RBLN NPU Operator
+Copyright 2025-2026 Rebellions Inc.
+
+This product includes software developed by Rebellions Inc.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software derived from the following projects. The
+original copyright notices are retained in the affected source files
+together with a notice describing the modifications made by Rebellions Inc.
+
+  NVIDIA k8s-operator-libs
+    https://github.com/NVIDIA/k8s-operator-libs
+    Copyright 2022-2023 NVIDIA CORPORATION & AFFILIATES. Apache License 2.0.
+    Reference commit a0a0256b (2026-02-15).
+    - internal/upgrade/{consts,cordon_manager,node_upgrade_state,pod_manager,
+      safe_driver_load_manager,util,validation_manager}.go are derived from
+      pkg/upgrade/.
+    - internal/upgrade/upgrade_state_{manager,build,apply,process,helpers}.go
+      are derived from pkg/upgrade/upgrade_state.go and common_manager.go.
+    - api/v1beta1/driver_types.go is derived from
+      api/upgrade/v1alpha1/upgrade_spec.go.
+
+  NVIDIA gpu-operator
+    https://github.com/NVIDIA/gpu-operator
+    Copyright NVIDIA CORPORATION & AFFILIATES. Apache License 2.0.
+    Reference commit f78eca10 (2026-03-02).
+    - internal/controller/upgrade_controller.go is derived from
+      controllers/upgrade_controller.go.
+    - getRuntimeString in internal/clusterinfo/clusterinfo.go is adapted
+      from controllers/state_manager.go.
+
+  NVIDIA k8s-driver-manager
+    https://github.com/NVIDIA/k8s-driver-manager
+    Copyright NVIDIA CORPORATION & AFFILIATES. Apache License 2.0.
+    Reference commit 67c45978 (2026-03-17).
+    - The vfio-manage.sh script embedded in
+      internal/clusterpolicy/components/vfio_manager.go is derived from
+      scripts/vfio-manage.
+
+  Kubebuilder
+    https://github.com/kubernetes-sigs/kubebuilder
+    Copyright The Kubernetes Authors. Apache License 2.0.
+    Project scaffolding (PROJECT, config/, hack/boilerplate.go.txt and the
+    generated API and controller skeletons).
+
+Third-party Go modules compiled into the binaries are vendored under
+vendor/ together with their license files, and their license texts are
+collected in THIRD_PARTY_NOTICES.
+
+The RBLN NPU driver, rbln-smd, rbln-smi and the NPU runtime libraries are
+not part of this product. They are distributed separately under the
+Rebellions Software User License Agreement.

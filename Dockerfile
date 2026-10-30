@@ -35,7 +35,10 @@ LABEL \
     description="Rebellions NPU Operator" \
     maintainer="Rebellions sw_devops@rebellions.ai" \
     io.k8s.display-name="Rebellions NPU Operator" \
-    com.redhat.component="rbln-npu-operator"
+    com.redhat.component="rbln-npu-operator" \
+    org.opencontainers.image.licenses="Apache-2.0" \
+    org.opencontainers.image.source="https://github.com/RBLN-SW/rbln-npu-operator" \
+    org.opencontainers.image.vendor="Rebellions Inc."
 
 # Pick up OpenSSL errata that may not yet be included in the UBI base image.
 RUN microdnf update -y openssl-libs && \
@@ -46,7 +49,7 @@ COPY --from=builder /workspace/npu-operator /usr/bin/
 COPY --from=builder /workspace/rbln-validator /usr/bin/
 COPY --from=builder /workspace/crd-apply /usr/bin/
 COPY config/crd/bases/ /opt/rbln/crds/
-COPY LICENSE /licenses/LICENSE
+COPY LICENSE NOTICE THIRD_PARTY_NOTICES /licenses/
 
 USER 65532:65532
 
