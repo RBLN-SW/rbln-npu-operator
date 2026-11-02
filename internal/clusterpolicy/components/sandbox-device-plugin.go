@@ -11,9 +11,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
-	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
+	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	k8sutil "github.com/RBLN-SW/rbln-npu-operator/internal/utils/k8s"
 )
 
 // sandboxResourceAlias is injected as RBLN_PT_ALIAS into the plugin binary.

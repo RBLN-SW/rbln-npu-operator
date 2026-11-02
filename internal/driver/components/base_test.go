@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
+	rebellionsaiv1alpha1 "github.com/RBLN-SW/rbln-npu-operator/api/v1alpha1"
 )
 
 func newTestDriverOwner() *rebellionsaiv1alpha1.RBLNDriver {

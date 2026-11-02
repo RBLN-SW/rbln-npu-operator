@@ -7,136 +7,54 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// ValidationManagerInterface abstracts driver upgrade validation for testability.
 type ValidationManagerInterface interface {
-	Validate(ctx context.Context, node *corev1.Node) (bool, error)
+	Validate(context.Context, *corev1.Node) (bool, error)
 }
-
 type ValidationManager struct {
 	k8sInterface             kubernetes.Interface
 	nodeUpgradeStateProvider *NodeUpgradeStateProvider
-
-	podSelector string
+	podSelector              string
 }
 
-func NewValidationManager(
-	k8sInterface kubernetes.Interface,
-	nodeUpgradeStateProvider *NodeUpgradeStateProvider,
-	podSelector string,
-) *ValidationManager {
-	mgr := &ValidationManager{
-		k8sInterface:             k8sInterface,
-		nodeUpgradeStateProvider: nodeUpgradeStateProvider,
-		podSelector:              podSelector,
-	}
-
-	return mgr
+func NewValidationManager(k kubernetes.Interface, p *NodeUpgradeStateProvider, selector string) *ValidationManager {
+	return &ValidationManager{k8sInterface: k, nodeUpgradeStateProvider: p, podSelector: selector}
 }
 
-func (m *ValidationManager) Validate(ctx context.Context, node *corev1.Node) (bool, error) {
+func (m *ValidationManager) isPodReady(_ context.Context, p corev1.Pod) bool {
+	return driverPodReady(&p)
+}
+
+func (m *ValidationManager) Validate(ctx context.Context, n *corev1.Node) (bool, error) {
 	if m.podSelector == "" {
 		return true, nil
 	}
-
-	listOptions := metav1.ListOptions{
-		LabelSelector: m.podSelector,
-		FieldSelector: fmt.Sprintf(nodeNameFieldSelectorFmt, node.Name),
-	}
-	podList, err := m.k8sInterface.CoreV1().Pods("").List(ctx, listOptions)
+	pods, err := m.k8sInterface.CoreV1().Pods("").List(ctx, metav1.ListOptions{LabelSelector: m.podSelector, FieldSelector: fmt.Sprintf(nodeNameFieldSelectorFmt, n.Name)})
 	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to list pods", "selector", m.podSelector, "node", node.Name)
 		return false, err
 	}
-
-	if len(podList.Items) == 0 {
-		// Absence is judged by the same clock as a pod that never becomes
-		// Ready: the validator's deploy label may still be paused, or its pod
-		// may never come, and the node would otherwise hold its cordon here
-		// for good.
-		log.FromContext(ctx).Info("No validation pods found on the node", "node", node.Name,
-			"podSelector", m.podSelector)
-		if err := m.handleTimeout(ctx, node, DefaultValidationTimeoutSeconds); err != nil {
-			return false, fmt.Errorf("unable to handle timeout for validation state: %w", err)
+	count, allReady := 0, true
+	for _, p := range pods.Items {
+		if p.Spec.NodeName != n.Name {
+			continue
 		}
-		return false, nil
+		count++
+		allReady = allReady && m.isPodReady(ctx, p)
 	}
-
-	log.FromContext(ctx).Info("Found validation pods", "selector", m.podSelector, "node", node.Name,
-		"pods", len(podList.Items))
-
-	done := true
-	for _, pod := range podList.Items {
-		if !m.isPodReady(ctx, pod) {
-			err = m.handleTimeout(ctx, node, DefaultValidationTimeoutSeconds)
-			if err != nil {
-				return false, fmt.Errorf("unable to handle timeout for validation state: %v", err)
-			}
-			done = false
-			break
-		}
+	if count > 0 && allReady {
+		return true, m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, n, UpgradeValidationStartTimeAnnotationKey)
 	}
-
-	if done {
-		annotationKey := UpgradeValidationStartTimeAnnotationKey
-		err = m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node, annotationKey)
-		if err != nil {
-			log.FromContext(ctx).Error(err, "Failed to remove annotation used to track validation completion",
-				"node", node.Name, "annotation", annotationKey)
-			return false, err
-		}
-	}
-	return done, nil
+	return false, m.handleTimeout(ctx, n, DefaultValidationTimeoutSeconds)
 }
 
-func (m *ValidationManager) isPodReady(ctx context.Context, pod corev1.Pod) bool {
-	if pod.Status.Phase != corev1.PodRunning {
-		log.FromContext(ctx).Info("Pod not Running", "pod", pod.Name, "podPhase", pod.Status.Phase)
-		return false
-	}
-	if len(pod.Status.ContainerStatuses) == 0 {
-		log.FromContext(ctx).Info("No containers running in pod", "pod", pod.Name)
-		return false
-	}
-
-	for i := range pod.Status.ContainerStatuses {
-		if !pod.Status.ContainerStatuses[i].Ready {
-			log.FromContext(ctx).Info("Not all containers ready in pod", "pod", pod.Name)
-			return false
-		}
-	}
-
-	return true
-}
-
-func (m *ValidationManager) handleTimeout(ctx context.Context, node *corev1.Node, timeoutSeconds int64) error {
-	annotationKey := UpgradeValidationStartTimeAnnotationKey
-
-	timedOut, err := checkAnnotationTimeout(ctx, m.nodeUpgradeStateProvider, node, annotationKey, timeoutSeconds)
-	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to check validation timeout",
-			"node", node.Name, "annotation", annotationKey)
+func (m *ValidationManager) handleTimeout(ctx context.Context, n *corev1.Node, seconds int64) error {
+	expired, err := checkAnnotationTimeout(ctx, m.nodeUpgradeStateProvider, n, UpgradeValidationStartTimeAnnotationKey, seconds)
+	if err != nil || !expired {
 		return err
 	}
-
-	if timedOut {
-		reason := fmt.Sprintf("driver validation timed out after %d seconds", timeoutSeconds)
-		if stateErr := markNodeUpgradeFailed(ctx, m.nodeUpgradeStateProvider, node,
-			UpgradeStateValidationRequired, reason); stateErr != nil {
-			log.FromContext(ctx).Error(stateErr, "Failed to mark node as failed after validation timeout; will retry next cycle",
-				"node", node.Name)
-			return stateErr
-		}
-		log.FromContext(ctx).Info("Timeout exceeded for validation, updated the node state", "node", node.Name,
-			"state", UpgradeStateFailed)
-		err = m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, node, annotationKey)
-		if err != nil {
-			log.FromContext(ctx).Error(err, "Failed to remove annotation used to track validation completion",
-				"node", node.Name, "annotation", annotationKey)
-			return err
-		}
+	if err := markNodeUpgradeFailed(ctx, m.nodeUpgradeStateProvider, n, UpgradeStateValidationRequired, fmt.Sprintf("driver validation timed out after %d seconds", seconds)); err != nil {
+		return err
 	}
-	return nil
+	return m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, n, UpgradeValidationStartTimeAnnotationKey)
 }

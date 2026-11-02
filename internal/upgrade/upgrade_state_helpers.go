@@ -6,59 +6,52 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-func NewClusterUpgradeState() ClusterUpgradeState {
-	return ClusterUpgradeState{NodeStates: make(map[string][]*NodeUpgradeState)}
+var inProgressUpgradeStates = []string{UpgradeStateCordonRequired, UpgradeStateWaitForJobsRequired, UpgradeStatePodDeletionRequired, UpgradeStatePodRestartRequired, UpgradeStateValidationRequired, UpgradeStateUncordonRequired, UpgradeStateFailed}
+
+func (s *ClusterUpgradeState) addNode(phase string, node *NodeUpgradeState) {
+	s.nodes = append(s.nodes, observedNode{phase: phase, node: node})
 }
 
-func IsNodeUnschedulable(node *corev1.Node) bool {
-	return node.Spec.Unschedulable
-}
-
-func IsNodeInRequestorMode(node *corev1.Node) bool {
-	_, ok := node.Annotations[UpgradeRequestorModeAnnotationKey]
-	return ok
-}
-
-func IsManagedUpgradeState(state string) bool {
-	return slices.Contains(managedUpgradeStates, state)
-}
-
-var inProgressUpgradeStates = func() map[string]struct{} {
-	excluded := map[string]struct{}{
-		UpgradeStateUnknown:         {},
-		UpgradeStateDone:            {},
-		UpgradeStateUpgradeRequired: {},
-		UpgradeStateSkipped:         {},
-	}
-	states := make(map[string]struct{})
-	for _, s := range managedUpgradeStates {
-		if _, skip := excluded[s]; skip {
-			continue
+func (s *ClusterUpgradeState) nodesAt(phase string) []*NodeUpgradeState {
+	var result []*NodeUpgradeState
+	for _, observed := range s.nodes {
+		if observed.phase == phase {
+			result = append(result, observed.node)
 		}
-		states[s] = struct{}{}
 	}
-	return states
-}()
-
-func IsInProgressUpgradeState(state string) bool {
-	_, ok := inProgressUpgradeStates[state]
-	return ok
+	return result
 }
 
-// ShouldReleaseCordonOnTeardown reports whether letting go of a node — turning
-// autoUpgrade off, or the node leaving the driver's scope — must lift its
-// cordon. Only a cordon the rollout owns is lifted (OwnsCordon): an
-// administrator's, k8s-driver-manager's (which with autoUpgrade off may be
-// holding it legitimately) and a requestor's stay. upgrade-failed keeps its
-// cordon on purpose: the node's driver did not come up, and the teardown leaves
-// such a node alone altogether (see removeNodeUpgradeState).
-//
-// The verdict never consults Spec.Unschedulable: the node may come from the
-// informer cache, which may not have seen a cordon written moments ago through
-// the direct clientset, and the release is an idempotent patch.
-func ShouldReleaseCordonOnTeardown(node *corev1.Node) bool {
-	if node.Labels[UpgradeStateLabelKey] == UpgradeStateFailed {
+// Prune the canonical snapshot, not a private execution copy. A lingering
+// driver pod on a departed node must not reappear in status after cleanup.
+func (s *ClusterUpgradeState) excludeDeparted() {
+	if len(s.DepartedNodes) == 0 {
+		return
+	}
+	departed := make(map[string]bool, len(s.DepartedNodes))
+	for _, node := range s.DepartedNodes {
+		departed[node.Name] = true
+	}
+	s.nodes = slices.DeleteFunc(s.nodes, func(observed observedNode) bool {
+		return departed[observed.node.Node.Name]
+	})
+}
+func IsNodeUnschedulable(n *corev1.Node) bool { return n != nil && n.Spec.Unschedulable }
+func IsNodeInRequestorMode(n *corev1.Node) bool {
+	if n == nil {
 		return false
 	}
-	return OwnsCordon(node) && !IsNodeInRequestorMode(node)
+	_, present := n.Annotations[UpgradeRequestorModeAnnotationKey]
+	return present
+}
+func IsManagedUpgradeState(state string) bool { return slices.Contains(managedUpgradeStates, state) }
+func IsInProgressUpgradeState(state string) bool {
+	return slices.Contains(inProgressUpgradeStates, state)
+}
+
+func ShouldReleaseCordonOnTeardown(n *corev1.Node) bool {
+	if n == nil || IsNodeInRequestorMode(n) || n.Labels[UpgradeStateLabelKey] == UpgradeStateFailed {
+		return false
+	}
+	return OwnsCordon(n)
 }

@@ -10,10 +10,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
-	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/driver/components"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/drivermanager"
+	rebellionsaiv1alpha1 "github.com/RBLN-SW/rbln-npu-operator/api/v1alpha1"
+	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/driver/components"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/drivermanager"
 )
 
 type DriverService struct {

@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -22,23 +24,34 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	rblnv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
-	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/drivermanager"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/metrics"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
+	rblnv1alpha1 "github.com/RBLN-SW/rbln-npu-operator/api/v1alpha1"
+	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/drivermanager"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/metrics"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/upgrade"
 )
 
 const (
-	plannedRequeueInterval = time.Second * 10
-	// statusPendingRequeueInterval retries a policy whose status the policy
-	// controller has not decided yet (avoids racing it on fresh CRs).
-	statusPendingRequeueInterval = time.Second * 5
-	DriverLabelKey               = "app.kubernetes.io/component"
-	DriverLabelValue             = "rbln-driver"
+	// plannedRequeueInterval paces the workflow while a rollout is in progress.
+	plannedRequeueInterval = 10 * time.Second
+	// statusPendingRequeueInterval is used while the policy controller has not
+	// yet published a status for the policy's current generation; acting on a
+	// fresh CR before that would race it.
+	statusPendingRequeueInterval = 5 * time.Second
+
+	// DriverLabelKey and DriverLabelValue identify the driver DaemonSets whose
+	// rollout the upgrade workflow orchestrates.
+	DriverLabelKey   = "app.kubernetes.io/component"
+	DriverLabelValue = "rbln-driver"
+
+	upgradeControllerName = "upgrade-controller"
 )
 
+// UpgradeReconciler runs one pass of the automatic driver upgrade workflow per
+// reconcile: it collects the upgrade state of every node, lets the state
+// manager move the nodes through the workflow, and publishes a summary on the
+// RBLNClusterPolicy status.
 type UpgradeReconciler struct {
 	client.Client
 	// APIReader bypasses the informer cache. The teardown's verdict comes from
@@ -66,80 +79,98 @@ type UpgradeReconciler struct {
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=deviceclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims,verbs=get
 
+// Reconcile advances the driver upgrade workflow for the policy named in req.
 func (r *UpgradeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	logger.V(consts.VDebug).Info("Reconciling driver upgrade", "policy", req.NamespacedName)
+	logger := log.FromContext(ctx).WithValues("policy", req.NamespacedName)
+	logger.V(consts.VDebug).Info("Reconciling driver upgrade")
 
-	clusterPolicy := &rblnv1beta1.RBLNClusterPolicy{}
-	err := r.Get(ctx, req.NamespacedName, clusterPolicy)
-	if err != nil {
-		logger.Error(err, "Error getting RBLNClusterPolicy object")
+	policy := &rblnv1beta1.RBLNClusterPolicy{}
+	if err := r.Get(ctx, req.NamespacedName, policy); err != nil {
 		if apierrors.IsNotFound(err) {
-			return reconcile.Result{}, r.cleanupIfNoPoliciesLeft(ctx)
+			return ctrl.Result{}, r.cleanupIfNoPoliciesLeft(ctx)
 		}
-		return reconcile.Result{}, err
-	}
-
-	// An ignored (non-singleton) policy must not touch cluster-wide upgrade
-	// state; an undecided or stale status is retried until the policy
-	// controller settles the current generation.
-	if clusterPolicy.Status.State == consts.RBLNStateIgnored {
-		return reconcile.Result{}, nil
-	}
-	if clusterPolicy.Status.State == "" ||
-		clusterPolicy.Status.ObservedGeneration != clusterPolicy.Generation {
-		return reconcile.Result{RequeueAfter: statusPendingRequeueInterval}, nil
-	}
-
-	if clusterPolicy.Spec.Driver.UpgradePolicy == nil ||
-		!clusterPolicy.Spec.Driver.UpgradePolicy.AutoUpgrade {
-		logger.Info("Auto-upgrade disabled; cleaning upgrade state and skipping reconciliation")
-		metrics.DriverUpgradeNodes.Reset()
-		if err := r.clearUpgradeStatus(ctx, clusterPolicy); err != nil {
-			logger.Error(err, "Failed to clear driver upgrade status")
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, r.removeNodeUpgradeState(ctx)
-	}
-
-	driverLabel := map[string]string{DriverLabelKey: DriverLabelValue}
-
-	state, err := r.StateManager.BuildState(ctx, r.Namespace,
-		driverLabel)
-	if err != nil {
-		logger.Error(err, "Failed to build cluster upgrade state")
+		logger.Error(err, "Unable to read the RBLNClusterPolicy")
 		return ctrl.Result{}, err
 	}
 
-	applyErr := r.StateManager.ApplyState(ctx, state, clusterPolicy.Spec.Driver.UpgradePolicy,
-		drivermanager.NPUDeviceClass(&clusterPolicy.Spec))
-	if applyErr != nil {
-		logger.Error(applyErr, "Failed to apply cluster upgrade state")
+	// Only the active singleton may touch cluster-wide upgrade state. A policy
+	// the policy controller has marked as ignored is left alone for good; one
+	// whose status is missing or stale is revisited once it has been decided.
+	switch {
+	case policy.Status.State == consts.RBLNStateIgnored:
+		return ctrl.Result{}, nil
+	case policy.Status.State == "", policy.Status.ObservedGeneration != policy.Generation:
+		return ctrl.Result{RequeueAfter: statusPendingRequeueInterval}, nil
 	}
 
-	// Published even when ApplyState partially failed — an erroring cycle is
-	// when visibility matters most.
-	if statusErr := r.publishUpgradeStatus(ctx, clusterPolicy,
-		upgrade.SummarizeClusterUpgrade(state)); statusErr != nil {
-		logger.Error(statusErr, "Failed to publish driver upgrade status")
-		applyErr = errors.Join(applyErr, statusErr)
+	if !autoUpgradeEnabled(policy) {
+		return ctrl.Result{}, r.disableWorkflow(ctx, policy)
 	}
-	if applyErr != nil {
-		return ctrl.Result{}, applyErr
+	return r.advanceRollout(ctx, policy)
+}
+
+// autoUpgradeEnabled reports whether the policy asks for the automatic
+// upgrade workflow at all.
+func autoUpgradeEnabled(policy *rblnv1beta1.RBLNClusterPolicy) bool {
+	up := policy.Spec.Driver.UpgradePolicy
+	return up != nil && up.AutoUpgrade
+}
+
+// driverSelector matches the DaemonSets that roll out the NPU driver.
+func driverSelector() map[string]string {
+	return map[string]string{DriverLabelKey: DriverLabelValue}
+}
+
+// disableWorkflow is the path taken while autoUpgrade is off: the published
+// status and every node's workflow bookkeeping are cleared so that a later
+// re-enable starts from a clean slate.
+func (r *UpgradeReconciler) disableWorkflow(ctx context.Context, policy *rblnv1beta1.RBLNClusterPolicy) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Automatic driver upgrade is disabled; clearing upgrade state")
+	metrics.DriverUpgradeNodes.Reset()
+	if err := r.clearUpgradeStatus(ctx, policy); err != nil {
+		logger.Error(err, "Unable to clear the driver upgrade status")
+		return err
+	}
+	return r.removeNodeUpgradeState(ctx)
+}
+
+// advanceRollout performs one workflow pass: collect the node states, move
+// them forward, publish the summary, and come back after the planned interval.
+func (r *UpgradeReconciler) advanceRollout(ctx context.Context, policy *rblnv1beta1.RBLNClusterPolicy) (ctrl.Result, error) {
+	state, err := r.StateManager.BuildState(ctx, r.Namespace, driverSelector())
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
+	var failures []error
+	if err := r.StateManager.ApplyState(ctx, state, policy.Spec.Driver.UpgradePolicy,
+		drivermanager.NPUDeviceClass(&policy.Spec)); err != nil {
+		failures = append(failures, err)
+	}
+
+	// The summary is published even after a failed pass; a pass that errors is
+	// exactly when operators need to see where the nodes are.
+	if err := r.publishUpgradeStatus(ctx, policy, upgrade.SummarizeClusterUpgrade(state)); err != nil {
+		failures = append(failures, err)
+	}
+
+	if len(failures) > 0 {
+		return ctrl.Result{}, errors.Join(failures...)
+	}
 	return ctrl.Result{RequeueAfter: plannedRequeueInterval}, nil
 }
 
-// cleanupIfNoPoliciesLeft resets cluster-wide upgrade state only when no
-// RBLNClusterPolicy remains, so deleting an ignored CR cannot wipe the
-// state owned by the active one.
+// cleanupIfNoPoliciesLeft runs after a policy has vanished. Cluster-wide
+// upgrade state belongs to whichever policy is active, so it is torn down
+// only when no RBLNClusterPolicy is left at all; deleting an ignored
+// duplicate must not wipe the state owned by the active one.
 func (r *UpgradeReconciler) cleanupIfNoPoliciesLeft(ctx context.Context) error {
-	list := &rblnv1beta1.RBLNClusterPolicyList{}
-	if err := r.List(ctx, list); err != nil {
+	remaining := &rblnv1beta1.RBLNClusterPolicyList{}
+	if err := r.List(ctx, remaining); err != nil {
 		return err
 	}
-	if len(list.Items) > 0 {
+	if len(remaining.Items) > 0 {
 		return nil
 	}
 	metrics.DriverUpgradeNodes.Reset()
@@ -217,102 +248,92 @@ var clusterPolicyUpgradePredicate = predicate.TypedFuncs[*rblnv1beta1.RBLNCluste
 	},
 }
 
-//nolint:dupl
-func (r *UpgradeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	c, err := controller.New("upgrade-controller", mgr, controller.Options{
-		Reconciler: r, MaxConcurrentReconciles: 1,
-		RateLimiter: workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](minDelayCR, maxDelayCR),
-	})
-	if err != nil {
-		return err
-	}
-
-	err = c.Watch(source.Kind(
-		mgr.GetCache(),
-		&rblnv1beta1.RBLNClusterPolicy{},
-		&handler.TypedEnqueueRequestForObject[*rblnv1beta1.RBLNClusterPolicy]{},
-		clusterPolicyUpgradePredicate),
-	)
-	if err != nil {
-		return err
-	}
-
-	nodeMapFn := func(ctx context.Context, o *corev1.Node) []reconcile.Request {
-		return getClusterPoliciesToReconcile(ctx, mgr.GetClient())
-	}
-
-	upgradeStateLabelPredicate := predicate.TypedFuncs[*corev1.Node]{
-		CreateFunc: func(event.TypedCreateEvent[*corev1.Node]) bool { return false },
-		UpdateFunc: func(e event.TypedUpdateEvent[*corev1.Node]) bool {
-			label := upgrade.UpgradeStateLabelKey
-			return e.ObjectOld.Labels[label] != e.ObjectNew.Labels[label]
-		},
-		DeleteFunc:  func(event.TypedDeleteEvent[*corev1.Node]) bool { return false },
-		GenericFunc: func(event.TypedGenericEvent[*corev1.Node]) bool { return false },
-	}
-
-	err = c.Watch(
-		source.Kind(
-			mgr.GetCache(),
-			&corev1.Node{},
-			handler.TypedEnqueueRequestsFromMapFunc[*corev1.Node](nodeMapFn),
-			upgradeStateLabelPredicate,
-		),
-	)
-	if err != nil {
-		return err
-	}
-
-	dsMapFn := func(ctx context.Context, _ *appsv1.DaemonSet) []reconcile.Request {
-		return getClusterPoliciesToReconcile(ctx, mgr.GetClient())
-	}
-
-	rblnDriverDSPredicate := predicate.NewTypedPredicateFuncs(func(ds *appsv1.DaemonSet) bool {
-		if ds.GetLabels()[DriverLabelKey] != DriverLabelValue {
-			return false
-		}
-		for _, owner := range ds.GetOwnerReferences() {
-			if (owner.APIVersion == rblnv1beta1.GroupVersion.String() && owner.Kind == "RBLNClusterPolicy") ||
-				(owner.APIVersion == rblnv1alpha1.GroupVersion.String() && owner.Kind == "RBLNDriver") {
-				return true
-			}
-		}
-		return false
-	})
-
-	err = c.Watch(
-		source.Kind(
-			mgr.GetCache(),
-			&appsv1.DaemonSet{},
-			handler.TypedEnqueueRequestsFromMapFunc[*appsv1.DaemonSet](dsMapFn),
-			predicate.And[*appsv1.DaemonSet](
-				predicate.TypedGenerationChangedPredicate[*appsv1.DaemonSet]{},
-				rblnDriverDSPredicate,
-			),
-		))
-	if err != nil {
-		return err
-	}
-
-	return nil
+// nodeUpgradeStateChanged wakes the controller only when a node's upgrade
+// state label changes. Node creation, deletion and unrelated updates (resource
+// usage, heartbeats) are noise for this workflow.
+var nodeUpgradeStateChanged = predicate.TypedFuncs[*corev1.Node]{
+	CreateFunc:  func(event.TypedCreateEvent[*corev1.Node]) bool { return false },
+	DeleteFunc:  func(event.TypedDeleteEvent[*corev1.Node]) bool { return false },
+	GenericFunc: func(event.TypedGenericEvent[*corev1.Node]) bool { return false },
+	UpdateFunc: func(e event.TypedUpdateEvent[*corev1.Node]) bool {
+		return e.ObjectOld.Labels[upgrade.UpgradeStateLabelKey] != e.ObjectNew.Labels[upgrade.UpgradeStateLabelKey]
+	},
 }
 
-func getClusterPoliciesToReconcile(ctx context.Context, k8sClient client.Client) []reconcile.Request {
-	logger := log.FromContext(ctx)
-	list := &rblnv1beta1.RBLNClusterPolicyList{}
-	if err := k8sClient.List(ctx, list); err != nil {
-		logger.Error(err, "Unable to list ClusterPolicies")
-		return nil
+// isManagedDriverDaemonSet selects the driver DaemonSets owned by one of the
+// operator's custom resources. A third-party DaemonSet that happens to carry
+// the driver label is not part of the rollout and is ignored.
+func isManagedDriverDaemonSet(ds *appsv1.DaemonSet) bool {
+	if ds.GetLabels()[DriverLabelKey] != DriverLabelValue {
+		return false
+	}
+	for _, owner := range ds.GetOwnerReferences() {
+		switch {
+		case owner.Kind == "RBLNClusterPolicy" && owner.APIVersion == rblnv1beta1.GroupVersion.String(),
+			owner.Kind == "RBLNDriver" && owner.APIVersion == rblnv1alpha1.GroupVersion.String():
+			return true
+		}
+	}
+	return false
+}
+
+// SetupWithManager registers the controller. Besides the policies themselves
+// it watches node upgrade-state label changes and generation changes of the
+// managed driver DaemonSets; both fan out to every RBLNClusterPolicy, since
+// which one is active is decided inside Reconcile.
+func (r *UpgradeReconciler) SetupWithManager(_ context.Context, mgr ctrl.Manager) error {
+	informers := mgr.GetCache()
+	fanOut := func(ctx context.Context) []reconcile.Request {
+		return r.allPolicyRequests(ctx, mgr.GetClient())
 	}
 
-	requests := make([]reconcile.Request, 0, len(list.Items))
-	for _, cp := range list.Items {
-		requests = append(requests, reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      cp.GetName(),
-				Namespace: cp.GetNamespace(),
-			},
-		})
+	// Without a For() object the builder would log only namespace/name; keep
+	// the controller and object keys that dashboards already filter on.
+	logFor := func(req *reconcile.Request) logr.Logger {
+		l := mgr.GetLogger().WithValues("controller", upgradeControllerName)
+		if req != nil {
+			l = l.WithValues("object", klog.KRef(req.Namespace, req.Name),
+				"namespace", req.Namespace, "name", req.Name)
+		}
+		return l
+	}
+
+	return ctrl.NewControllerManagedBy(mgr).
+		Named(upgradeControllerName).
+		WithLogConstructor(logFor).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: 1,
+			RateLimiter: workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](
+				minDelayCR, maxDelayCR),
+		}).
+		WatchesRawSource(source.Kind(informers, &rblnv1beta1.RBLNClusterPolicy{},
+			&handler.TypedEnqueueRequestForObject[*rblnv1beta1.RBLNClusterPolicy]{},
+			clusterPolicyUpgradePredicate)).
+		WatchesRawSource(source.Kind(informers, &corev1.Node{},
+			handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, _ *corev1.Node) []reconcile.Request {
+				return fanOut(ctx)
+			}),
+			nodeUpgradeStateChanged)).
+		WatchesRawSource(source.Kind(informers, &appsv1.DaemonSet{},
+			handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, _ *appsv1.DaemonSet) []reconcile.Request {
+				return fanOut(ctx)
+			}),
+			predicate.TypedGenerationChangedPredicate[*appsv1.DaemonSet]{},
+			predicate.NewTypedPredicateFuncs(isManagedDriverDaemonSet))).
+		Complete(r)
+}
+
+// allPolicyRequests enqueues every RBLNClusterPolicy. A failed list is logged
+// and yields no requests; the next watch event retries.
+func (r *UpgradeReconciler) allPolicyRequests(ctx context.Context, c client.Client) []reconcile.Request {
+	policies := &rblnv1beta1.RBLNClusterPolicyList{}
+	if err := c.List(ctx, policies); err != nil {
+		log.FromContext(ctx).Error(err, "Unable to list RBLNClusterPolicies for upgrade reconciliation")
+		return nil
+	}
+	requests := make([]reconcile.Request, len(policies.Items))
+	for i := range policies.Items {
+		requests[i] = reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&policies.Items[i])}
 	}
 	return requests
 }

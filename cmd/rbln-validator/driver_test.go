@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	drivervalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/driver"
+	drivervalidator "github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/driver"
 )
 
 func TestValidateDriver(t *testing.T) {

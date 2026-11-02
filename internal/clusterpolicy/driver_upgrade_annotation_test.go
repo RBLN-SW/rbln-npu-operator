@@ -6,8 +6,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 func TestShouldEnableDriverAutoUpgrade(t *testing.T) {

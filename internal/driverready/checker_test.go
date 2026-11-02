@@ -11,7 +11,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 func readyPod() corev1.Pod {

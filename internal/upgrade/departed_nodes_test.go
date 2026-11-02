@@ -7,8 +7,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 func departedTestNode(name, state, deploy string, annotations map[string]string) *corev1.Node {
@@ -34,6 +37,8 @@ func TestFindDepartedNodes(t *testing.T) {
 		departedTestNode("finished-and-left", UpgradeStateDone, "false", nil),
 		departedTestNode("never-in-rollout", "", "", nil),
 		departedTestNode("not-an-npu-node", "", "", map[string]string{consts.DriverManagerCordonClaimAnnotation: "driver"}),
+		departedTestNode("claim-only", "", "", map[string]string{consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue}),
+		departedTestNode("claim-only-in-scope", "", "true", map[string]string{consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue}),
 	)
 
 	departed, err := mgr.findDepartedNodes(context.Background())
@@ -44,7 +49,7 @@ func TestFindDepartedNodes(t *testing.T) {
 	for _, n := range departed {
 		got[n.Name] = true
 	}
-	want := map[string]bool{"vm-passthrough": true, "host-driver": true, "finished-and-left": true}
+	want := map[string]bool{"vm-passthrough": true, "host-driver": true, "finished-and-left": true, "claim-only": true}
 	if len(got) != len(want) {
 		t.Fatalf("departed = %v, want %v", got, want)
 	}
@@ -91,7 +96,7 @@ func TestProcessDepartedNodes(t *testing.T) {
 			mgr := newTestManager(t)
 			registerNodes(t, mgr, tc.node)
 
-			state := NewClusterUpgradeState()
+			state := ClusterUpgradeState{}
 			state.DepartedNodes = []*corev1.Node{tc.node}
 			if err := mgr.ProcessDepartedNodes(context.Background(), &state); err != nil {
 				t.Fatalf("ProcessDepartedNodes: %v", err)
@@ -116,5 +121,72 @@ func TestProcessDepartedNodes(t *testing.T) {
 				t.Fatal("the rollout's claim must go with its cordon")
 			}
 		})
+	}
+}
+
+func TestDepartedRequestorCleanupStopsWritingUntilReleased(t *testing.T) {
+	ctx := t.Context()
+	m := newTestManager(t)
+	node := departedTestNode("requestor", UpgradeStatePodRestartRequired, "false", map[string]string{
+		UpgradeRequestorModeAnnotationKey:         "",
+		UpgradePodRestartStartTimeAnnotationKey:   "1",
+		consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue,
+	})
+	patches := 0
+	c := fake.NewClientBuilder().WithScheme(m.k8sClient.Scheme()).WithObjects(node).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				patches++
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
+	m.k8sClient = c
+	m.nodeUpgradeStateProvider = NewNodeUpgradeStateProvider(c, nil)
+	for range 3 {
+		departed, err := m.findDepartedNodes(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := m.ProcessDepartedNodes(ctx, &ClusterUpgradeState{DepartedNodes: departed}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if patches != 1 {
+		t.Fatalf("cleanup patched %d times; only the first pass has bookkeeping to remove", patches)
+	}
+	live, err := m.nodeUpgradeStateProvider.GetNode(ctx, node.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !live.Spec.Unschedulable || !IsNodeInRequestorMode(live) ||
+		live.Annotations[consts.DriverManagerCordonClaimAnnotation] != consts.OperatorCordonClaimValue {
+		t.Fatal("cleanup must preserve the requestor's cordon and claim")
+	}
+	if _, labeled := live.Labels[UpgradeStateLabelKey]; labeled {
+		t.Fatal("cleanup left the upgrade state label")
+	}
+	if _, clock := live.Annotations[UpgradePodRestartStartTimeAnnotationKey]; clock {
+		t.Fatal("cleanup left the restart clock")
+	}
+
+	// Keep discovering the claim: removing requestor mode must allow the
+	// next pass to release it even though the state label is already gone.
+	delete(live.Annotations, UpgradeRequestorModeAnnotationKey)
+	if err := c.Update(ctx, live); err != nil {
+		t.Fatal(err)
+	}
+	departed, err := m.findDepartedNodes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ProcessDepartedNodes(ctx, &ClusterUpgradeState{DepartedNodes: departed}); err != nil {
+		t.Fatal(err)
+	}
+	live, err = m.nodeUpgradeStateProvider.GetNode(ctx, node.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patches != 2 || live.Spec.Unschedulable || CarriesRolloutBookkeeping(live) {
+		t.Fatalf("released requestor left a cordon or claim: patches=%d, node=%+v", patches, live)
 	}
 }

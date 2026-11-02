@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/statusfile"
+	"github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/statusfile"
 )
 
 func WriteStatusFile(outputDir string, result Result) error {

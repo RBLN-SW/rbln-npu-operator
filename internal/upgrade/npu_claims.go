@@ -14,7 +14,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 // npuDeviceClassNames returns the DRA DeviceClasses whose claims mark a pod as

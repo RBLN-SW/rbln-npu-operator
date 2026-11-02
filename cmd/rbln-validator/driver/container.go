@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/driverready"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/driverready"
 )
 
 var driverLibrarySearchPaths = []string{

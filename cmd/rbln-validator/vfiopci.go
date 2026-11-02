@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/statusfile"
-	vfiovalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/vfiopci"
+	"github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/statusfile"
+	vfiovalidator "github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/vfiopci"
 )
 
 func newVFIOPCICommand(config *rootConfig) *cobra.Command {

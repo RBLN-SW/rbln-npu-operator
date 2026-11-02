@@ -6,19 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/metrics"
+	"github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/metrics"
 )
-
-type applyStateStep struct {
-	name      string
-	errorMsg  string
-	errorArgs []any
-	run       func() error
-}
 
 func logKeyForNodeState(state string) string {
 	if state == UpgradeStateUnknown {
@@ -27,153 +17,55 @@ func logKeyForNodeState(state string) string {
 	return state
 }
 
-func (m *ClusterUpgradeStateManagerImpl) logNodeStates(ctx context.Context, currentState *ClusterUpgradeState) {
-	logArgs := make([]any, 0, len(managedUpgradeStates)*2)
+func recordNodeStateMetrics(s *ClusterUpgradeState) {
+	counts := make(map[string]int, len(managedUpgradeStates))
+	forEachUniqueNode(s, func(n *NodeUpgradeState) {
+		state := n.Node.Labels[UpgradeStateLabelKey]
+		if !IsManagedUpgradeState(state) {
+			state = UpgradeStateUnknown
+		}
+		counts[state]++
+	})
 	for _, state := range managedUpgradeStates {
-		logArgs = append(logArgs, logKeyForNodeState(state), len(currentState.NodeStates[state]))
-	}
-	log.FromContext(ctx).Info("Node states", logArgs...)
-}
-
-// recordNodeStateMetrics publishes every managed state's node count,
-// including zeros, so stale series don't survive a reconcile.
-func recordNodeStateMetrics(currentState *ClusterUpgradeState) {
-	for _, state := range managedUpgradeStates {
-		label := strings.ToLower(logKeyForNodeState(state))
-		metrics.DriverUpgradeNodes.WithLabelValues(label).Set(float64(len(currentState.NodeStates[state])))
+		metrics.DriverUpgradeNodes.WithLabelValues(strings.ToLower(logKeyForNodeState(state))).Set(float64(counts[state]))
 	}
 }
 
-func (m *ClusterUpgradeStateManagerImpl) runApplyStateStep(ctx context.Context, step applyStateStep) error {
-	if err := step.run(); err != nil {
-		errorArgs := append([]any{}, step.errorArgs...)
-		errorArgs = append(errorArgs, "step", step.name)
-		log.FromContext(ctx).Error(err, step.errorMsg, errorArgs...)
-		return fmt.Errorf("apply state step %q failed: %w", step.name, err)
+func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context, s *ClusterUpgradeState, policy *v1beta1.DriverUpgradePolicySpec, deviceClass string) error {
+	if s == nil {
+		return errors.New("currentState should not be empty")
 	}
-
-	return nil
-}
-
-func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context,
-	currentState *ClusterUpgradeState, upgradePolicy *v1beta1.DriverUpgradePolicySpec,
-	npuDeviceClass string,
-) error {
-	log.FromContext(ctx).V(consts.VDebug).Info("State Manager, got state update")
-
-	if currentState == nil {
-		return fmt.Errorf("currentState should not be empty")
-	}
-
-	if upgradePolicy == nil || !upgradePolicy.AutoUpgrade {
-		log.FromContext(ctx).Info("Driver auto upgrade is disabled, skipping")
+	if policy == nil || !policy.AutoUpgrade {
 		return nil
 	}
-
-	m.logNodeStates(ctx, currentState)
-	recordNodeStateMetrics(currentState)
-
-	steps := []applyStateStep{
-		// Nodes that left the driver's scope go first, so the slot census
-		// below no longer counts them.
-		{
-			name:     "departed",
-			errorMsg: "Failed to tear down nodes that left the driver's scope",
-			run: func() error {
-				return m.ProcessDepartedNodes(ctx, currentState)
-			},
-		},
-		{
-			name:      UpgradeStateUnknown,
-			errorMsg:  "Failed to process nodes",
-			errorArgs: []any{"state", UpgradeStateUnknown},
-			run: func() error {
-				return m.ProcessUnknownNodes(ctx, currentState)
-			},
-		},
-		{
-			name:      UpgradeStateDone,
-			errorMsg:  "Failed to process nodes",
-			errorArgs: []any{"state", UpgradeStateDone},
-			run: func() error {
-				return m.ProcessDoneNodes(ctx, currentState)
-			},
-		},
-		// Skipped and failed run before upgrade-required so a woken node frees
-		// its slot within the same cycle's census.
-		{
-			name:     UpgradeStateSkipped,
-			errorMsg: "Failed to process nodes in 'upgrade-skipped' state",
-			run: func() error {
-				return m.ProcessUpgradeSkippedNodes(ctx, currentState)
-			},
-		},
-		{
-			name:     UpgradeStateFailed,
-			errorMsg: "Failed to process nodes in 'upgrade-failed' state",
-			run: func() error {
-				return m.ProcessUpgradeFailedNodes(ctx, currentState)
-			},
-		},
-		{
-			name:      UpgradeStateUpgradeRequired,
-			errorMsg:  "Failed to process nodes",
-			errorArgs: []any{"state", UpgradeStateUpgradeRequired},
-			run: func() error {
-				return m.ProcessUpgradeRequiredNodes(ctx, currentState, upgradePolicy)
-			},
-		},
-		{
-			name:     UpgradeStateCordonRequired,
-			errorMsg: "Failed to cordon nodes",
-			run: func() error {
-				return m.ProcessCordonRequiredNodes(ctx, currentState)
-			},
-		},
-		{
-			name:     UpgradeStateWaitForJobsRequired,
-			errorMsg: "Failed to waiting for required jobs to complete",
-			run: func() error {
-				return m.ProcessWaitForJobsRequiredNodes(ctx, currentState, upgradePolicy.WaitForCompletion)
-			},
-		},
-		{
-			name:     UpgradeStatePodDeletionRequired,
-			errorMsg: "Failed to delete pods",
-			run: func() error {
-				return m.ProcessPodDeletionRequiredNodes(ctx, currentState, upgradePolicy.PodDeletion, npuDeviceClass)
-			},
-		},
-		{
-			name:     UpgradeStatePodRestartRequired,
-			errorMsg: "Failed for 'pod-restart-required' state",
-			run: func() error {
-				return m.ProcessPodRestartNodes(ctx, currentState, int64(upgradePolicy.PodRestartTimeoutSeconds))
-			},
-		},
-		{
-			name:     UpgradeStateValidationRequired,
-			errorMsg: "Failed to validate driver upgrade",
-			run: func() error {
-				return m.ProcessValidationRequiredNodes(ctx, currentState)
-			},
-		},
-		{
-			name:     UpgradeStateUncordonRequired,
-			errorMsg: "Failed to uncordon nodes",
-			run: func() error {
-				return m.ProcessUncordonRequiredNodes(ctx, currentState)
-			},
-		},
+	// BuildState already prunes departed nodes. Also handle snapshots supplied
+	// directly by a caller, keeping the caller's status view consistent.
+	s.excludeDeparted()
+	defer recordNodeStateMetrics(s)
+	steps := []struct {
+		name string
+		run  func() error
+	}{
+		{"departed", func() error { return m.ProcessDepartedNodes(ctx, s) }},
+		{"unknown", func() error { return m.ProcessUnknownNodes(ctx, s) }},
+		{"done", func() error { return m.ProcessDoneNodes(ctx, s) }},
+		{"skipped", func() error { return m.ProcessUpgradeSkippedNodes(ctx, s) }},
+		{"failed", func() error { return m.ProcessUpgradeFailedNodes(ctx, s) }},
+		{"admission", func() error { return m.ProcessUpgradeRequiredNodes(ctx, s, policy) }},
+		{"cordon", func() error { return m.ProcessCordonRequiredNodes(ctx, s) }},
+		{"completion", func() error { return m.ProcessWaitForJobsRequiredNodes(ctx, s, policy.WaitForCompletion) }},
+		{"eviction", func() error { return m.ProcessPodDeletionRequiredNodes(ctx, s, policy.PodDeletion, deviceClass) }},
+		{"restart", func() error { return m.ProcessPodRestartNodes(ctx, s, int64(policy.PodRestartTimeoutSeconds)) }},
+		{"validation", func() error { return m.ProcessValidationRequiredNodes(ctx, s) }},
+		{"uncordon", func() error { return m.ProcessUncordonRequiredNodes(ctx, s) }},
 	}
-
-	var errs []error
+	var result error
 	for _, step := range steps {
-		if err := m.runApplyStateStep(ctx, step); err != nil {
-			errs = append(errs, err)
+		if err := step.run(); err != nil {
+			// The reconcile boundary logs returned errors once. Retain phase
+			// and node context without logging the same failure at each layer.
+			result = errors.Join(result, fmt.Errorf("%s: %w", step.name, err))
 		}
 	}
-
-	log.FromContext(ctx).V(consts.VDebug).Info("State Manager, finished processing")
-	return errors.Join(errs...)
+	return result
 }

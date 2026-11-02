@@ -25,7 +25,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/logging"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/logging"
 )
 
 func main() {

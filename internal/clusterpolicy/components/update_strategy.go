@@ -4,7 +4,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
 )
 
 // applyUpdateStrategy runs inside CreateOrPatch, after the existing DaemonSet

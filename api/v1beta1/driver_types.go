@@ -1,13 +1,14 @@
 package v1beta1
 
-// DriverSpec defines the properties for RBLN Driver deployment
+// DriverSpec holds the driver rollout settings of an RBLNClusterPolicy.
 type DriverSpec struct {
 	// UpgradePolicy defines automatic upgrade behavior for the driver rollout.
 	// +optional
 	UpgradePolicy *DriverUpgradePolicySpec `json:"upgradePolicy,omitempty"`
 }
 
-// DriverUpgradePolicySpec describes policy configuration for automatic upgrades
+// DriverUpgradePolicySpec controls how the operator rolls a new driver version
+// across the nodes of the cluster.
 type DriverUpgradePolicySpec struct {
 	// AutoUpgrade enables/disables the automatic upgrade workflow.
 	// If false, other upgrade policy fields are ignored, except podDeletion:
@@ -16,8 +17,8 @@ type DriverUpgradePolicySpec struct {
 	// +optional
 	// +kubebuilder:default:=false
 	AutoUpgrade bool `json:"autoUpgrade,omitempty"`
-	// MaxParallelUpgrades indicates how many nodes can be upgraded in parallel
-	// 0 means no limit, all nodes will be upgraded in parallel
+	// MaxParallelUpgrades caps the number of nodes that may be mid-upgrade at the
+	// same time. Zero removes the cap so every eligible node proceeds at once.
 	// +optional
 	// +kubebuilder:default:=1
 	// +kubebuilder:validation:Minimum:=0
@@ -46,12 +47,13 @@ type DriverUpgradePolicySpec struct {
 // k8s-driver-manager has no park state to fall back to, so it waits instead of
 // giving up.
 type PodDeletionSpec struct {
-	// Force indicates if force deletion is allowed
+	// Force also evicts pods that no controller would recreate (bare pods),
+	// instead of refusing the eviction because of them.
 	// +optional
 	// +kubebuilder:default:=false
 	Force bool `json:"force,omitempty"`
-	// TimeoutSeconds specifies the length of time in seconds to wait before giving up on pod termination, zero means
-	// infinite
+	// TimeoutSeconds is how long, in seconds, to wait for evicted pods to
+	// terminate before the node is parked. Zero waits indefinitely.
 	// +optional
 	// +kubebuilder:default:=300
 	// +kubebuilder:validation:Minimum:=0
@@ -66,15 +68,16 @@ type PodDeletionSpec struct {
 	DeleteEmptyDirData bool `json:"deleteEmptyDirData,omitempty"`
 }
 
-// WaitForCompletionSpec describes the configuration for waiting on job completions
+// WaitForCompletionSpec holds a node's upgrade back until the pods matching
+// PodSelector have finished, so that running jobs are not cut short.
 type WaitForCompletionSpec struct {
-	// PodSelector specifies a label selector for the pods to wait for completion
-	// For more details on label selectors, see:
-	// https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors
+	// PodSelector is a Kubernetes label selector. While a pod on the node that
+	// matches it is still Running or Pending, the node's upgrade does not start;
+	// pods that have already Succeeded or Failed do not hold it back.
 	// +optional
 	PodSelector string `json:"podSelector,omitempty"`
-	// TimeoutSeconds specifies the length of time in seconds to wait before giving up on pod termination, zero means
-	// infinite
+	// TimeoutSeconds bounds, in seconds, how long to wait for the selected pods
+	// to finish. Zero waits indefinitely.
 	// +optional
 	// +kubebuilder:default:=0
 	// +kubebuilder:validation:Minimum:=0

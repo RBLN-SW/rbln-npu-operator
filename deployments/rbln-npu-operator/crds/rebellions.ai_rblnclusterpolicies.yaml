@@ -3643,8 +3643,8 @@ spec:
                       maxParallelUpgrades:
                         default: 1
                         description: |-
-                          MaxParallelUpgrades indicates how many nodes can be upgraded in parallel
-                          0 means no limit, all nodes will be upgraded in parallel
+                          MaxParallelUpgrades caps the number of nodes that may be mid-upgrade at the
+                          same time. Zero removes the cap so every eligible node proceeds at once.
                         minimum: 0
                         type: integer
                       podDeletion:
@@ -3668,13 +3668,15 @@ spec:
                             type: boolean
                           force:
                             default: false
-                            description: Force indicates if force deletion is allowed
+                            description: |-
+                              Force also evicts pods that no controller would recreate (bare pods),
+                              instead of refusing the eviction because of them.
                             type: boolean
                           timeoutSeconds:
                             default: 300
                             description: |-
-                              TimeoutSeconds specifies the length of time in seconds to wait before giving up on pod termination, zero means
-                              infinite
+                              TimeoutSeconds is how long, in seconds, to wait for evicted pods to
+                              terminate before the node is parked. Zero waits indefinitely.
                             minimum: 0
                             type: integer
                         type: object
@@ -3690,20 +3692,21 @@ spec:
                         minimum: 0
                         type: integer
                       waitForCompletion:
-                        description: WaitForCompletionSpec describes the configuration
-                          for waiting on job completions
+                        description: |-
+                          WaitForCompletionSpec holds a node's upgrade back until the pods matching
+                          PodSelector have finished, so that running jobs are not cut short.
                         properties:
                           podSelector:
                             description: |-
-                              PodSelector specifies a label selector for the pods to wait for completion
-                              For more details on label selectors, see:
-                              https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors
+                              PodSelector is a Kubernetes label selector. While a pod on the node that
+                              matches it is still Running or Pending, the node's upgrade does not start;
+                              pods that have already Succeeded or Failed do not hold it back.
                             type: string
                           timeoutSeconds:
                             default: 0
                             description: |-
-                              TimeoutSeconds specifies the length of time in seconds to wait before giving up on pod termination, zero means
-                              infinite
+                              TimeoutSeconds bounds, in seconds, how long to wait for the selected pods
+                              to finish. Zero waits indefinitely.
                             minimum: 0
                             type: integer
                         type: object

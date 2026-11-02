@@ -14,11 +14,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	drivervalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/driver"
-	"github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/statusfile"
-	vfiovalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/vfiopci"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/driverready"
+	drivervalidator "github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/driver"
+	"github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/statusfile"
+	vfiovalidator "github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/vfiopci"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/driverready"
 
 	"github.com/spf13/cobra"
 )

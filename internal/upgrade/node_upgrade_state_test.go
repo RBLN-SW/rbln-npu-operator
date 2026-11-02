@@ -2,12 +2,20 @@ package upgrade
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 func TestNodeUpgradeStateProviderChangeState(t *testing.T) {
@@ -30,6 +38,116 @@ func TestNodeUpgradeStateProviderChangeState(t *testing.T) {
 	}
 	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateCordonRequired {
 		t.Fatalf("label = %q, want %q", got, UpgradeStateCordonRequired)
+	}
+}
+
+func TestNodeConflictRetriesAreBoundedAndCancelable(t *testing.T) {
+	conflict := apierrors.NewConflict(schema.GroupResource{Resource: "nodes"}, "worker", errors.New("concurrent update"))
+	t.Run("contention has a bounded retry budget", func(t *testing.T) {
+		calls := 0
+		err := retryNodeConflicts(context.Background(), func() error {
+			calls++
+			return conflict
+		})
+		if !apierrors.IsConflict(err) || calls != retry.DefaultBackoff.Steps {
+			t.Fatalf("calls=%d, err=%v", calls, err)
+		}
+	})
+	t.Run("an unrelated update can settle before the final attempt", func(t *testing.T) {
+		calls := 0
+		err := retryNodeConflicts(context.Background(), func() error {
+			calls++
+			if calls < retry.DefaultBackoff.Steps {
+				return conflict
+			}
+			return nil
+		})
+		if err != nil || calls != retry.DefaultBackoff.Steps {
+			t.Fatalf("calls=%d, err=%v", calls, err)
+		}
+	})
+	t.Run("cancellation interrupts the wait", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		calls := 0
+		err := retryNodeConflicts(ctx, func() error {
+			calls++
+			cancel()
+			return conflict
+		})
+		if !errors.Is(err, context.Canceled) || calls != 1 {
+			t.Fatalf("calls=%d, err=%v", calls, err)
+		}
+	})
+	t.Run("other failures are not retried", func(t *testing.T) {
+		calls := 0
+		failure := errors.New("unavailable")
+		err := retryNodeConflicts(context.Background(), func() error { calls++; return failure })
+		if !errors.Is(err, failure) || calls != 1 {
+			t.Fatalf("calls=%d, err=%v", calls, err)
+		}
+	})
+}
+
+func TestNodeStateConflictRechecksLiveState(t *testing.T) {
+	for _, changedState := range []bool{false, true} {
+		name := "preserves concurrent metadata and retries"
+		if changedState {
+			name = "discards a verdict after the phase changes"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			patches := 0
+			provider, recorder := newEventTestProvider(t, interceptor.Funcs{
+				Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+					patches++
+					if patches == 1 {
+						live := &corev1.Node{}
+						if err := c.Get(ctx, client.ObjectKeyFromObject(obj), live); err != nil {
+							return err
+						}
+						live.Annotations = map[string]string{"test.example.com/concurrent": "preserved"}
+						if changedState {
+							live.Labels[UpgradeStateLabelKey] = UpgradeStateDone
+						}
+						if err := c.Update(ctx, live); err != nil {
+							return err
+						}
+					}
+					// Exercise the patch's resourceVersion precondition, rather
+					// than returning an artificial Conflict from the interceptor.
+					err := c.Patch(ctx, obj, patch, opts...)
+					if patches == 1 && !apierrors.IsConflict(err) {
+						t.Errorf("stale patch should conflict, got %v", err)
+					}
+					return err
+				},
+			})
+			node := createStateNode(t, provider, UpgradeStateUpgradeRequired)
+			if err := provider.ChangeNodeUpgradeStateFrom(ctx, node, UpgradeStateUpgradeRequired, UpgradeStateCordonRequired); err != nil {
+				t.Fatal(err)
+			}
+			live, err := provider.GetNode(ctx, node.Name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if live.Annotations["test.example.com/concurrent"] != "preserved" {
+				t.Fatal("retry overwrote concurrent metadata")
+			}
+			if changedState {
+				if patches != 1 || live.Labels[UpgradeStateLabelKey] != UpgradeStateDone {
+					t.Fatal("retry did not recheck the phase before writing")
+				}
+				expectNoEvent(t, recorder)
+				return
+			}
+			if patches != 2 || live.Labels[UpgradeStateLabelKey] != UpgradeStateCordonRequired ||
+				node.Labels[UpgradeStateLabelKey] != UpgradeStateCordonRequired {
+				t.Fatal("retry did not commit and publish the transition")
+			}
+			expectEvent(t, recorder, corev1.EventTypeNormal, consts.RBLNEventReasonDriverUpgradeStarted, "Driver upgrade started")
+			expectNoEvent(t, recorder)
+		})
 	}
 }
 

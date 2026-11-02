@@ -12,10 +12,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/drivermanager"
-	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
+	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/drivermanager"
+	k8sutil "github.com/RBLN-SW/rbln-npu-operator/internal/utils/k8s"
 )
 
 type vfioManagerPatcher struct {
@@ -214,173 +214,152 @@ func (h *vfioManagerPatcher) handleConfigMap(ctx context.Context, cp *rblnv1beta
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, cm, func() error {
 		cm.Data = map[string]string{
 			"vfio-manage.sh": `#!/bin/bash
-
+# vfio-manage.sh hands Rebellions NPUs to the vfio-pci driver so that they can
+# be passed through to virtual machines, and reports whether that has happened.
+#
+#   vfio-manage.sh bind       (-a|--all | -d|--device-id <PCI_ADDR>)
+#   vfio-manage.sh check_bind (-a|--all | -d|--device-id <PCI_ADDR>)
+#
+# bind is idempotent: an NPU that is already on vfio-pci is left alone and one
+# held by another driver is released first. check_bind exits non-zero when a
+# selected NPU is not on vfio-pci.
 set -Eeuo pipefail
 
-usage()
-{
-	cat >&2 <<EOF
+readonly SYSFS_PCI=/sys/bus/pci/devices
+readonly VFIO_BIND=/sys/bus/pci/drivers/vfio-pci/bind
+readonly RBLN_VENDOR_ID=0x1eff   # Rebellions Inc.
+readonly NPU_CLASS_ID=0x120000   # processing accelerator
+
+usage() {
+	cat >&2 <<USAGE
 Usage: $0 COMMAND [OPTIONS]
 
 Commands:
   bind        [-a|--all] [-d|--device-id <PCI_ADDR>]
   check_bind  [-a|--all] [-d|--device-id <PCI_ADDR>]
   help        [-h|--help]
-EOF
+USAGE
 	exit 0
 }
 
-# unbind device from non vfio-pci driver
-unbind_from_other_driver() {
-	local npu=$1
-	local existing_driver_name
-	local existing_driver
+# ---- sysfs queries ----------------------------------------------------------
 
-	[ -e "/sys/bus/pci/devices/$npu/driver" ] || return 0
-
-	existing_driver=$(readlink -f "/sys/bus/pci/devices/$npu/driver")
-	existing_driver_name=$(basename "$existing_driver")
-
-	# return if bound to vfio-pci
-	[ "$existing_driver_name" != "vfio-pci" ] || return 0
-	echo "unbinding device $npu from driver $existing_driver_name"
-	echo "$npu" > "$existing_driver/unbind"
-	echo > /sys/bus/pci/devices/$npu/driver_override
+# driver_of ADDR prints the name of the driver bound to ADDR, or nothing.
+driver_of() {
+	local link=$SYSFS_PCI/$1/driver
+	[[ -e $link ]] || return 0
+	basename "$(readlink -f "$link")"
 }
 
-is_target_npu_device() {
-	local npu=$1
-	# make sure device class is for target npu
-	device_class_file=$(readlink -f "/sys/bus/pci/devices/$npu/class")
-	device_class=$(cat "$device_class_file")
-
-	# Check if device_class matches any of the values in the list
-	local valid_classes=(0x120000)
-	for valid_class in "${valid_classes[@]}"; do
-		if [ "$device_class" == "$valid_class" ]; then
-			return 0
-		fi
-	done
-	return 1
+# has_npu_class ADDR succeeds when ADDR reports the NPU PCI class.
+has_npu_class() {
+	local class
+	class=$(<"$(readlink -f "$SYSFS_PCI/$1/class")")
+	[[ $class == "$NPU_CLASS_ID" ]]
 }
 
 is_bound_to_vfio() {
-	local npu=$1
-	local existing_driver_name
-	local existing_driver
-
-	# return if not bound to any driver
-	[ -e "/sys/bus/pci/devices/$npu/driver" ] || return 1
-
-	existing_driver=$(readlink -f "/sys/bus/pci/devices/$npu/driver")
-	existing_driver_name=$(basename "$existing_driver")
-
-	[ "$existing_driver_name" == "vfio-pci" ] && return 0
-	return 1
+	[[ $(driver_of "$1") == vfio-pci ]]
 }
 
-bind_pci_device() {
-	local npu=$1
-
-	if ! is_bound_to_vfio $npu; then
-		unbind_from_other_driver $npu
-		echo "binding device $npu"
-		echo "vfio-pci" > /sys/bus/pci/devices/$npu/driver_override
-		echo "$npu" > /sys/bus/pci/drivers/vfio-pci/bind
-	else
-		echo "device $npu already bound to vfio-pci"
-	fi
-}
-
-bind_device() {
-	local npu=$1
-
-	if ! is_target_npu_device $npu; then
-		echo "device $npu is not a npu!"
-		return 0
-	fi
-
-	bind_pci_device "$npu"
-}
-
-bind_all() {
-	for dev in /sys/bus/pci/devices/*; do
-		read vendor < $dev/vendor
-		if [ "$vendor" = "0x1eff" ]; then
-			local dev_id=$(basename $dev)
-			bind_device $dev_id
+# rebellions_npus prints the PCI address of every Rebellions NPU, one per line.
+rebellions_npus() {
+	local dev addr
+	for dev in "$SYSFS_PCI"/*; do
+		[[ -r $dev/vendor ]] || continue
+		addr=${dev##*/}
+		if [[ $(<"$dev/vendor") == "$RBLN_VENDOR_ID" ]] && has_npu_class "$addr"; then
+			echo "$addr"
 		fi
 	done
 }
 
-check_bind_device() {
-    local npu=$1
+# ---- bind -------------------------------------------------------------------
 
-    if ! is_target_npu_device "$npu"; then
-        echo "device $npu is not a Rebellions NPU!"
-        return 0
-    fi
-
-    if is_bound_to_vfio "$npu"; then
-        echo "Device $npu is bound to vfio-pci"
-        return 0
-    else
-        echo "Device $npu is not bound to vfio-pci"
-        return 1
-    fi
+# unbind_from_other_driver ADDR releases ADDR from any driver but vfio-pci.
+unbind_from_other_driver() {
+	local addr=$1 current
+	current=$(driver_of "$addr")
+	[[ -n $current && $current != vfio-pci ]] || return 0
+	echo "unbinding device $addr from driver $current"
+	echo "$addr" > "$SYSFS_PCI/$addr/driver/unbind"
+	echo "" > "$SYSFS_PCI/$addr/driver_override"
 }
 
-check_bind_all() {
-    local VENDOR_ID="1eff"
-    local DEVICE_COUNT=0
-    local ALL_BOUND=1
-
-    # Count Rebellions NPU devices
-    for dev in /sys/bus/pci/devices/*; do
-        if [ -f "$dev/vendor" ]; then
-            vendor=$(cat "$dev/vendor")
-            dev_id=$(basename "$dev")
-            if [ "$vendor" = "0x$VENDOR_ID" ] && is_target_npu_device "$dev_id"; then
-                DEVICE_COUNT=$((DEVICE_COUNT + 1))
-            fi
-        fi
-    done
-
-    # If no NPU devices found, return success
-    if [ $DEVICE_COUNT -eq 0 ]; then
-        echo "No Rebellions NPU devices found."
-        return 0
-    fi
-
-    # Check if all NPU devices are bound to vfio-pci
-    for dev in /sys/bus/pci/devices/*; do
-        if [ -f "$dev/vendor" ]; then
-            vendor=$(cat "$dev/vendor")
-            dev_id=$(basename "$dev")
-            if [ "$vendor" = "0x$VENDOR_ID" ] && is_target_npu_device "$dev_id"; then
-                if ! is_bound_to_vfio "$dev_id"; then
-                    ALL_BOUND=0
-                    echo "Device $dev_id is not bound to vfio-pci"
-                else
-                    echo "Device $dev_id is bound to vfio-pci"
-                fi
-            fi
-        fi
-    done
-
-    if [ $ALL_BOUND -eq 1 ]; then
-        echo "All $DEVICE_COUNT Rebellions NPU devices are bound to VFIO-PCI."
-        return 0
-    else
-        return 1
-    fi
+# bind_pci_device ADDR makes vfio-pci the driver of ADDR.
+bind_pci_device() {
+	local addr=$1
+	if is_bound_to_vfio "$addr"; then
+		echo "device $addr already bound to vfio-pci"
+		return 0
+	fi
+	unbind_from_other_driver "$addr"
+	echo "binding device $addr"
+	echo vfio-pci > "$SYSFS_PCI/$addr/driver_override"
+	echo "$addr" > "$VFIO_BIND"
 }
+
+bind_one() {
+	if ! has_npu_class "$1"; then
+		echo "device $1 is not a npu!"
+		return 0
+	fi
+	bind_pci_device "$1"
+}
+
+bind_all() {
+	local dev vendor
+	for dev in "$SYSFS_PCI"/*; do
+		read -r vendor < "$dev/vendor"
+		if [[ $vendor == "$RBLN_VENDOR_ID" ]]; then
+			bind_one "${dev##*/}"
+		fi
+	done
+}
+
+# ---- check ------------------------------------------------------------------
+
+check_one() {
+	if ! has_npu_class "$1"; then
+		echo "device $1 is not a Rebellions NPU!"
+		return 0
+	fi
+	if is_bound_to_vfio "$1"; then
+		echo "Device $1 is bound to vfio-pci"
+		return 0
+	fi
+	echo "Device $1 is not bound to vfio-pci"
+	return 1
+}
+
+check_all() {
+	local addr total=0 missing=0
+	while read -r addr; do
+		total=$((total + 1))
+		if is_bound_to_vfio "$addr"; then
+			echo "Device $addr is bound to vfio-pci"
+		else
+			echo "Device $addr is not bound to vfio-pci"
+			missing=$((missing + 1))
+		fi
+	done < <(rebellions_npus)
+	if (( total == 0 )); then
+		echo "No Rebellions NPU devices found."
+		return 0
+	fi
+	if (( missing > 0 )); then
+		return 1
+	fi
+	echo "All $total Rebellions NPU devices are bound to VFIO-PCI."
+}
+
+# ---- entry point ------------------------------------------------------------
 
 handle_bind() {
 	chroot /host modprobe vfio-pci
-	if [ "$DEVICE_ID" != "" ]; then
-		bind_device $DEVICE_ID
-	elif [ "$ALL_DEVICES" = "true" ]; then
+	if [[ -n $DEVICE_ID ]]; then
+		bind_one "$DEVICE_ID"
+	elif [[ $ALL_DEVICES == true ]]; then
 		bind_all
 	else
 		usage
@@ -388,66 +367,64 @@ handle_bind() {
 }
 
 handle_check_bind() {
-    if [ "$DEVICE_ID" != "" ]; then
-        check_bind_device $DEVICE_ID
-    elif [ "$ALL_DEVICES" = "true" ]; then
-        check_bind_all
-    else
-        usage
-    fi
+	if [[ -n $DEVICE_ID ]]; then
+		check_one "$DEVICE_ID"
+	elif [[ $ALL_DEVICES == true ]]; then
+		check_all
+	else
+		usage
+	fi
 }
 
-# ---------- entry ----------
-[[ $# -gt 0 ]] || usage
+main() {
+	(( $# > 0 )) || usage
+	local command=$1
+	shift
+	DEVICE_ID=""
+	ALL_DEVICES=false
+	while (( $# > 0 )); do
+		case $1 in
+			-a|--all)
+				ALL_DEVICES=true
+				shift
+				;;
+			-d|--device-id)
+				if (( $# < 2 )); then
+					echo "Error: missing value for $1" >&2
+					exit 2
+				fi
+				DEVICE_ID=$2
+				shift 2
+				;;
+			-h|--help)
+				usage
+				;;
+			--)
+				shift
+				break
+				;;
+			-*)
+				echo "Unknown option: $1" >&2
+				usage
+				;;
+			*)
+				echo "Unexpected argument: $1" >&2
+				usage
+				;;
+		esac
+	done
+	case $command in
+		bind)       handle_bind ;;
+		check_bind) handle_check_bind ;;
+		help)       usage ;;
+		*)
+			echo "Unknown command: $command" >&2
+			usage
+			;;
+	esac
+}
 
-command="$1"
-shift || true
-
-DEVICE_ID=""
-ALL_DEVICES=false
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -a|--all)
-      ALL_DEVICES=true
-      shift
-      ;;
-    -d|--device-id)
-      if [[ $# -lt 2 ]]; then
-        echo "Error: missing value for $1" >&2
-        exit 2
-      fi
-      DEVICE_ID="$2"
-      shift 2
-      ;;
-    -h|--help)
-      usage
-      ;;
-    --) # end of options
-      shift
-      break
-      ;;
-    -*)
-      echo "Unknown option: $1" >&2
-      usage
-      ;;
-    *)
-      # unexpected positional argument
-      echo "Unexpected argument: $1" >&2
-      usage
-      ;;
-  esac
-done
-
-case "$command" in
-  help)        usage ;;
-  bind)        handle_bind ;;
-  check_bind)  handle_check_bind ;;
-  *)
-    echo "Unknown command: $command" >&2
-    usage
-    ;;
-esac`,
+main "$@"`,
 		}
 		return ctrl.SetControllerReference(cp, cm, h.scheme)
 	})

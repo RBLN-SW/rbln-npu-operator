@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	vfiovalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/vfiopci"
+	vfiovalidator "github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/vfiopci"
 )
 
 // draReadyRuntime is the injectable surface of the dra-ready gate so the wait

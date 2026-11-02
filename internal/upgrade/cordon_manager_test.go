@@ -13,7 +13,7 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 const (
@@ -223,11 +223,31 @@ func TestCordonPatchesCarryClaimAndState(t *testing.T) {
 		t.Fatal("cordon patch must carry the claim")
 	}
 
+	node := cordonTestNode(true, UpgradeStateUncordonRequired, map[string]string{
+		testClaimKey: consts.OperatorCordonClaimValue, testBlockedKey: "PDB",
+	})
+	cs := k8sfake.NewClientset(node)
+	if err := NewCordonManager(cs).Uncordon(context.Background(), node); err != nil {
+		t.Fatal(err)
+	}
+	var patches [][]byte
+	for _, action := range cs.Actions() {
+		if patch, ok := action.(k8stesting.PatchAction); ok {
+			patches = append(patches, patch.GetPatch())
+		}
+	}
+	if len(patches) != 1 {
+		t.Fatalf("uncordon must release state and ownership in one write, got %d patches", len(patches))
+	}
 	var uncordon map[string]any
-	if err := json.Unmarshal(uncordonPatch, &uncordon); err != nil {
+	if err := json.Unmarshal(patches[0], &uncordon); err != nil {
 		t.Fatalf("uncordon patch is not JSON: %v", err)
 	}
-	annotations := uncordon["metadata"].(map[string]any)["annotations"].(map[string]any)
+	uncordonMeta := uncordon["metadata"].(map[string]any)
+	if uncordonMeta["resourceVersion"] != "7" {
+		t.Fatal("uncordon must be conditional on the observed claim")
+	}
+	annotations := uncordonMeta["annotations"].(map[string]any)
 	for _, key := range []string{testClaimKey, testBlockedKey} {
 		if v, ok := annotations[key]; !ok || v != nil {
 			t.Fatalf("uncordon patch must null %s", key)

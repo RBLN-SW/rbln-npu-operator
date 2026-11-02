@@ -12,10 +12,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/drivermanager"
-	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
+	rebellionsaiv1alpha1 "github.com/RBLN-SW/rbln-npu-operator/api/v1alpha1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/drivermanager"
+	k8sutil "github.com/RBLN-SW/rbln-npu-operator/internal/utils/k8s"
 )
 
 func newTestPatcher(t *testing.T, openshiftVersion string) *driverManagerPatcher {

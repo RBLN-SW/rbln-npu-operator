@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	rblnv1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
+	rblnv1 "github.com/RBLN-SW/rbln-npu-operator/api/v1alpha1"
 )
 
 func TestNodePodReaderRBACScopeAndSharedOwners(t *testing.T) {

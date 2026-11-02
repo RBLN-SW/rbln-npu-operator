@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/driverready"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/driverready"
 )
 
 func newDriverReadyCommand(config *rootConfig) *cobra.Command {

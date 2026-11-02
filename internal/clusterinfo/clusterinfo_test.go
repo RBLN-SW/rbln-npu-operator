@@ -6,7 +6,7 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 func TestChooseContainerRuntime(t *testing.T) {
@@ -52,6 +52,29 @@ func TestChooseContainerRuntime(t *testing.T) {
 			got := chooseContainerRuntime(tc.nodes)
 			if got != tc.want {
 				t.Fatalf("chooseContainerRuntime() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRuntimeReportCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		report, want string
+	}{
+		{"docker://24.0.7", consts.Docker},
+		{"docker24", consts.Docker},
+		{"containerd", consts.Containerd},
+		{"containerd-custom://1.7", consts.Containerd},
+		{"cri-o://1.31", consts.CRIO},
+		{"cri-o-custom", consts.CRIO},
+		{"unknown://1.0", ""},
+		{"", ""},
+	} {
+		t.Run(tc.report, func(t *testing.T) {
+			node := corev1.Node{Status: corev1.NodeStatus{NodeInfo: corev1.NodeSystemInfo{ContainerRuntimeVersion: tc.report}}}
+			got, err := getRuntimeString(node)
+			if got != tc.want || (err != nil) != (tc.want == "") {
+				t.Fatalf("runtime=%q, err=%v; want=%q", got, err, tc.want)
 			}
 		})
 	}

@@ -62,7 +62,7 @@ body:
     attributes:
       label: Operator Version
       description: Specify the rbln-npu-operator version or image tag.
-      placeholder: "e.g. v0.7.3 or rebellions-sw/rbln-npu-operator:v0.7.3"
+      placeholder: "e.g. v0.4.5 or docker.io/rebellions/rbln-npu-operator:v0.4.5"
 
   - type: input
     attributes:

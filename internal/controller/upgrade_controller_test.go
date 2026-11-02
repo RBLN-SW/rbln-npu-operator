@@ -33,9 +33,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
+	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/upgrade"
 )
 
 // ---------------------------------------------------------------------------
@@ -47,19 +47,11 @@ type mockStateManager struct {
 	applyStateFunc func(ctx context.Context, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec, npuDeviceClass string) error
 }
 
-func (m *mockStateManager) WithPodDeletionEnabled(_ upgrade.PodDeletionFilter) upgrade.ClusterUpgradeStateManager {
-	return m
-}
-
-func (m *mockStateManager) WithValidationEnabled(_ string) upgrade.ClusterUpgradeStateManager {
-	return m
-}
-
 func (m *mockStateManager) BuildState(ctx context.Context, namespace string, driverLabels map[string]string) (*upgrade.ClusterUpgradeState, error) {
 	if m.buildStateFunc != nil {
 		return m.buildStateFunc(ctx, namespace, driverLabels)
 	}
-	return &upgrade.ClusterUpgradeState{NodeStates: map[string][]*upgrade.NodeUpgradeState{}}, nil
+	return &upgrade.ClusterUpgradeState{}, nil
 }
 
 func (m *mockStateManager) ApplyState(ctx context.Context, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec, npuDeviceClass string) error {

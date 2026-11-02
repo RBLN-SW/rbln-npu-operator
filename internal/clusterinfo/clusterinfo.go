@@ -14,7 +14,7 @@ import (
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 const (
@@ -161,17 +161,21 @@ func chooseContainerRuntime(nodes []corev1.Node) string {
 	return bestRuntime
 }
 
-func getRuntimeString(node corev1.Node) (string, error) {
-	runtimeVersion := node.Status.NodeInfo.ContainerRuntimeVersion
+// Runtime prefixes are kept compatible with node reports accepted by previous
+// releases, including reports without a :// separator.
+var runtimeNames = []struct{ prefix, name string }{
+	{"docker", consts.Docker},
+	{"containerd", consts.Containerd},
+	{"cri-o", consts.CRIO},
+}
 
-	switch {
-	case strings.HasPrefix(runtimeVersion, "docker"):
-		return consts.Docker, nil
-	case strings.HasPrefix(runtimeVersion, "containerd"):
-		return consts.Containerd, nil
-	case strings.HasPrefix(runtimeVersion, "cri-o"):
-		return consts.CRIO, nil
-	default:
-		return "", fmt.Errorf("runtime not recognized: %s", runtimeVersion)
+// getRuntimeString identifies a runtime from the start of its version report.
+func getRuntimeString(node corev1.Node) (string, error) {
+	reported := node.Status.NodeInfo.ContainerRuntimeVersion
+	for _, runtime := range runtimeNames {
+		if strings.HasPrefix(reported, runtime.prefix) {
+			return runtime.name, nil
+		}
 	}
+	return "", fmt.Errorf("runtime not recognized: %s", reported)
 }

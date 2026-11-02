@@ -1,6 +1,6 @@
 package components
 
-import "github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+import "github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 
 const (
 	driverManagerName                         = "rbln-driver"

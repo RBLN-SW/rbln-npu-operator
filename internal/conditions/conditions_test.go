@@ -3,7 +3,7 @@ package conditions
 import (
 	"testing"
 
-	rblnv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
+	rblnv1alpha1 "github.com/RBLN-SW/rbln-npu-operator/api/v1alpha1"
 )
 
 // TestApplyDriverSummary documents and pins the nil-vs-empty contract of

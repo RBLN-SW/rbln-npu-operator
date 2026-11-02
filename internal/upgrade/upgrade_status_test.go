@@ -3,7 +3,10 @@ package upgrade
 import (
 	"testing"
 
-	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
+	"github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/metrics"
 )
 
 func TestSummarizeClusterUpgrade_CountsAndReasons(t *testing.T) {
@@ -101,6 +104,7 @@ func TestSummarizeClusterUpgrade_StateDerivation(t *testing.T) {
 }
 
 func TestSummarizeClusterUpgrade_CountsUniqueNodesOnce(t *testing.T) {
+	defer metrics.DriverUpgradeNodes.Reset()
 	a := newNodeUpgradeState("n1", UpgradeStateDone, "rev1")
 	b := newNodeUpgradeStateWithDS("n1", UpgradeStateDone, "rev1", "")
 	b.Node = a.Node
@@ -110,6 +114,10 @@ func TestSummarizeClusterUpgrade_CountsUniqueNodesOnce(t *testing.T) {
 	})
 	if got := SummarizeClusterUpgrade(state).Total; got != 1 {
 		t.Fatalf("total = %d, want 1", got)
+	}
+	recordNodeStateMetrics(state)
+	if got := testutil.ToFloat64(metrics.DriverUpgradeNodes.WithLabelValues(UpgradeStateDone)); got != 1 {
+		t.Fatalf("metrics counted the same node more than once: %v", got)
 	}
 }
 

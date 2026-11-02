@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
 )
 
 // ClusterUpgradeStatusSummary is a per-reconcile snapshot of rollout progress.
@@ -118,17 +118,16 @@ func SummarizeClusterUpgrade(currentClusterState *ClusterUpgradeState) *ClusterU
 	return summary
 }
 
-// forEachUniqueNode visits every node exactly once, even if it appears in more
-// than one bucket (e.g. an owned and an orphaned pod on the same node).
+// Status and metrics count each active node once, even if an owned and an
+// orphaned pod both contributed an observation for that node.
 func forEachUniqueNode(state *ClusterUpgradeState, visit func(*NodeUpgradeState)) {
 	seen := make(map[string]struct{})
-	for _, bucket := range state.NodeStates {
-		for _, nodeState := range bucket {
-			if _, ok := seen[nodeState.Node.Name]; ok {
-				continue
-			}
-			seen[nodeState.Node.Name] = struct{}{}
-			visit(nodeState)
+	for _, observed := range state.nodes {
+		nodeState := observed.node
+		if _, ok := seen[nodeState.Node.Name]; ok {
+			continue
 		}
+		seen[nodeState.Node.Name] = struct{}{}
+		visit(nodeState)
 	}
 }

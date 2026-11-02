@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
 )
 
 func blockTestPod(name string, owner *metav1.OwnerReference, emptyDir bool) corev1.Pod {

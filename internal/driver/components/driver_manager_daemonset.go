@@ -11,9 +11,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
-	k8sutil "github.com/rebellions-sw/rbln-npu-operator/internal/utils/k8s"
+	rebellionsaiv1alpha1 "github.com/RBLN-SW/rbln-npu-operator/api/v1alpha1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	k8sutil "github.com/RBLN-SW/rbln-npu-operator/internal/utils/k8s"
 )
 
 // handleDaemonSet creates or updates one pool's DaemonSet. deferCreate skips

@@ -136,7 +136,7 @@ Current limitations:
 The RBLN NPU Operator Helm chart automatically discovers RBLN NPUs in your cluster, deploys the required device plugins, and monitors the health of each operand. Follow these steps to get up and running quickly.
 
 1. **Prerequisites**
-    - Kubernetes 1.19+ cluster with access to `kubectl` and `helm`
+    - Kubernetes 1.19+ cluster with access to `kubectl` and Helm 3.8+ (OCI support)
     - A dedicated namespace such as `rbln-system` is recommended
     - Worker nodes equipped with NPUs and Node Feature Discovery installed (set `nfd.enabled=true` if you want Helm to deploy it)
     - To enable the driver (`driver.enabled=true`, with or without `driver.instances`), a `drivercred` image-pull secret in the target namespace — every driver sample/values file references it by name:
@@ -154,17 +154,19 @@ The RBLN NPU Operator Helm chart automatically discovers RBLN NPUs in your clust
      && ./get_helm.sh
    ```
 
-3. **Add the Rebellions Helm repository**
+3. **Inspect the published OCI chart**
    ```bash
-   helm repo add rebellions https://rebellions-sw.github.io/rbln-npu-operator
-   helm repo update
+   helm show chart oci://registry-1.docker.io/rebellions/rbln-npu-operator-chart
    ```
+   Charts are published on [Docker Hub](https://hub.docker.com/r/rebellions/rbln-npu-operator-chart).
+   OCI charts are used directly; no `helm repo add` is needed. Add
+   `--version <chart-version>` to select a specific release.
 
 4. **Install the NPU Operator**
    ```bash
    helm install --wait --generate-name \
         -n rbln-system --create-namespace \
-        rebellions/rbln-npu-operator
+        oci://registry-1.docker.io/rebellions/rbln-npu-operator-chart
    ```
 
 ### Verify Installation
@@ -582,7 +584,7 @@ chart and built operator/validator images.
 
 ## Support & Resources
 
-- Helm chart & source: [RBLN NPU Operator Helm chart](https://github.com/rebellions-sw/rbln-npu-operator/tree/main/deployments/rbln-npu-operator)
+- Helm chart & source: [RBLN NPU Operator Helm chart](https://github.com/RBLN-SW/rbln-npu-operator/tree/main/deployments/rbln-npu-operator)
 - Issues & feature requests: open a GitHub issue in this repository.
 - Kubebuilder reference: [kubebuilder.io](https://book.kubebuilder.io)
 - For cluster-specific guidance, contact your Rebellions support representative.

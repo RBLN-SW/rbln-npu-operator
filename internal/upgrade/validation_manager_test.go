@@ -2,12 +2,14 @@ package upgrade
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
@@ -59,6 +61,57 @@ func TestValidateWithoutValidatorPodRunsTheClock(t *testing.T) {
 			}
 			if _, clock := updated.Annotations[UpgradeValidationStartTimeAnnotationKey]; clock != tc.wantClock {
 				t.Fatalf("clock present = %v, want %v", clock, tc.wantClock)
+			}
+		})
+	}
+}
+
+func TestValidationStillUnblocksSafeLoad(t *testing.T) {
+	m := newTestManager(t, withValidationEnabled(), withValidationManager(&mockValidationManager{done: false}))
+	n := newNodeUpgradeState("worker", UpgradeStateValidationRequired, "rev1")
+	n.Node.Annotations = map[string]string{UpgradeWaitForSafeDriverLoadAnnotationKey: "true"}
+	registerNodes(t, m, n.Node)
+	if err := m.ProcessValidationRequiredNodes(context.Background(), newClusterState(map[string][]*NodeUpgradeState{UpgradeStateValidationRequired: {n}})); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := m.nodeUpgradeStateProvider.GetNode(context.Background(), n.Node.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Annotations[UpgradeWaitForSafeDriverLoadAnnotationKey] != "" {
+		t.Fatal("validation leaves the driver blocked on safe-load gate")
+	}
+}
+
+func TestValidationRequiresEveryMatchingPodToBeReady(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ready []bool
+		want  bool
+	}{
+		{name: "no validator"},
+		{name: "one ready", ready: []bool{true}, want: true},
+		{name: "one unready", ready: []bool{false}},
+		{name: "ready before unready", ready: []bool{true, false}},
+		{name: "unready before ready", ready: []bool{false, true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := newTestNodeUpgradeStateProvider(t)
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker", Labels: map[string]string{UpgradeStateLabelKey: UpgradeStateValidationRequired}}}
+			if err := provider.K8sClient.Create(context.Background(), node); err != nil {
+				t.Fatal(err)
+			}
+			var objects []runtime.Object
+			for index, ready := range tc.ready {
+				objects = append(objects, &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("validator-%d", index), Namespace: "operator", Labels: map[string]string{"app": "validator"}},
+					Spec:       corev1.PodSpec{NodeName: node.Name}, Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Ready: ready}}},
+				})
+			}
+			manager := NewValidationManager(k8sfake.NewClientset(objects...), provider, "app=validator")
+			done, err := manager.Validate(context.Background(), node)
+			if err != nil || done != tc.want {
+				t.Fatalf("validation=%v err=%v, want %v", done, err, tc.want)
 			}
 		})
 	}

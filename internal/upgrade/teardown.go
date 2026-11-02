@@ -3,7 +3,7 @@ package upgrade
 import (
 	"encoding/json"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 // teardownAnnotationKeys is the node bookkeeping that goes with the state
