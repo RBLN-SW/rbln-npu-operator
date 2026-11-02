@@ -1256,6 +1256,8 @@ spec:
     url: https://docs.rbln.ai/latest/software/system_management/kubernetes/about_npu_operator.html
   - name: Source Code
     url: https://github.com/RBLN-SW/rbln-npu-operator
+  - name: License (Apache-2.0)
+    url: https://github.com/RBLN-SW/rbln-npu-operator/blob/main/LICENSE
   maintainers:
   - email: heesu.sung@rebellions.ai
     name: heesu.sung
