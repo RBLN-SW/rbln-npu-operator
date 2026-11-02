@@ -10,11 +10,11 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/controller"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/upgrade"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/clusterinfo"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/conditions"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/controller"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/upgrade"
 )
 
 func registerControllers(ctx context.Context, mgr ctrl.Manager) error {
@@ -69,14 +69,14 @@ func registerUpgradeController(ctx context.Context, mgr ctrl.Manager, recorder r
 		mgr.GetConfig(),
 		recorder,
 		mgr.GetScheme(),
+		upgrade.ManagerOptions{
+			PodDeletionFilter:     npuPodSpecFilter,
+			ValidationPodSelector: validatorPodSelector,
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("create upgrade state manager: %w", err)
 	}
-
-	stateManager = stateManager.
-		WithPodDeletionEnabled(npuPodSpecFilter).
-		WithValidationEnabled(validatorPodSelector)
 
 	if err := (&controller.UpgradeReconciler{
 		Client:       mgr.GetClient(),

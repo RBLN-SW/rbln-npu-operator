@@ -2,8 +2,10 @@ package upgrade
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
+	"github.com/go-logr/logr/funcr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -11,10 +13,11 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 func newEventTestProvider(t *testing.T, funcs interceptor.Funcs) (*NodeUpgradeStateProvider, *record.FakeRecorder) {
@@ -123,6 +126,49 @@ func TestChangeNodeUpgradeStateSameStateIsNoOp(t *testing.T) {
 		t.Fatalf("expected no patch calls on same-state reset, got %d", patches)
 	}
 	expectNoEvent(t, rec)
+}
+
+func TestStateTransitionLogsOnlyCommittedChanges(t *testing.T) {
+	for _, rejected := range []bool{false, true} {
+		name := "committed"
+		funcs := interceptor.Funcs{}
+		if rejected {
+			name = "rejected"
+			funcs.Patch = func(context.Context, client.WithWatch, client.Object, client.Patch, ...client.PatchOption) error {
+				return context.DeadlineExceeded
+			}
+		}
+		t.Run(name, func(t *testing.T) {
+			provider, _ := newEventTestProvider(t, funcs)
+			node := createStateNode(t, provider, UpgradeStateUpgradeRequired)
+			var lines []string
+			logger := funcr.NewJSON(func(line string) { lines = append(lines, line) }, funcr.Options{})
+			ctx := log.IntoContext(context.Background(), logger)
+			err := provider.ChangeNodeUpgradeState(ctx, node, UpgradeStateCordonRequired)
+			if rejected {
+				if err == nil || len(lines) != 0 {
+					t.Fatalf("rejected write must not log a committed transition: err=%v, logs=%v", err, lines)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := provider.ChangeNodeUpgradeState(ctx, node, UpgradeStateCordonRequired); err != nil {
+				t.Fatal(err)
+			}
+			if len(lines) != 1 {
+				t.Fatalf("expected one log after a commit and a no-op, got %v", lines)
+			}
+			var fields map[string]any
+			if err := json.Unmarshal([]byte(lines[0]), &fields); err != nil {
+				t.Fatal(err)
+			}
+			if fields["node"] != node.Name || fields["previousState"] != UpgradeStateUpgradeRequired || fields["state"] != UpgradeStateCordonRequired {
+				t.Fatalf("missing transition context: %v", fields)
+			}
+		})
+	}
 }
 
 func TestChangeNodeUpgradeStatePatchFailureEmitsNothing(t *testing.T) {

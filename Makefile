@@ -1,7 +1,7 @@
 # VERSION defines the project version for the bundle.
 include $(CURDIR)/versions.mk
 
-MODULE := github.com/rebellions-sw/rbln-npu-operator
+MODULE := github.com/RBLN-SW/rbln-npu-operator
 
 # Component image versions (can be overridden)
 # All versions will be used as image tags

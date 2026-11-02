@@ -1,47 +1,6 @@
 package upgrade
 
-import (
-	"sync"
-	"testing"
-)
-
-func TestStringSet(t *testing.T) {
-	t.Run("add and has", func(t *testing.T) {
-		s := NewStringSet()
-		s.Add("a")
-		if !s.Has("a") {
-			t.Fatal("expected Has(a) = true")
-		}
-		if s.Has("b") {
-			t.Fatal("expected Has(b) = false")
-		}
-	})
-
-	t.Run("remove", func(t *testing.T) {
-		s := NewStringSet()
-		s.Add("a")
-		s.Remove("a")
-		if s.Has("a") {
-			t.Fatal("expected Has(a) = false after Remove")
-		}
-	})
-
-	t.Run("concurrent access", func(t *testing.T) {
-		s := NewStringSet()
-		var wg sync.WaitGroup
-		for range 100 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				key := "key"
-				s.Add(key)
-				s.Has(key)
-				s.Remove(key)
-			}()
-		}
-		wg.Wait()
-	})
-}
+import "testing"
 
 func TestKeyedMutex(t *testing.T) {
 	t.Run("lock and unlock same key", func(t *testing.T) {

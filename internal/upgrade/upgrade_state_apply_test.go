@@ -9,20 +9,19 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/metrics"
+	"github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/metrics"
 )
 
 func TestRecordNodeStateMetrics(t *testing.T) {
 	defer metrics.DriverUpgradeNodes.Reset()
 
-	state := &ClusterUpgradeState{
-		NodeStates: map[string][]*NodeUpgradeState{
-			UpgradeStateUnknown:             {{}, {}},
-			UpgradeStateDone:                {{}, {}, {}},
-			UpgradeStatePodDeletionRequired: {{}},
-		},
-	}
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateUnknown:             {newNodeUpgradeState("unknown-one", UpgradeStateUnknown, "rev1"), newNodeUpgradeState("unknown-two", UpgradeStateUnknown, "rev1")},
+		UpgradeStateDone:                {newNodeUpgradeState("done-one", UpgradeStateDone, "rev1"), newNodeUpgradeState("done-two", UpgradeStateDone, "rev1"), newNodeUpgradeState("done-three", UpgradeStateDone, "rev1")},
+		UpgradeStatePodDeletionRequired: {newNodeUpgradeState("evict", UpgradeStatePodDeletionRequired, "rev1")},
+	})
 
 	recordNodeStateMetrics(state)
 
@@ -44,7 +43,7 @@ func TestRecordNodeStateMetrics(t *testing.T) {
 func TestRecordNodeStateMetricsCoversAllManagedStates(t *testing.T) {
 	defer metrics.DriverUpgradeNodes.Reset()
 
-	recordNodeStateMetrics(&ClusterUpgradeState{NodeStates: map[string][]*NodeUpgradeState{}})
+	recordNodeStateMetrics(&ClusterUpgradeState{})
 
 	if got, want := testutil.CollectAndCount(metrics.DriverUpgradeNodes), len(managedUpgradeStates); got != want {
 		t.Errorf("published %d series, want one per managed state (%d)", got, want)
@@ -95,5 +94,62 @@ func TestApplyStateRunsAllStepsAndJoinsErrors(t *testing.T) {
 	}
 	if _, labeled := updated.Labels[UpgradeStateLabelKey]; labeled {
 		t.Fatal("departed node must be swept in the same pass")
+	}
+}
+
+func TestNilState(t *testing.T) {
+	m := newTestManager(t)
+	for _, policy := range []*v1beta1.DriverUpgradePolicySpec{nil, {}, {AutoUpgrade: true}} {
+		if err := m.ApplyState(context.Background(), nil, policy, ""); err == nil {
+			t.Fatal("nil state must return an error without panicking")
+		}
+	}
+}
+
+func TestApplyStateDoesNotRestartDepartedNodes(t *testing.T) {
+	defer metrics.DriverUpgradeNodes.Reset()
+	pods := &mockPodManager{podDigest: "old", dsDigest: "new"}
+	manager := newTestManager(t, withPodManager(pods))
+	observed := newNodeUpgradeState("departed", UpgradeStatePodRestartRequired, "old")
+	observed.Node = departedTestNode("departed", UpgradeStatePodRestartRequired, "false", map[string]string{consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue})
+	registerNodes(t, manager, observed.Node)
+	state := newClusterState(map[string][]*NodeUpgradeState{UpgradeStatePodRestartRequired: {observed}})
+	state.DepartedNodes = []*corev1.Node{observed.Node}
+	if err := manager.ApplyState(context.Background(), state, &v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true}, "npu.rebellions.ai"); err != nil {
+		t.Fatal(err)
+	}
+	if len(pods.restartedPods) != 0 {
+		t.Fatal("a departed node's old driver Pod must not enter the restart phase")
+	}
+	node := &corev1.Node{}
+	if err := manager.k8sClient.Get(context.Background(), types.NamespacedName{Name: observed.Node.Name}, node); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := node.Labels[UpgradeStateLabelKey]; present || node.Spec.Unschedulable {
+		t.Fatalf("departed node was not released: %+v", node)
+	}
+}
+
+func TestAdmissionSeesSlotFreedEarlierInThePass(t *testing.T) {
+	defer metrics.DriverUpgradeNodes.Reset()
+	m := newTestManager(t)
+	failed := newNodeUpgradeState("failed", UpgradeStateFailed, "rev1")
+	failed.Node.Annotations = map[string]string{
+		UpgradeRequestedAnnotationKey:   trueString,
+		UpgradeFailureStepAnnotationKey: UpgradeStateValidationRequired,
+	}
+	queued := newNodeUpgradeState("queued", UpgradeStateUpgradeRequired, "rev1")
+	registerNodes(t, m, failed.Node, queued.Node)
+	state := newClusterState(map[string][]*NodeUpgradeState{
+		UpgradeStateFailed: {failed}, UpgradeStateUpgradeRequired: {queued},
+	})
+	if err := m.ApplyState(context.Background(), state, &v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true, MaxParallelUpgrades: 1}, "npu.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if failed.Node.Labels[UpgradeStateLabelKey] != UpgradeStateUpgradeRequired {
+		t.Fatal("failed node was not returned to the queue")
+	}
+	if queued.Node.Labels[UpgradeStateLabelKey] != UpgradeStateCordonRequired {
+		t.Fatal("admission counted a slot that the failed-node phase had already released")
 	}
 }

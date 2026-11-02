@@ -3,7 +3,7 @@ package upgrade
 import (
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 // cordonOwner names whose cordon a node carries, as far as the rollout can

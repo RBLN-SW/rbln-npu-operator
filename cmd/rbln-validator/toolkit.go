@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/statusfile"
-	toolkitvalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/toolkit"
+	"github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/statusfile"
+	toolkitvalidator "github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/toolkit"
 
 	"github.com/spf13/cobra"
 )

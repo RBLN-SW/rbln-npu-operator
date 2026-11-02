@@ -20,9 +20,9 @@ import (
 	runtimecontroller "sigs.k8s.io/controller-runtime/pkg/controller"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	rebellionsaiv1alpha1 "github.com/RBLN-SW/rbln-npu-operator/api/v1alpha1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/conditions"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 var _ = Describe("RBLNDriver startup owner resolution", func() {

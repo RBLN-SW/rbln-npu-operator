@@ -1,52 +1,32 @@
 package upgrade
 
-import (
-	"sync"
-)
+import "sync"
 
+// KeyedMutex hands out one mutex per key so that work on different nodes can
+// proceed concurrently while work on the same node is serialized. The zero
+// value is ready to use; mutexes are created lazily on first Lock.
 type KeyedMutex struct {
-	mutexes sync.Map // Zero value is empty and ready for use
+	guard sync.Mutex
+	locks map[string]*sync.Mutex
 }
 
+// UnlockFunc releases a lock obtained from KeyedMutex.Lock.
 type UnlockFunc = func()
 
-func (m *KeyedMutex) Lock(key string) UnlockFunc {
-	value, _ := m.mutexes.LoadOrStore(key, &sync.Mutex{})
-	mtx, ok := value.(*sync.Mutex)
+// Lock blocks until the mutex for key is available and returns the function
+// that releases it.
+func (k *KeyedMutex) Lock(key string) UnlockFunc {
+	k.guard.Lock()
+	if k.locks == nil {
+		k.locks = make(map[string]*sync.Mutex)
+	}
+	m, ok := k.locks[key]
 	if !ok {
-		panic("object is not of type sync.Mutex which is what was expected")
+		m = &sync.Mutex{}
+		k.locks[key] = m
 	}
-	mtx.Lock()
-	return func() { mtx.Unlock() }
-}
+	k.guard.Unlock()
 
-type StringSet struct {
-	m  map[string]bool
-	mu sync.RWMutex
-}
-
-func NewStringSet() *StringSet {
-	return &StringSet{
-		m:  make(map[string]bool),
-		mu: sync.RWMutex{},
-	}
-}
-
-func (s *StringSet) Add(item string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.m[item] = true
-}
-
-func (s *StringSet) Remove(item string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.m, item)
-}
-
-func (s *StringSet) Has(item string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	_, ok := s.m[item]
-	return ok
+	m.Lock()
+	return m.Unlock
 }

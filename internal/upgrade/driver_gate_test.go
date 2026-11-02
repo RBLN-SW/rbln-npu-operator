@@ -8,10 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestIsWaitingForSafeDriverLoad(t *testing.T) {
-	provider := newTestNodeUpgradeStateProvider(t)
-	mgr := NewSafeDriverLoadManager(provider)
-
+func TestWaitingForDriverLoad(t *testing.T) {
 	tests := map[string]struct {
 		node *corev1.Node
 		want bool
@@ -39,24 +36,24 @@ func TestIsWaitingForSafeDriverLoad(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := mgr.IsWaitingForSafeDriverLoad(context.Background(), tc.node); got != tc.want {
-				t.Fatalf("IsWaitingForSafeDriverLoad() = %t, want %t", got, tc.want)
+			if got := waitingForDriverLoad(tc.node); got != tc.want {
+				t.Fatalf("waitingForDriverLoad() = %t, want %t", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestUnblockLoading(t *testing.T) {
+func TestUnblockDriverLoad(t *testing.T) {
 	t.Run("no-op when annotation is absent", func(t *testing.T) {
 		provider := newTestNodeUpgradeStateProvider(t)
-		mgr := NewSafeDriverLoadManager(provider)
+		mgr := &ClusterUpgradeStateManagerImpl{nodeUpgradeStateProvider: provider}
 
 		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}}
 		if err := provider.K8sClient.Create(context.Background(), node); err != nil {
 			t.Fatalf("create node: %v", err)
 		}
-		if err := mgr.UnblockLoading(context.Background(), node); err != nil {
-			t.Fatalf("UnblockLoading() unexpected error: %v", err)
+		if err := mgr.unblockDriverLoad(context.Background(), node); err != nil {
+			t.Fatalf("unblockDriverLoad() unexpected error: %v", err)
 		}
 	})
 }

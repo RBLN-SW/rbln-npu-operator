@@ -2,7 +2,6 @@ package upgrade
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
@@ -13,104 +12,77 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
 )
 
-// NodeUpgradeState contains a mapping between a node,
-// the driver POD running on them and the daemon set, controlling this pod
 type NodeUpgradeState struct {
 	Node            *corev1.Node
 	DriverPod       *corev1.Pod
 	DriverDaemonSet *appsv1.DaemonSet
 }
 
-// IsOrphanedPod returns true if Pod is not associated to a DaemonSet
-func (nus *NodeUpgradeState) IsOrphanedPod() bool {
-	return nus.DriverDaemonSet == nil
-}
+func (n *NodeUpgradeState) IsOrphanedPod() bool { return n.DriverDaemonSet == nil }
 
 type ClusterUpgradeState struct {
-	NodeStates map[string][]*NodeUpgradeState
-	// DepartedNodes carry rollout bookkeeping but are no longer in the
-	// driver's scope; ProcessDepartedNodes tears them down.
+	// One active-node collection is shared by execution, status and metrics.
+	// Each entry keeps its observed phase even when writes refresh Node.
+	nodes         []observedNode
 	DepartedNodes []*corev1.Node
 }
 
+type observedNode struct {
+	phase string
+	node  *NodeUpgradeState
+}
 type ClusterUpgradeStateManager interface {
-	WithPodDeletionEnabled(filter PodDeletionFilter) ClusterUpgradeStateManager
-	WithValidationEnabled(podSelector string) ClusterUpgradeStateManager
-	BuildState(ctx context.Context, namespace string,
-		driverLabels map[string]string) (*ClusterUpgradeState, error)
-	// npuDeviceClass is the container-mode DRA DeviceClass whose claims mark a
-	// pod as an NPU pod the eviction has to move (drivermanager.NPUDeviceClass).
-	ApplyState(ctx context.Context,
-		currentState *ClusterUpgradeState, upgradePolicy *v1beta1.DriverUpgradePolicySpec,
-		npuDeviceClass string) (err error)
+	BuildState(context.Context, string, map[string]string) (*ClusterUpgradeState, error)
+	ApplyState(context.Context, *ClusterUpgradeState, *v1beta1.DriverUpgradePolicySpec, string) error
 }
-
 type ClusterUpgradeStateManagerImpl struct {
-	log                      logr.Logger
-	k8sClient                client.Client
-	k8sInterface             kubernetes.Interface
-	eventRecorder            record.EventRecorder
-	nodeUpgradeStateProvider *NodeUpgradeStateProvider
-	podManager               PodManagerInterface
-	safeDriverLoadManager    SafeDriverLoadManagerInterface
-	cordonManager            CordonManagerInterface
-	validationManager        ValidationManagerInterface
-
-	// optional states
-	podDeletionStateEnabled bool
-	validationStateEnabled  bool
+	log                                             logr.Logger
+	k8sClient                                       client.Client
+	k8sInterface                                    kubernetes.Interface
+	eventRecorder                                   record.EventRecorder
+	nodeUpgradeStateProvider                        *NodeUpgradeStateProvider
+	podManager                                      PodManagerInterface
+	cordonManager                                   CordonManagerInterface
+	validationManager                               ValidationManagerInterface
+	podDeletionStateEnabled, validationStateEnabled bool
 }
 
-func NewClusterUpgradeStateManager(
-	log logr.Logger,
-	k8sConfig *rest.Config,
-	eventRecorder record.EventRecorder,
-	scheme *runtime.Scheme,
-) (ClusterUpgradeStateManager, error) {
-	k8sClient, err := client.New(k8sConfig, client.Options{Scheme: scheme})
+// ManagerOptions fixes the optional operations at construction. Reconciliation
+// consumes policy values without reconfiguring the manager's dependencies.
+type ManagerOptions struct {
+	PodDeletionFilter     PodDeletionFilter
+	ValidationPodSelector string
+}
+
+func NewClusterUpgradeStateManager(log logr.Logger, cfg *rest.Config, rec record.EventRecorder, scheme *runtime.Scheme, options ManagerOptions) (ClusterUpgradeStateManager, error) {
+	api, err := client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {
-		return &ClusterUpgradeStateManagerImpl{}, fmt.Errorf("error creating k8s client: %v", err)
+		return nil, err
 	}
-
-	k8sInterface, err := kubernetes.NewForConfig(k8sConfig)
+	typed, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		return &ClusterUpgradeStateManagerImpl{}, fmt.Errorf("error creating k8s interface: %v", err)
+		return nil, err
 	}
-
-	nodeUpgradeStateProvider := NewNodeUpgradeStateProvider(k8sClient, eventRecorder)
-	manager := &ClusterUpgradeStateManagerImpl{
-		log:                      log,
-		k8sClient:                k8sClient,
-		k8sInterface:             k8sInterface,
-		eventRecorder:            eventRecorder,
-		podManager:               NewPodManager(k8sInterface, nodeUpgradeStateProvider, nil),
-		cordonManager:            NewCordonManager(k8sInterface),
-		nodeUpgradeStateProvider: nodeUpgradeStateProvider,
-		validationManager:        NewValidationManager(k8sInterface, nodeUpgradeStateProvider, ""),
-		safeDriverLoadManager:    NewSafeDriverLoadManager(nodeUpgradeStateProvider),
-	}
-	return manager, nil
+	return newStateManager(log, api, typed, rec, options), nil
 }
 
-func (m *ClusterUpgradeStateManagerImpl) WithPodDeletionEnabled(filter PodDeletionFilter) ClusterUpgradeStateManager {
-	if filter == nil {
-		m.log.Info("Cannot enable PodDeletion state as PodDeletionFilter is nil")
-		return m
+func newStateManager(log logr.Logger, api client.Client, typed kubernetes.Interface, rec record.EventRecorder, options ManagerOptions) *ClusterUpgradeStateManagerImpl {
+	provider := NewNodeUpgradeStateProvider(api, rec)
+	return &ClusterUpgradeStateManagerImpl{
+		log: log, k8sClient: api, k8sInterface: typed, eventRecorder: rec,
+		nodeUpgradeStateProvider: provider,
+		podManager:               NewPodManager(typed, provider, options.PodDeletionFilter),
+		cordonManager:            NewCordonManager(typed),
+		validationManager:        NewValidationManager(typed, provider, options.ValidationPodSelector),
+		podDeletionStateEnabled:  options.PodDeletionFilter != nil,
+		validationStateEnabled:   options.ValidationPodSelector != "",
 	}
-	m.podManager = NewPodManager(m.k8sInterface, m.nodeUpgradeStateProvider, filter)
-	m.podDeletionStateEnabled = true
-	return m
 }
 
-func (m *ClusterUpgradeStateManagerImpl) WithValidationEnabled(podSelector string) ClusterUpgradeStateManager {
-	if podSelector == "" {
-		m.log.Info("Cannot enable Validation state as podSelector is empty")
-		return m
-	}
-	m.validationManager = NewValidationManager(m.k8sInterface, m.nodeUpgradeStateProvider, podSelector)
-	m.validationStateEnabled = true
-	return m
+func (m *ClusterUpgradeStateManagerImpl) IsPodDeletionEnabled() bool {
+	return m.podDeletionStateEnabled
 }
+func (m *ClusterUpgradeStateManagerImpl) IsValidationEnabled() bool { return m.validationStateEnabled }

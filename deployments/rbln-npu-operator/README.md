@@ -14,7 +14,7 @@ The RBLN NPU Operator is designed to:
 ## Prerequisites
 
 - Kubernetes 1.19+
-- Helm 3.0+
+- Helm 3.8+ (OCI support)
 - Node Feature Discovery (NFD) - can be installed via this chart
 - Rebellions NPU hardware (RBLN-CA12, RBLN-CA22, RBLN-CA25)
 - Driver images published under family-scoped registry paths (BREAKING since
@@ -25,15 +25,19 @@ The RBLN NPU Operator is designed to:
 
 ### Quick Start
 
-1. **Add the Helm repository** (if using a remote repository):
+1. **Inspect the OCI chart published on Docker Hub**:
    ```bash
-   helm repo add rebellions https://rebellions-sw.github.io/rbln-npu-operator
-   helm repo update
+   helm show chart oci://registry-1.docker.io/rebellions/rbln-npu-operator-chart
    ```
+   The [published chart](https://hub.docker.com/r/rebellions/rbln-npu-operator-chart)
+   is used directly, without `helm repo add`. Use `--version <chart-version>`
+   to pin the release you want to install or upgrade to.
 
 2. **Install with default values**:
    ```bash
-   helm install rbln-npu-operator ./rbln-npu-operator
+   helm install rbln-npu-operator \
+     oci://registry-1.docker.io/rebellions/rbln-npu-operator-chart \
+     --namespace rbln-system --create-namespace --wait
    ```
 
 Driver deployment is disabled by default (`driver.enabled: false`). Set
@@ -56,6 +60,11 @@ its driver DaemonSets.
 ### Using Sample Configurations
 
 This chart provides three pre-configured sample values files for different workload types:
+
+The local-chart examples below run from the repository's `deployments/`
+directory. For a published release, replace `./rbln-npu-operator` in the chart
+argument with `oci://registry-1.docker.io/rebellions/rbln-npu-operator-chart`;
+the sample values files still come from your checkout.
 
 #### Container Workloads
 For traditional containerized AI workloads:
@@ -169,7 +178,9 @@ evolves across releases, this chart keeps the CRDs in sync automatically via a
 `pre-install`/`pre-upgrade` hook Job (`crds.upgrade.enabled`, default `true`):
 
 ```bash
-helm upgrade rbln-npu-operator ./rbln-npu-operator -n rbln-system
+helm upgrade rbln-npu-operator \
+  oci://registry-1.docker.io/rebellions/rbln-npu-operator-chart \
+  --version <chart-version> -n rbln-system -f my-values.yaml
 ```
 
 The hook runs the operator image's `crd-apply` binary, which server-side-applies

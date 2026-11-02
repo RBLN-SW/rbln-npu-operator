@@ -9,14 +9,14 @@ plugins:
   manifests.sdk.operatorframework.io/v2: {}
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: rbln-npu-operator
-repo: github.com/rebellions-sw/rbln-npu-operator
+repo: github.com/RBLN-SW/rbln-npu-operator
 resources:
 - api:
     crdVersion: v1
   controller: true
   domain: rebellions.ai
   kind: RBLNClusterPolicy
-  path: github.com/rebellions-sw/rbln-npu-operator/api/v1beta1
+  path: github.com/RBLN-SW/rbln-npu-operator/api/v1beta1
   version: v1beta1
 - api:
     crdVersion: v1
@@ -24,6 +24,6 @@ resources:
   controller: true
   domain: rebellions.ai
   kind: RBLNDriver
-  path: github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1
+  path: github.com/RBLN-SW/rbln-npu-operator/api/v1alpha1
   version: v1alpha1
 version: "3"

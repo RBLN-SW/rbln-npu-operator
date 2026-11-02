@@ -1,4 +1,4 @@
-module github.com/rebellions-sw/rbln-npu-operator
+module github.com/RBLN-SW/rbln-npu-operator
 
 go 1.26.0
 

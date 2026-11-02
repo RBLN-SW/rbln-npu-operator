@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 // ---------------------------------------------------------------------------
@@ -109,23 +109,6 @@ func (m *mockValidationManager) Validate(_ context.Context, node *corev1.Node) (
 }
 
 // ---------------------------------------------------------------------------
-// Mock: SafeDriverLoadManagerInterface
-// ---------------------------------------------------------------------------
-
-type mockSafeDriverLoadManager struct {
-	waiting bool
-	err     error
-}
-
-func (m *mockSafeDriverLoadManager) IsWaitingForSafeDriverLoad(_ context.Context, _ *corev1.Node) bool {
-	return m.waiting
-}
-
-func (m *mockSafeDriverLoadManager) UnblockLoading(_ context.Context, _ *corev1.Node) error {
-	return m.err
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -145,7 +128,6 @@ func newTestManager(t *testing.T, opts ...func(*ClusterUpgradeStateManagerImpl))
 		podManager:               &mockPodManager{podDigest: "rev1", dsDigest: "rev1"},
 		cordonManager:            &mockCordonManager{},
 		validationManager:        &mockValidationManager{done: true},
-		safeDriverLoadManager:    &mockSafeDriverLoadManager{},
 	}
 
 	for _, opt := range opts {
@@ -160,10 +142,6 @@ func withPodManager(pm PodManagerInterface) func(*ClusterUpgradeStateManagerImpl
 
 func withCordonManager(cm CordonManagerInterface) func(*ClusterUpgradeStateManagerImpl) {
 	return func(m *ClusterUpgradeStateManagerImpl) { m.cordonManager = cm }
-}
-
-func withSafeDriverLoadManager(s SafeDriverLoadManagerInterface) func(*ClusterUpgradeStateManagerImpl) {
-	return func(m *ClusterUpgradeStateManagerImpl) { m.safeDriverLoadManager = s }
 }
 
 func withValidationManager(v ValidationManagerInterface) func(*ClusterUpgradeStateManagerImpl) {
@@ -213,9 +191,11 @@ func newNodeUpgradeStateWithDS(nodeName, stateLabel, podDigest, dsName string) *
 }
 
 func newClusterState(states map[string][]*NodeUpgradeState) *ClusterUpgradeState {
-	cs := NewClusterUpgradeState()
-	for k, v := range states {
-		cs.NodeStates[k] = v
+	cs := ClusterUpgradeState{}
+	for phase, nodes := range states {
+		for _, node := range nodes {
+			cs.addNode(phase, node)
+		}
 	}
 	return &cs
 }

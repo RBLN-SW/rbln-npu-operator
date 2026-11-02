@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/drivermanager"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/drivermanager"
 )
 
 func TestBuildRDSBindConfigData(t *testing.T) {

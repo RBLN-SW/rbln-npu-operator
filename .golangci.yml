@@ -10,7 +10,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/rebellions-sw/rbln-npu-operator
+        - github.com/RBLN-SW/rbln-npu-operator
 
 linters:
   enable:

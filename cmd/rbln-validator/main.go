@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/logging"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/logging"
 )
 
 func run() error {

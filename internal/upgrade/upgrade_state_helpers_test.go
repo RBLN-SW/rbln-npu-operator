@@ -6,7 +6,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 func TestIsNodeUnschedulable(t *testing.T) {
@@ -93,13 +93,10 @@ func TestIsManagedUpgradeState(t *testing.T) {
 	}
 }
 
-func TestNewClusterUpgradeState(t *testing.T) {
-	state := NewClusterUpgradeState()
-	if state.NodeStates == nil {
-		t.Fatal("NodeStates should not be nil")
-	}
-	if len(state.NodeStates) != 0 {
-		t.Fatalf("NodeStates should be empty, got %d entries", len(state.NodeStates))
+func TestEmptyClusterUpgradeState(t *testing.T) {
+	state := ClusterUpgradeState{}
+	if len(state.nodesAt(UpgradeStateUnknown)) != 0 || SummarizeClusterUpgrade(&state).Total != 0 {
+		t.Fatal("an empty snapshot must contain no nodes")
 	}
 }
 
@@ -188,5 +185,29 @@ func TestShouldReleaseCordonOnTeardown(t *testing.T) {
 				t.Fatalf("ShouldReleaseCordonOnTeardown() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestNodeAnnotationFlags(t *testing.T) {
+	manager := newTestManager(t)
+	if IsNodeInRequestorMode(&corev1.Node{}) {
+		t.Fatal("an absent annotation must not enable requestor mode")
+	}
+	for _, value := range []string{"", "false", "true", "other"} {
+		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			UpgradeWaitForSafeDriverLoadAnnotationKey: value, UpgradeRequestorModeAnnotationKey: value, UpgradeRequestedAnnotationKey: value,
+		}, Labels: map[string]string{UpgradeSkipNodeLabelKey: value}}}
+		if got := waitingForDriverLoad(node); got != (value != "") {
+			t.Errorf("safe-load value=%q waiting=%v", value, got)
+		}
+		if !IsNodeInRequestorMode(node) {
+			t.Errorf("requestor mode is presence-based, value=%q", value)
+		}
+		if got := manager.IsUpgradeRequested(node); got != (value == "true") {
+			t.Errorf("requested value=%q result=%v", value, got)
+		}
+		if got := manager.SkipNodeUpgrade(node); got != (value == "true") {
+			t.Errorf("skip value=%q result=%v", value, got)
+		}
 	}
 }

@@ -10,9 +10,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterpolicy/components"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/clusterpolicy/components"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 // ClusterPolicyService orchestrates reconciliation of all components

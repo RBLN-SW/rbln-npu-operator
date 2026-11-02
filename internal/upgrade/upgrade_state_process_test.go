@@ -3,18 +3,24 @@ package upgrade
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 // ---------------------------------------------------------------------------
@@ -161,12 +167,17 @@ func TestProcessDoneOrUnknownNodes(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			pm := &mockPodManager{podDigest: tc.podRevHash, dsDigest: tc.dsRevHash}
-			sdlm := &mockSafeDriverLoadManager{waiting: tc.safeDriverWait}
-			mgr := newTestManager(t, withPodManager(pm), withSafeDriverLoadManager(sdlm))
+			mgr := newTestManager(t, withPodManager(pm))
 
 			ns := newNodeUpgradeState("node-1", tc.stateName, tc.podRevHash)
 			if tc.annotations != nil {
 				ns.Node.Annotations = tc.annotations
+			}
+			if tc.safeDriverWait {
+				if ns.Node.Annotations == nil {
+					ns.Node.Annotations = map[string]string{}
+				}
+				ns.Node.Annotations[UpgradeWaitForSafeDriverLoadAnnotationKey] = trueString
 			}
 			if tc.templateOutdated {
 				markPodTemplateOutdated(ns)
@@ -367,6 +378,33 @@ func TestProcessUpgradeRequiredNodes_CountsInProgressFromNodeLabels(t *testing.T
 	if got := updated.Labels[UpgradeStateLabelKey]; got != UpgradeStateUpgradeRequired {
 		t.Fatalf("queued node state = %q, want %q (cap of 2 already full, must not admit)",
 			got, UpgradeStateUpgradeRequired)
+	}
+}
+
+func TestSlotCensusFiltersNodesOnTheServer(t *testing.T) {
+	m := newTestManager(t)
+	active := newNodeUpgradeState("active", UpgradeStateValidationRequired, "rev1")
+	failed := newNodeUpgradeState("failed", UpgradeStateFailed, "rev1")
+	queried := false
+	m.k8sClient = fake.NewClientBuilder().WithScheme(m.k8sClient.Scheme()).WithObjects(active.Node, failed.Node).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, options ...client.ListOption) error {
+				queried = true
+				opts := &client.ListOptions{}
+				for _, option := range options {
+					option.ApplyToList(opts)
+				}
+				if opts.LabelSelector == nil || opts.LabelSelector.Matches(labels.Set{}) {
+					t.Error("slot census must exclude unlabeled nodes before listing")
+				} else if !opts.LabelSelector.Matches(labels.Set{UpgradeStateLabelKey: UpgradeStateFailed}) {
+					t.Error("slot census must retain failed nodes")
+				}
+				return c.List(ctx, list, options...)
+			},
+		}).Build()
+	count, err := m.countActiveUpgradeNodes(context.Background())
+	if err != nil || count != 2 || !queried {
+		t.Fatalf("count=%d, queried=%v, err=%v", count, queried, err)
 	}
 }
 
@@ -1494,5 +1532,311 @@ func TestWakeParkedNodeStampsLegacyCordon(t *testing.T) {
 	}
 	if got := updated.Annotations[consts.DriverManagerCordonClaimAnnotation]; got != consts.OperatorCordonClaimValue {
 		t.Fatalf("claim = %q, want %q stamped on the legacy cordon", got, consts.OperatorCordonClaimValue)
+	}
+}
+
+func TestOrphanDoesNotImplicitlyStartRollout(t *testing.T) {
+	for _, state := range []string{UpgradeStateUnknown, UpgradeStateDone} {
+		t.Run("state="+state, func(t *testing.T) {
+			m := newTestManager(t)
+			n := newNodeUpgradeStateWithDS("worker", state, "rev1", "")
+			registerNodes(t, m, n.Node)
+			if err := m.ProcessDoneOrUnknownNodes(context.Background(), newClusterState(map[string][]*NodeUpgradeState{state: {n}}), state); err != nil {
+				t.Fatal(err)
+			}
+			if n.Node.Labels[UpgradeStateLabelKey] != UpgradeStateDone {
+				t.Fatalf("unrequested orphan entered rollout: %q", n.Node.Labels[UpgradeStateLabelKey])
+			}
+		})
+	}
+}
+
+func TestExpiredRestartMustNotDeleteOldDriver(t *testing.T) {
+	pm := &mockPodManager{podDigest: "old", dsDigest: "new"}
+	m := newTestManager(t, withPodManager(pm))
+	n := newNodeUpgradeState("worker", UpgradeStatePodRestartRequired, "old")
+	n.Node.Annotations = map[string]string{UpgradePodRestartStartTimeAnnotationKey: strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)}
+	registerNodes(t, m, n.Node)
+	if err := m.ProcessPodRestartNodes(context.Background(), newClusterState(map[string][]*NodeUpgradeState{UpgradeStatePodRestartRequired: {n}}), 60); err != nil {
+		t.Fatal(err)
+	}
+	if n.Node.Labels[UpgradeStateLabelKey] != UpgradeStateFailed {
+		t.Fatalf("expected failure, got %q", n.Node.Labels[UpgradeStateLabelKey])
+	}
+	if len(pm.restartedPods) != 0 {
+		t.Fatalf("driver deletion scheduled after deadline and upgrade-failed: %d", len(pm.restartedPods))
+	}
+}
+
+func TestRequestorMustObserveUncordonRequired(t *testing.T) {
+	m := newTestManager(t)
+	n := newNodeUpgradeState("worker", UpgradeStatePodRestartRequired, "rev1")
+	n.Node.Spec.Unschedulable = true
+	n.Node.Annotations = map[string]string{UpgradeInitialStateAnnotationKey: "true", UpgradeRequestorModeAnnotationKey: "true"}
+	registerNodes(t, m, n.Node)
+	if err := m.updateNodeToUncordonOrDoneState(context.Background(), n); err != nil {
+		t.Fatal(err)
+	}
+	if n.Node.Labels[UpgradeStateLabelKey] != UpgradeStateUncordonRequired {
+		t.Errorf("requestor handshake bypassed: %q", n.Node.Labels[UpgradeStateLabelKey])
+	}
+	if _, ok := n.Node.Annotations[UpgradeInitialStateAnnotationKey]; ok {
+		t.Error("initial cordon marker retained for requestor")
+	}
+}
+
+func TestSkippedRetryReleasesCordonBeforeAdmission(t *testing.T) {
+	cm := &mockCordonManager{}
+	m := newTestManager(t, withCordonManager(cm))
+	n := newNodeUpgradeState("worker", UpgradeStateSkipped, "rev1")
+	n.Node.Spec.Unschedulable = true
+	n.Node.Annotations = map[string]string{UpgradeRequestedAnnotationKey: "true", consts.DriverManagerCordonClaimAnnotation: consts.OperatorCordonClaimValue}
+	busy := newNodeUpgradeState("other-failed-worker", UpgradeStateFailed, "rev1")
+	registerNodes(t, m, n.Node, busy.Node)
+	if err := m.ProcessUpgradeSkippedNodes(context.Background(), newClusterState(map[string][]*NodeUpgradeState{UpgradeStateSkipped: {n}})); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ProcessUpgradeRequiredNodes(context.Background(), newClusterState(map[string][]*NodeUpgradeState{UpgradeStateUpgradeRequired: {n}}), &v1beta1.DriverUpgradePolicySpec{MaxParallelUpgrades: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if n.Node.Labels[UpgradeStateLabelKey] != UpgradeStateUpgradeRequired {
+		t.Fatalf("expected queued state: %q", n.Node.Labels[UpgradeStateLabelKey])
+	}
+	if len(cm.uncordonedNodes) != 1 {
+		t.Fatal("skipped node remains cordoned while waiting indefinitely for an admission slot")
+	}
+}
+
+func TestStuckWarningOnOutdatedPod(t *testing.T) {
+	rec := record.NewFakeRecorder(10)
+	m := newTestManager(t, withPodManager(&mockPodManager{podDigest: "old", dsDigest: "new"}))
+	m.eventRecorder = rec
+	n := newNodeUpgradeState("worker", UpgradeStatePodRestartRequired, "old")
+	n.DriverPod.Status.InitContainerStatuses = []corev1.ContainerStatus{{Name: "k8s-driver-manager", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}}}}
+	registerNodes(t, m, n.Node)
+	if err := m.ProcessPodRestartNodes(context.Background(), newClusterState(map[string][]*NodeUpgradeState{UpgradeStatePodRestartRequired: {n}}), 60); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-rec.Events:
+		if !strings.Contains(event, consts.RBLNEventReasonDriverUpgradePodStuck) {
+			t.Fatalf("unexpected event: %s", event)
+		}
+	default:
+		t.Fatal("missing DriverUpgradePodStuck event for outdated pod")
+	}
+}
+
+func TestImageInspectErrorIsStillReported(t *testing.T) {
+	p := &corev1.Pod{Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{Name: "driver", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImageInspectError"}}}}}}
+	if _, bad := driverPodBadWaitingReason(p); !bad {
+		t.Fatal("ImageInspectError lost from stuck detection")
+	}
+}
+
+func TestRecoveredPodPrecedesRetry(t *testing.T) {
+	for _, requested := range []bool{false, true} {
+		t.Run(strconv.FormatBool(requested), func(t *testing.T) {
+			m := newTestManager(t)
+			n := newNodeUpgradeState("worker", UpgradeStateFailed, "rev1")
+			n.Node.Annotations = map[string]string{
+				UpgradeFailureStepAnnotationKey:       UpgradeStatePodRestartRequired,
+				UpgradeAttemptedRevisionAnnotationKey: "previous-revision",
+			}
+			if requested {
+				n.Node.Annotations[UpgradeRequestedAnnotationKey] = trueString
+			}
+			n.DriverPod.Status = corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Ready: true}}}
+			registerNodes(t, m, n.Node)
+			if err := m.ProcessUpgradeFailedNodes(context.Background(), newClusterState(map[string][]*NodeUpgradeState{UpgradeStateFailed: {n}})); err != nil {
+				t.Fatal(err)
+			}
+			if got := n.Node.Labels[UpgradeStateLabelKey]; got != UpgradeStateUncordonRequired {
+				t.Fatalf("recovered pod reentered eviction: %q", got)
+			}
+		})
+	}
+}
+
+func TestAdmissionConsumesRequest(t *testing.T) {
+	for _, skip := range []bool{false, true} {
+		t.Run(strconv.FormatBool(skip), func(t *testing.T) {
+			m := newTestManager(t)
+			n := newNodeUpgradeState("queued", UpgradeStateUpgradeRequired, "rev1")
+			n.Node.Annotations = map[string]string{UpgradeRequestedAnnotationKey: trueString}
+			if skip {
+				n.Node.Labels[UpgradeSkipNodeLabelKey] = trueString
+			}
+			busy := newNodeUpgradeState("busy", UpgradeStateFailed, "rev1")
+			registerNodes(t, m, n.Node, busy.Node)
+			if err := m.ProcessUpgradeRequiredNodes(context.Background(), newClusterState(map[string][]*NodeUpgradeState{UpgradeStateUpgradeRequired: {n}}), &v1beta1.DriverUpgradePolicySpec{MaxParallelUpgrades: 1}); err != nil {
+				t.Fatal(err)
+			}
+			if n.Node.Labels[UpgradeStateLabelKey] != UpgradeStateUpgradeRequired {
+				t.Fatal("queued node must not bypass admission")
+			}
+			if _, exists := n.Node.Annotations[UpgradeRequestedAnnotationKey]; exists {
+				t.Fatal("queued request must be consumed once it has been processed")
+			}
+		})
+	}
+}
+
+func TestDriverRestartCountBoundary(t *testing.T) {
+	manager := newTestManager(t)
+	for _, count := range []int32{MaxPodRestartCount - 1, MaxPodRestartCount, MaxPodRestartCount + 1} {
+		pod := &corev1.Pod{Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{RestartCount: count}}}}
+		if got := manager.isDriverPodFailing(pod); got != (count > MaxPodRestartCount) {
+			t.Errorf("restart count %d: failed=%v", count, got)
+		}
+	}
+}
+
+func TestReadyPodClearsTheSafeLoadGate(t *testing.T) {
+	manager := newTestManager(t)
+	node := newNodeUpgradeState("ready-worker", UpgradeStatePodRestartRequired, "rev1")
+	node.Node.Annotations = map[string]string{UpgradeWaitForSafeDriverLoadAnnotationKey: trueString}
+	node.DriverPod.Status.Phase = corev1.PodRunning
+	node.DriverPod.Status.ContainerStatuses = []corev1.ContainerStatus{{Ready: true}}
+	registerNodes(t, manager, node.Node)
+	state := newClusterState(map[string][]*NodeUpgradeState{UpgradeStatePodRestartRequired: {node}})
+	if err := manager.ProcessPodRestartNodes(context.Background(), state, 60); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := node.Node.Annotations[UpgradeWaitForSafeDriverLoadAnnotationKey]; exists {
+		t.Fatal("safe-load gate would start another rollout after completion")
+	}
+	if node.Node.Labels[UpgradeStateLabelKey] != UpgradeStateUncordonRequired {
+		t.Fatal("ready pod must complete the restart phase")
+	}
+}
+
+func TestRequestorModeStillRunsTheCordonPhase(t *testing.T) {
+	for _, unschedulable := range []bool{false, true} {
+		cordon := &mockCordonManager{}
+		manager := newTestManager(t, withCordonManager(cordon))
+		node := newNodeUpgradeState("requestor", UpgradeStateCordonRequired, "rev1")
+		node.Node.Spec.Unschedulable = unschedulable
+		node.Node.Annotations = map[string]string{UpgradeRequestorModeAnnotationKey: ""}
+		registerNodes(t, manager, node.Node)
+		state := newClusterState(map[string][]*NodeUpgradeState{UpgradeStateCordonRequired: {node}})
+		if err := manager.ProcessCordonRequiredNodes(context.Background(), state); err != nil {
+			t.Fatal(err)
+		}
+		if len(cordon.cordonedNodes) != 1 || node.Node.Labels[UpgradeStateLabelKey] != UpgradeStateWaitForJobsRequired {
+			t.Fatalf("cordoned=%v state=%q", cordon.cordonedNodes, node.Node.Labels[UpgradeStateLabelKey])
+		}
+	}
+}
+
+func TestDriverAndValidatorReadiness(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		statuses          []corev1.ContainerStatus
+		condition         corev1.ConditionStatus
+		terminating, want bool
+	}{
+		{name: "no-status"},
+		{name: "containers-ready", statuses: []corev1.ContainerStatus{{Ready: true}}, want: true},
+		{name: "condition-only", condition: corev1.ConditionTrue},
+		{name: "condition-false-containers-ready", statuses: []corev1.ContainerStatus{{Ready: true}}, condition: corev1.ConditionFalse, want: true},
+		{name: "condition-true-container-not-ready", statuses: []corev1.ContainerStatus{{Ready: false}}, condition: corev1.ConditionTrue},
+		{name: "terminating", statuses: []corev1.ContainerStatus{{Ready: true}}, terminating: true, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager := newTestManager(t)
+			node := newNodeUpgradeState("worker", UpgradeStatePodRestartRequired, "rev1")
+			pod := node.DriverPod
+			pod.Status.Phase = corev1.PodRunning
+			pod.Status.ContainerStatuses = tc.statuses
+			if tc.condition != "" {
+				pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: tc.condition}}
+			}
+			if tc.terminating {
+				now := metav1.Now()
+				pod.DeletionTimestamp = &now
+			}
+			got, err := manager.isDriverPodInSync(context.Background(), node)
+			if err != nil || got != tc.want {
+				t.Fatalf("driver ready=%v error=%v", got, err)
+			}
+			if got := (&ValidationManager{}).isPodReady(context.Background(), *pod); got != tc.want {
+				t.Fatalf("validator ready=%v", got)
+			}
+		})
+	}
+}
+
+func TestStaleAdmissionPreservesRequestAndParallelismSlot(t *testing.T) {
+	manager := newTestManager(t)
+	stale := newNodeUpgradeState("stale", UpgradeStateUpgradeRequired, "rev1")
+	stale.Node.Annotations = map[string]string{UpgradeRequestedAnnotationKey: trueString}
+	live := stale.Node.DeepCopy()
+	live.Labels[UpgradeStateLabelKey] = UpgradeStateDone
+	queued := newNodeUpgradeState("queued", UpgradeStateUpgradeRequired, "rev1")
+	registerNodes(t, manager, live, queued.Node)
+	state := newClusterState(map[string][]*NodeUpgradeState{UpgradeStateUpgradeRequired: {stale, queued}})
+	if err := manager.ProcessUpgradeRequiredNodes(context.Background(), state, &v1beta1.DriverUpgradePolicySpec{MaxParallelUpgrades: 1}); err != nil {
+		t.Fatal(err)
+	}
+	stored := &corev1.Node{}
+	if err := manager.k8sClient.Get(context.Background(), types.NamespacedName{Name: live.Name}, stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Labels[UpgradeStateLabelKey] != UpgradeStateDone || stored.Annotations[UpgradeRequestedAnnotationKey] != trueString {
+		t.Fatalf("stale admission changed the node or consumed its request: %+v", stored.ObjectMeta)
+	}
+	if queued.Node.Labels[UpgradeStateLabelKey] != UpgradeStateCordonRequired {
+		t.Fatal("skipped stale observation consumed the parallelism slot")
+	}
+}
+
+func TestReadyDriverUsesRefreshedCordonOwnership(t *testing.T) {
+	m := newTestManager(t)
+	n := newNodeUpgradeState("worker", UpgradeStatePodRestartRequired, "rev1")
+	n.Node.Spec.Unschedulable = true
+	n.Node.Annotations = map[string]string{
+		UpgradeInitialStateAnnotationKey:          trueString,
+		UpgradeWaitForSafeDriverLoadAnnotationKey: trueString,
+	}
+	n.DriverPod.Status.Phase = corev1.PodRunning
+	n.DriverPod.Status.ContainerStatuses = []corev1.ContainerStatus{{Ready: true}}
+	// Ownership changed after the rollout observation. The gate write reads
+	// it back; completion must then arrange to release that claimed cordon.
+	live := n.Node.DeepCopy()
+	live.Annotations[consts.DriverManagerCordonClaimAnnotation] = consts.OperatorCordonClaimValue
+	registerNodes(t, m, live)
+	state := newClusterState(map[string][]*NodeUpgradeState{UpgradeStatePodRestartRequired: {n}})
+	if err := m.ProcessPodRestartNodes(context.Background(), state, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := n.Node.Labels[UpgradeStateLabelKey]; got != UpgradeStateUncordonRequired {
+		t.Fatalf("completion used stale cordon ownership: state=%q", got)
+	}
+}
+
+func TestSafeLoadWriteFailureStopsReadyDriverCompletion(t *testing.T) {
+	m := newTestManager(t, withValidationEnabled())
+	c := fake.NewClientBuilder().WithScheme(m.k8sClient.Scheme()).WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(context.Context, client.WithWatch, client.Object, client.Patch, ...client.PatchOption) error {
+			return fmt.Errorf("gate write failed")
+		},
+	}).Build()
+	m.k8sClient = c
+	m.nodeUpgradeStateProvider = NewNodeUpgradeStateProvider(c, nil)
+	n := newNodeUpgradeState("worker", UpgradeStatePodRestartRequired, "rev1")
+	n.Node.Annotations = map[string]string{UpgradePodRestartStartTimeAnnotationKey: "retained-clock", UpgradeWaitForSafeDriverLoadAnnotationKey: trueString}
+	n.DriverPod.Status.Phase = corev1.PodRunning
+	n.DriverPod.Status.ContainerStatuses = []corev1.ContainerStatus{{Ready: true}}
+	registerNodes(t, m, n.Node)
+	state := newClusterState(map[string][]*NodeUpgradeState{UpgradeStatePodRestartRequired: {n}})
+	if err := m.ProcessPodRestartNodes(context.Background(), state, 0); err == nil {
+		t.Fatal("expected the safe-load write failure")
+	}
+	if got := n.Node.Labels[UpgradeStateLabelKey]; got != UpgradeStatePodRestartRequired {
+		t.Fatalf("advanced despite the failed gate write: %q", got)
+	}
+	if n.Node.Annotations[UpgradePodRestartStartTimeAnnotationKey] != "retained-clock" {
+		t.Fatal("cleared deadline before the safe-load write succeeded")
 	}
 }

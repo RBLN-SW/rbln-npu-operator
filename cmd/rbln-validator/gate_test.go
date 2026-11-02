@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	vfiovalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/vfiopci"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	vfiovalidator "github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/vfiopci"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 type nodeLabelsResult struct {

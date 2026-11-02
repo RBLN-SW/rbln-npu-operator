@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	drivervalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/driver"
-	vfiovalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/vfiopci"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	drivervalidator "github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/driver"
+	vfiovalidator "github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/vfiopci"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 const (

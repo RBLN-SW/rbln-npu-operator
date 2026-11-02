@@ -3,8 +3,8 @@ package main
 import (
 	"log/slog"
 
-	drivervalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/driver"
-	"github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/statusfile"
+	drivervalidator "github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/driver"
+	"github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/statusfile"
 
 	"github.com/spf13/cobra"
 )

@@ -37,15 +37,15 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	rebellionsaiv1alpha1 "github.com/rebellions-sw/rbln-npu-operator/api/v1alpha1"
-	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/driver"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/driver/components"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/metrics"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/registry"
+	rebellionsaiv1alpha1 "github.com/RBLN-SW/rbln-npu-operator/api/v1alpha1"
+	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/clusterinfo"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/conditions"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/driver"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/driver/components"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/metrics"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/registry"
 )
 
 var _ = Describe("RBLNDriver Controller", Ordered, func() {

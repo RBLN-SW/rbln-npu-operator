@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	vfiovalidator "github.com/rebellions-sw/rbln-npu-operator/cmd/rbln-validator/vfiopci"
+	vfiovalidator "github.com/RBLN-SW/rbln-npu-operator/cmd/rbln-validator/vfiopci"
 )
 
 func TestValidateVFIOPCI(t *testing.T) {

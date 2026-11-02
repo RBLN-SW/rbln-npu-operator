@@ -38,10 +38,10 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	rblnv1beta1 "github.com/rebellions-sw/rbln-npu-operator/api/v1beta1"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/clusterinfo"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/conditions"
-	"github.com/rebellions-sw/rbln-npu-operator/internal/consts"
+	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/clusterinfo"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/conditions"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
