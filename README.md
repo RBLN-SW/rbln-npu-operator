@@ -26,7 +26,7 @@ RBLNClusterPolicy (Cluster-scoped CR)
     ├─ Device Plugin DaemonSet + ConfigMap
     ├─ DRA Kubelet Plugin DaemonSet
     ├─ Sandbox Device Plugin + VFIO Checker
-    ├─ VFIO Manager DaemonSet
+    ├─ Partition Manager DaemonSet (PCI binding and SR-IOV)
     ├─ Metrics Exporter DaemonSet
     └─ NPU Feature Discovery DaemonSet
 ```
@@ -48,10 +48,10 @@ RBLNClusterPolicy (Cluster-scoped CR)
 
 ### Sandbox / VM Passthrough
 
-Enable via Helm values or set `spec.workloadType: vm-passthrough`. On these
-nodes **NPU Feature Discovery** continues to label VFIO-ready hardware and the
-**VFIO Manager** rebinding script (`vfio-manage.sh`) detaches vendor devices
-and binds them to `vfio-pci`. VMs then consume the devices through one of two
+Enable `partitionManager.enabled` and set `spec.workloadType: vm-passthrough`
+(or the node's `rebellions.ai/npu.workload.config` label). Partition-manager
+reconciles PCI bindings and SR-IOV counts continuously. The native PF driver
+and SMD remain available to create and resize VFs. VMs consume the devices through two
 allocation paths. The paths are mutually exclusive — both advertise the same
 vfio devices, so the CR validation rejects a policy that enables
 `sandboxDevicePlugin` and `draKubeletPlugin` together. When switching paths,
@@ -90,46 +90,44 @@ Admin label contract (values are lowercase; `vf2` is not supported):
 
 No partition labels means the node is not partitioned.
 
-Every gated operand (device-plugin, dra-kubelet-plugin, partition-manager, metrics-exporter,
-npu-feature-discovery) starts with a single `component-gate` init container
-running `rbln-validator gate --component <name>`. On every poll the gate re-reads the node's
-partition labels from the Kubernetes API (each component's ServiceAccount carries a
-`<name>-node-viewer` ClusterRole with `nodes get`; the partition-manager's own ClusterRole
-already grants it) and waits for the component's readiness
-files — so one DaemonSet per component serves both partitioned and non-partitioned nodes,
-and a label change is honored at the next pod (re)start without any intermediate state:
+Partition-manager starts without an init gate and retries unavailable modules or
+SMD through reconciliation. It runs on both container and VM nodes, with host
+networking for SMD, writable `/sys` for PCI binding, and read-only `/host` for
+host module loading. The policy workload default is passed as
+`DEFAULT_WORKLOAD_TYPE`; a node workload label overrides it.
 
-| Component (container workload) | Non-partitioned node | Partitioned node (any `vf1`/`vf4`) |
+| Workload | Allowed node layout | Final bindings |
 |---|---|---|
-| device-plugin, dra-kubelet-plugin | `toolkit-ready` | `toolkit-ready` + `partition-ready` |
-| partition-manager, metrics-exporter, npu-feature-discovery | `toolkit-ready` | `toolkit-ready` |
+| Container | PF, VF1, VF4, including mixtures | Native `rebellions` |
+| VM | PF-only | PFs on `vfio-pci` |
+| VM | VF-only; VF1 and VF4 may coexist | Parent PFs native, VFs on `vfio-pci` |
+| VM | PF passthrough mixed with VF passthrough | Rejected before applying the target |
 
-The driver-managed `rbln-smd` keeps its own driver-ready init container. On
-`vm-passthrough` nodes, the DRA component gate waits for every Rebellions NPU
-to bind to `vfio-pci` instead of waiting for toolkit or partition markers.
-The gate uses the node's workload label when valid and otherwise falls back
-to the policy's `spec.workloadType`, matching the operator's node selection.
+A native PF hosting VFs is a control function, not a PF passed to a VM. The
+manager validates resolved per-NPU targets, including overrides, before
+mutating devices. If VFIO hides the driver name, it first drains and binds
+native to discover that name, then validates before changing VF counts.
 
-`partition-ready` is written by the partition-manager operand (`partitionManager` in the
-policy spec, disabled by default): a per-node agent that converges every Rebellions PF to
-its labeled VF count — cordon, drain NPU pods, switch VFs through rbln-smd, rewrite the
-marker, uncordon — and reports the result on the node's `NPUPartitionReady` condition.
-The manager owns `partition-ready`, so its own gate never waits for it. It dials rbln-smd
-node-locally at `127.0.0.1:50051`; use it with a driver-managed or host-installed
-rbln-smd. With `partitionManager` disabled, device-plugin and dra-kubelet-plugin
-intentionally stay blocked on partitioned nodes (fail-closed).
+The reconcile sequence is cordon, drain NPU workloads, release affected
+bindings, restore native PFs, resize VFs through SMD, bind final functions,
+restart device advertisers, verify, write `partition-ready`, and uncordon.
+The node's `NPUPartitionReady` condition reports progress or failure.
 
-The gate is **fail-closed**: on API errors or invalid label values it retries forever instead
-of assuming an unpartitioned node — misreading a `vf4` node would let components advertise
-full PFs that are about to be carved into VFs. Fix the label to unblock the node.
+Consumer `component-gate` init containers read node labels on every poll:
 
-Current limitations:
+| Component / workload | Startup requirements |
+|---|---|
+| Device plugin or DRA / container | Current driver and `toolkit-ready`; also `partition-ready` when manager is enabled or partitioning is requested |
+| DRA or sandbox plugin / VM | `partition-ready` and a complete PF-only or VF-only VFIO layout |
+| Metrics exporter or feature discovery / container | Current driver and `toolkit-ready` |
+| Partition-manager / either workload | No init gate |
 
-- The gate only runs at pod start. Already-running pods do not react to label changes;
-  restarting the affected operand pods after a partition transition is the
-  partition-manager's responsibility.
-- Partitioning is out of scope for `vm-passthrough` nodes; the sandbox-device-plugin keeps its
-  `vfio-pci-validation` init container.
+SMD retains its driver-ready gate. VM consumers do not require toolkit-ready.
+Malformed labels, incomplete topology, or incorrect bindings keep consumers
+blocked. Existing consumers are refreshed by partition-manager after a transition.
+VM policies require `partitionManager.enabled=true`; the controller also rejects
+VM node overrides when it is disabled. Container-only installations may leave it
+disabled, but partitioned container nodes then remain blocked.
 
 ## Quick Start
 
@@ -433,7 +431,8 @@ Ordering and updates are tied to the driver lifecycle:
 
 Node selection follows the driver's owner-label routing (plus the
 `npu.deploy.rbln-smd` gate), so pre-installed-driver nodes — which run
-their own host `rbln-smd` — and vm-passthrough nodes never receive one.
+their own host `rbln-smd` — do not receive an SMD Pod. VM nodes keep the
+native driver and SMD so partition-manager can provision VFs.
 That gate is flipped by k8s-driver-manager, and a driver-manager predating
 the `rbln-daemon` → `rbln-smd` rename never flips it — smd pods then sit on
 a stale image across driver upgrades with nothing reporting it. The two
@@ -445,12 +444,7 @@ NPU pod eviction policy as `NPU_POD_EVICTION_*` env vars and no longer
 renders `ENABLE_AUTO_DRAIN=false`. A driver-manager that predates the
 NPU-only eviction contract, every release up to v0.2.2, binds none of the new
 names and defaults the retired flag to true, so on every driver change it
-drains the whole node instead of evicting only NPU pods. The vfio-manager init
-container runs the same binary with the same env and is pinned separately by
-`vfioManager.driverManager.image.tag`: a driver-manager from v0.3.0 on evicts
-the node's container-mode NPU pods there before binding `vfio-pci`, an older
-one evicts nothing and the switch fails its readiness check while an NPU pod
-is running.
+drains the whole node instead of evicting only NPU pods. PCI binding and workload changes are handled by partition-manager reconciliation.
 Readiness is reported in `status.smd` (`desired`/`ready`/`state`) and gates
 the CR's `Ready` condition (`SmdNotReady` while catching up, no event —
 ordinary rollout progress); `status.desiredNodes`/`readyNodes` stay

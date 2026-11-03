@@ -820,7 +820,6 @@ func newDriverTestClusterPolicy(name string) *rblnv1beta1.RBLNClusterPolicy {
 			DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{Enabled: false},
 			NPUFeatureDiscovery: rblnv1beta1.RBLNNPUFeatureDiscoverySpec{Enabled: false},
 			MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{Enabled: false},
-			VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: false},
 			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
 		},
 	}

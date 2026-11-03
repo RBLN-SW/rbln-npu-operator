@@ -65,6 +65,9 @@ func (h *sandboxDevicePluginPatcher) Patch(ctx context.Context, owner *rblnv1bet
 	if err := h.reconcileServiceAccount(ctx, owner); err != nil {
 		return err
 	}
+	if err := h.reconcileNodeViewerClusterRBAC(ctx, owner); err != nil {
+		return err
+	}
 	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
 		return err
 	}
@@ -83,6 +86,9 @@ func (h *sandboxDevicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1b
 		return err
 	}
 	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
+		return err
+	}
+	if err := h.deleteNodeViewerClusterRBAC(ctx); err != nil {
 		return err
 	}
 	return h.deleteServiceAccount(ctx)
@@ -105,7 +111,9 @@ func (h *sandboxDevicePluginPatcher) buildVolumes() []corev1.Volume {
 }
 
 func (h *sandboxDevicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
-	initContainer := buildVFIOPCIValidationInitContainer(owner.Spec.Validator)
+	initContainer := buildGateInitContainer(consts.RBLNSandboxDevicePluginName, owner.Spec.Validator)
+	initContainer.VolumeMounts = append(initContainer.VolumeMounts, corev1.VolumeMount{Name: "host-sys", MountPath: "/sys", ReadOnly: true})
+	initContainer.Env = append(initContainer.Env, corev1.EnvVar{Name: "DEFAULT_WORKLOAD_TYPE", Value: owner.Spec.WorkloadType})
 
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).

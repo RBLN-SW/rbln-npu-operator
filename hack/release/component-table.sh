@@ -23,7 +23,6 @@ for entry in \
 	"Device plugin|.devicePlugin.image" \
 	"Metrics exporter|.metricsExporter.image" \
 	"NPU feature discovery|.npuFeatureDiscovery.image" \
-	"VFIO manager|.vfioManager.image" \
 	"Container toolkit|.containerToolkit.image" \
 	"DRA kubelet plugin|.draKubeletPlugin.image" \
 	"Sandbox device plugin|.sandboxDevicePlugin.image" \

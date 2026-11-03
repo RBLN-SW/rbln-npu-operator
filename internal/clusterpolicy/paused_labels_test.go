@@ -117,13 +117,13 @@ func TestReconcileNodesRestoresStalePausedLabels(t *testing.T) {
 			pods: []client.Object{driverManagerPod("driver", "node-b", terminated)},
 			want: stillPaused,
 		},
-		// The vfio-manager pod runs the same init container; either one
+		// During driver Pod replacement, either init container
 		// running keeps the pause live.
 		"left paused while a second driver-manager init on the node is still running": {
 			node: pausedNode(nil),
 			pods: []client.Object{
 				driverManagerPod("driver", nodeName, terminated),
-				driverManagerPod("vfio-manager", nodeName, running),
+				driverManagerPod("driver-replacement", nodeName, running),
 			},
 			want: stillPaused,
 		},

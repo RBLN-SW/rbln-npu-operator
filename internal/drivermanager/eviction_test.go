@@ -89,9 +89,7 @@ func TestNPUDeviceClass(t *testing.T) {
 	}
 }
 
-// Both k8s-driver-manager init containers, the driver pod's and the
-// vfio-manager's, render exactly this list, so the contract with the binary
-// lives in one place.
+// The driver pod renders this list as its contract with k8s-driver-manager.
 func TestNPUPodEvictionEnv(t *testing.T) {
 	tests := map[string]struct {
 		policy NPUPodEvictionPolicy

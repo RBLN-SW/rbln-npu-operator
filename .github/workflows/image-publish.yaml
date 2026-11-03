@@ -10,7 +10,7 @@ on:
   workflow_call:
     inputs:
       image:
-        description: "Image repository under the registry (e.g. rbln-vfio-manager)"
+        description: "Image repository under the registry (e.g. rbln-npu-operator)"
         required: true
         type: string
       make-target:

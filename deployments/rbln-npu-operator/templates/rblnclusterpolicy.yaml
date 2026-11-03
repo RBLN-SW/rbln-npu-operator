@@ -173,26 +173,6 @@ spec:
       {{- toYaml . | nindent 6 }}
     {{- end }}
 
-  vfioManager:
-    {{- with .Values.vfioManager.updateStrategy }}
-    updateStrategy:
-      {{- toYaml . | nindent 6 }}
-    {{- end }}
-    enabled: {{ .Values.vfioManager.enabled }}
-    registry: {{ .Values.vfioManager.image.registry | quote }}
-    image: {{ .Values.vfioManager.image.repository | quote }}
-    imagePullPolicy: {{ .Values.vfioManager.image.pullPolicy | quote }}
-    version: {{ .Values.vfioManager.image.tag | quote }}
-    driverManager:
-      registry: {{ .Values.vfioManager.driverManager.image.registry | quote }}
-      image: {{ .Values.vfioManager.driverManager.image.repository | quote }}
-      version: {{ .Values.vfioManager.driverManager.image.tag | quote }}
-      imagePullPolicy: {{ .Values.vfioManager.driverManager.image.pullPolicy | quote }}
-      {{- with .Values.vfioManager.driverManager.env }}
-      env:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-
   validator:
     {{- with .Values.validator.updateStrategy }}
     updateStrategy:

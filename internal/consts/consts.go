@@ -71,7 +71,7 @@ const (
 	RBLNDeployPausedForDriverUpgrade = "paused-for-driver-upgrade"
 
 	// DriverManagerInitContainerName is the init container that runs
-	// rbln-k8s-driver-manager, in the driver pod and in the vfio-manager pod.
+	// rbln-k8s-driver-manager in the driver pod.
 	// It is the one writer of RBLNDeployPausedForDriverUpgrade, so its state on
 	// a node is what decides whether a paused label is live or left behind.
 	DriverManagerInitContainerName = "k8s-driver-manager"
@@ -242,11 +242,6 @@ const (
 // Validator constants
 const (
 	RBLNValidatorName = "operator-validator"
-)
-
-// VFIO constants
-const (
-	RBLNVFIOManagerName = "vfio-manager"
 )
 
 // Kubernetes recommended labels

@@ -42,9 +42,6 @@ jobs:
           - name: operator
             target: build-image
             ref: local/rbln-npu-operator
-          - name: vfio-manager
-            target: build-vfio-manager-image
-            ref: local/rbln-vfio-manager
     env:
       # Local-only tag. Using the published name here would let Trivy silently
       # pull and scan the real registry image if the local build were missing,
@@ -76,7 +73,6 @@ jobs:
         env:
           REGISTRY: local
           VERSION: ci-${{ github.sha }}
-          VFIO_MANAGER_VERSION: ci-${{ github.sha }}
           PLATFORM: linux/amd64
           DOCKER_BUILD_OPTIONS: --load
         run: make ${{ matrix.image.target }}

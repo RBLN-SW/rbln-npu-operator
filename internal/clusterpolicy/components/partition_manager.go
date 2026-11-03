@@ -36,7 +36,7 @@ func NewPartitionManagerPatcher(client client.Client, log logr.Logger, namespace
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),
-			workloadType:     consts.RBLNWorkloadConfigContainer,
+			workloadType:     consts.RBLNWorkloadConfigAll,
 		},
 		desiredSpec: &synced,
 		podDefaults: cpSpec.PodDefaults,
@@ -88,6 +88,7 @@ func (h *partitionManagerPatcher) handleClusterRole(ctx context.Context, owner *
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, clusterRole, func() error {
 		clusterRole.Rules = []rbacv1.PolicyRule{
+			{APIGroups: []string{"resource.k8s.io"}, Resources: []string{"resourceclaims"}, Verbs: []string{"get"}},
 			{
 				APIGroups: []string{""},
 				Resources: []string{"nodes"},
@@ -151,10 +152,14 @@ func (h *partitionManagerPatcher) handleClusterRoleBinding(ctx context.Context, 
 }
 
 func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
-	initContainer := buildGateInitContainer(consts.RBLNPartitionManagerName, owner.Spec.Validator)
+	defaultWorkload := owner.Spec.WorkloadType
+	if defaultWorkload == "" {
+		defaultWorkload = consts.RBLNWorkloadConfigContainer
+	}
 
 	env := mergeEnvVars(
 		[]corev1.EnvVar{
+			{Name: "DEFAULT_WORKLOAD_TYPE", Value: defaultWorkload},
 			{
 				Name: "NODE_NAME",
 				ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
@@ -177,7 +182,10 @@ func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithArgs([]string{partitionManagerCommand}).
 		WithEnvs(env).
 		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
+		WithSecurityContext(&corev1.SecurityContext{Privileged: ptr(true), RunAsUser: ptr(int64(0))}).
 		WithVolumeMounts([]corev1.VolumeMount{
+			{Name: "host-sys", MountPath: "/sys"},
+			{Name: "host-root", MountPath: "/host", ReadOnly: true, MountPropagation: ptr(corev1.MountPropagationHostToContainer)},
 			{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
 		}).
 		Build()
@@ -191,9 +199,10 @@ func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
 		WithPriorityClassName(podDefaultsPriorityClassName(h.podDefaults)).
 		WithVolumes([]corev1.Volume{
+			hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
+			hostPathVolume("host-root", "/", corev1.HostPathDirectory),
 			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 		}).
-		WithInitContainers([]*corev1.Container{initContainer}).
 		WithContainers([]*corev1.Container{managerContainer}).
 		Build()
 }
@@ -212,6 +221,7 @@ func (h *partitionManagerPatcher) handleDaemonSet(ctx context.Context, owner *rb
 			WithLabels(h.desiredSpec.Labels).
 			WithAnnotations(h.desiredSpec.Annotations).
 			WithPodSpec(podSpec)
+		applyUpdateStrategy(ds, h.desiredSpec.UpdateStrategy)
 		return ctrl.SetControllerReference(owner, ds, h.scheme)
 	})
 	if err != nil {

@@ -160,8 +160,8 @@ func TestReconcileAutoUpgradeAnnotationInPlace(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-vmp",
 					Labels: map[string]string{
-						consts.RBLNPresentLabelKey:              labelValueTrue,
-						"rebellions.ai/npu.deploy.vfio-manager": labelValueTrue,
+						consts.RBLNPresentLabelKey:        labelValueTrue,
+						consts.RBLNWorkloadConfigLabelKey: consts.RBLNWorkloadConfigVMPassthrough,
 					},
 				},
 			},
@@ -174,8 +174,8 @@ func TestReconcileAutoUpgradeAnnotationInPlace(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-vmp-stale",
 					Labels: map[string]string{
-						consts.RBLNPresentLabelKey:              labelValueTrue,
-						"rebellions.ai/npu.deploy.vfio-manager": labelValueTrue,
+						consts.RBLNPresentLabelKey:        labelValueTrue,
+						consts.RBLNWorkloadConfigLabelKey: consts.RBLNWorkloadConfigVMPassthrough,
 					},
 					Annotations: map[string]string{
 						driverAutoUpgradeAnnotationKey: labelValueTrue,

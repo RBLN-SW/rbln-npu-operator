@@ -635,7 +635,6 @@ func newUpgradeClusterPolicyFixture(name string, upgradePolicy *rblnv1beta1.Driv
 			DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{Enabled: false},
 			NPUFeatureDiscovery: rblnv1beta1.RBLNNPUFeatureDiscoverySpec{Enabled: false},
 			MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{Enabled: false},
-			VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: false},
 			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
 		},
 	}

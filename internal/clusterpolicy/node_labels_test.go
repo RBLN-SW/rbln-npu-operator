@@ -56,7 +56,8 @@ func newTestClusterPolicyService(k8sClient client.Client, workloadType string) *
 		log:       logr.Discard(),
 		policy: &rblnv1beta1.RBLNClusterPolicy{
 			Spec: rblnv1beta1.RBLNClusterPolicySpec{
-				WorkloadType: workloadType,
+				WorkloadType:     workloadType,
+				PartitionManager: rblnv1beta1.RBLNPartitionManagerSpec{Enabled: true},
 			},
 		},
 	}
@@ -445,7 +446,7 @@ func TestEmptyDesiredComponentLabels(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := emptyDesiredComponentLabels(tc.labels, tc.config)
+			got := emptyDesiredComponentLabels(tc.labels, tc.config, true)
 			if len(got) != len(tc.want) {
 				t.Fatalf("emptyDesiredComponentLabels() = %v, want %v", got, tc.want)
 			}
@@ -533,9 +534,8 @@ func TestReconcileNodesCountsPausedNodes(t *testing.T) {
 			},
 			wantTotalNPU: 1,
 		},
-		// driver-manager's vfio init never pauses vfio-manager itself (that would
-		// evict its own pod); sandbox-device-plugin/dra-kubelet-plugin are what it pauses.
-		"vm-passthrough node paused by the sandbox-device-plugin driver-manager init": {
+		// VM consumers also participate in driver upgrade pauses.
+		"vm-passthrough consumer paused for driver upgrade": {
 			workloadType: consts.RBLNWorkloadConfigVMPassthrough,
 			labels: map[string]string{
 				consts.NFDDevicePCILabelKey:                      labelValueTrue,
@@ -588,5 +588,36 @@ func TestReconcileNodesCountsPausedNodes(t *testing.T) {
 				t.Fatalf("TotalNPU = %d, want %d", census.TotalNPU, tc.wantTotalNPU)
 			}
 		})
+	}
+}
+
+func TestPartitionManagerNodeDeployment(t *testing.T) {
+	for _, workload := range []string{consts.RBLNWorkloadConfigContainer, consts.RBLNWorkloadConfigVMPassthrough} {
+		for _, enabled := range []bool{false, true} {
+			node := &corev1.Node{ObjectMeta: newObjectMeta("node", map[string]string{consts.NFDDevicePCILabelKey: labelValueTrue, consts.RBLNWorkloadConfigLabelKey: workload})}
+			c := newNodeLabelsFakeClient(t, node)
+			service := newTestClusterPolicyService(c, consts.RBLNWorkloadConfigContainer)
+			service.policy.Spec.PartitionManager.Enabled = enabled
+			_, err := service.ReconcileNodes(context.Background(), []corev1.Node{*node})
+			if workload == consts.RBLNWorkloadConfigVMPassthrough && !enabled {
+				if err == nil {
+					t.Fatal("VM node override accepted without partition-manager")
+				}
+				continue
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := &corev1.Node{}
+			if err := c.Get(context.Background(), client.ObjectKeyFromObject(node), got); err != nil {
+				t.Fatal(err)
+			}
+			if (got.Labels["rebellions.ai/npu.deploy.partition-manager"] == labelValueTrue) != enabled {
+				t.Fatalf("incorrect manager deployment labels: %v", got.Labels)
+			}
+			if workload == consts.RBLNWorkloadConfigVMPassthrough && (got.Labels[consts.RBLNDeployDriverLabelKey] != labelValueTrue || got.Labels[consts.RBLNDeploySmdLabelKey] != labelValueTrue) {
+				t.Fatalf("VM partitioning lost native driver/SMD: %v", got.Labels)
+			}
+		}
 	}
 }

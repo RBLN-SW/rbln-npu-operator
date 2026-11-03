@@ -283,6 +283,7 @@ func TestGateRejectsStaleToolkitMarkerUntilDriverRecovers(t *testing.T) {
 
 func TestComponentGateTableCoversAllGatedOperands(t *testing.T) {
 	wantComponents := []string{
+		consts.RBLNSandboxDevicePluginName,
 		consts.RBLNDevicePluginName,
 		consts.RBLNDRAKubeletPluginName,
 		consts.RBLNMetricExporterName,
@@ -362,19 +363,17 @@ func TestRunGateDRAWorkloads(t *testing.T) {
 					if tc.wantVFIOCalls == 0 {
 						t.Fatal("container DRA must wait for partition-ready without probing VFIO")
 					}
-					if sleeps == 0 {
+					if vfioCalls == 1 {
 						return vfiovalidator.Result{}, errors.New("VFIO binding not ready")
 					}
 					return vfiovalidator.Result{BoundDevices: []string{"0000:01:00.0"}}, nil
 				},
 				sleep: func(time.Duration) {
 					sleeps++
-					if sleeps > 1 {
+					if sleeps > 2 {
 						t.Fatal("DRA gate did not pass once its workload prerequisites were ready")
 					}
-					if tc.wantVFIOCalls == 0 {
-						writeMarker(consts.PartitionReadyFileName)
-					}
+					writeMarker(consts.PartitionReadyFileName)
 				},
 			}
 			t.Setenv("NODE_NAME", "node-1")
@@ -383,9 +382,93 @@ func TestRunGateDRAWorkloads(t *testing.T) {
 			if err := runGate(context.Background(), cfg, rt); err != nil {
 				t.Fatal(err)
 			}
-			if sleeps != 1 || vfioCalls != tc.wantVFIOCalls {
-				t.Fatalf("sleeps=%d vfioCalls=%d, want sleeps=1 vfioCalls=%d", sleeps, vfioCalls, tc.wantVFIOCalls)
+			wantSleeps := 1
+			if tc.wantVFIOCalls > 0 {
+				wantSleeps = 2
+			}
+			if sleeps != wantSleeps || vfioCalls != tc.wantVFIOCalls {
+				t.Fatalf("sleeps=%d vfioCalls=%d, want sleeps=%d vfioCalls=%d", sleeps, vfioCalls, wantSleeps, tc.wantVFIOCalls)
 			}
 		})
+	}
+}
+
+func TestVMConsumersWaitForPartitionAndVFIO(t *testing.T) {
+	for _, component := range []string{consts.RBLNDRAKubeletPluginName, consts.RBLNSandboxDevicePluginName} {
+		t.Run(component, func(t *testing.T) {
+			dir := t.TempDir()
+			calls, sleeps := 0, 0
+			rt := gateRuntime{
+				getNodeLabels: func(context.Context, string) (map[string]string, error) {
+					mode := consts.RBLNPartitionModeVF1
+					if sleeps == 0 {
+						mode = "invalid"
+					}
+					return map[string]string{
+						consts.RBLNWorkloadConfigLabelKey: consts.RBLNWorkloadConfigVMPassthrough,
+						consts.RBLNPartitionLabelKey:      mode,
+					}, nil
+				},
+				checkDriver: func(context.Context) error { t.Fatal("VM gate must not wait for the container stack"); return nil },
+				validateVFIO: func(vfiovalidator.Config) (vfiovalidator.Result, error) {
+					calls++
+					if calls == 1 {
+						return vfiovalidator.Result{}, errors.New("partial VF binding")
+					}
+					return vfiovalidator.Result{BoundDevices: []string{"VF"}}, nil
+				},
+				sleep: func(time.Duration) {
+					sleeps++
+					if sleeps <= 2 && calls != 0 {
+						t.Fatal("probed VFIO before label validation and partition-ready")
+					}
+					if sleeps == 2 {
+						if err := os.WriteFile(filepath.Join(dir, consts.PartitionReadyFileName), nil, 0o600); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if sleeps > 3 {
+						t.Fatal("gate did not converge")
+					}
+				},
+			}
+			cfg := &gateConfig{nodeName: "node", component: component, outputDir: dir}
+			if err := runGate(context.Background(), cfg, rt); err != nil {
+				t.Fatal(err)
+			}
+			if sleeps != 3 || calls != 2 {
+				t.Fatalf("sleeps=%d calls=%d", sleeps, calls)
+			}
+		})
+	}
+}
+
+func TestContainerPFConsumerWaitsForBindingReconcile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, toolkitReadyFile), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sleeps := 0
+	rt := gateRuntime{
+		getNodeLabels: func(context.Context, string) (map[string]string, error) {
+			return map[string]string{"rebellions.ai/npu.deploy.partition-manager": "true"}, nil
+		},
+		checkDriver: func(context.Context) error { return nil },
+		sleep: func(time.Duration) {
+			sleeps++
+			if sleeps > 1 {
+				t.Fatal("container PF gate did not converge")
+			}
+			if err := os.WriteFile(filepath.Join(dir, consts.PartitionReadyFileName), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	cfg := &gateConfig{nodeName: "node", component: consts.RBLNDevicePluginName, outputDir: dir}
+	if err := runGate(context.Background(), cfg, rt); err != nil {
+		t.Fatal(err)
+	}
+	if sleeps != 1 {
+		t.Fatal("PF-only node bypassed manager binding readiness")
 	}
 }

@@ -65,7 +65,12 @@ func TestPartitionManagerPatch(t *testing.T) {
 		t.Fatal("expected pod HostNetwork=true (dials rbln-smd node-locally at 127.0.0.1:50051)")
 	}
 
-	assertGateInitContainer(t, ds, consts.RBLNPartitionManagerName)
+	if len(ds.Spec.Template.Spec.InitContainers) != 0 {
+		t.Fatal("partition-manager must start without readiness gates")
+	}
+	if p.WorkloadType() != consts.RBLNWorkloadConfigAll {
+		t.Fatal("partition-manager must serve both workloads")
+	}
 
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
 	assertContainerImage(t, mainContainer, "rebellions/k8s-partition-manager", "v0.1.0")
@@ -73,9 +78,13 @@ func TestPartitionManagerPatch(t *testing.T) {
 		t.Fatalf("container args = %v, want [reconcile-partition-state]", mainContainer.Args)
 	}
 
-	if mainContainer.SecurityContext != nil && mainContainer.SecurityContext.Privileged != nil && *mainContainer.SecurityContext.Privileged {
-		t.Fatal("partition manager container must not be privileged: hardware access is delegated to rbln-smd")
+	assertPrivileged(t, mainContainer)
+	if mainContainer.SecurityContext.RunAsUser == nil || *mainContainer.SecurityContext.RunAsUser != 0 {
+		t.Fatal("PCI writes and host modprobe require root")
 	}
+	assertContainerHasVolumeMount(t, mainContainer, "host-sys")
+	assertContainerHasVolumeMount(t, mainContainer, "host-root")
+	assertClusterRoleHasRule(t, cr, "resource.k8s.io", "resourceclaims")
 
 	if ref := envFieldRef(mainContainer.Env, "NODE_NAME"); ref == nil || ref.FieldPath != testNodeNameFieldPath {
 		t.Fatal("expected NODE_NAME env from the spec.nodeName Downward API")
@@ -162,4 +171,30 @@ func TestPartitionManagerDisabled(t *testing.T) {
 		t.Fatalf("Patch() error: %v", err)
 	}
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &appsv1.DaemonSet{})
+}
+
+func TestPartitionManagerVMDeployment(t *testing.T) {
+	owner := newPartitionManagerOwner()
+	owner.Spec.WorkloadType = consts.RBLNWorkloadConfigVMPassthrough
+	p := NewPartitionManagerPatcher(newFakeClient(t, newTestScheme(t)), logf.Log, testNamespace, &owner.Spec, newTestScheme(t), "").(*partitionManagerPatcher)
+	pod := p.buildPodSpec(owner)
+	if len(pod.InitContainers) != 0 {
+		t.Fatal("VM manager cannot depend on toolkit or VFIO readiness")
+	}
+	if envValue(pod.Containers[0].Env, "DEFAULT_WORKLOAD_TYPE") != consts.RBLNWorkloadConfigVMPassthrough {
+		t.Fatal("missing policy default for nodes without a workload label")
+	}
+	mounts := pod.Containers[0].VolumeMounts
+	for _, mount := range mounts {
+		switch mount.Name {
+		case "host-sys":
+			if mount.ReadOnly || mount.MountPath != "/sys" {
+				t.Fatal("PCI binding needs writable host sysfs")
+			}
+		case "host-root":
+			if !mount.ReadOnly || mount.MountPath != "/host" || mount.MountPropagation == nil || *mount.MountPropagation != corev1.MountPropagationHostToContainer {
+				t.Fatal("host modprobe requires the host root and its submounts")
+			}
+		}
+	}
 }

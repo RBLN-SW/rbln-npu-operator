@@ -106,13 +106,11 @@ class PayloadTests(unittest.TestCase):
                 self.assertEqual(e[f"SENTINEL_{prefix}_IMAGE_TAG"], ENV["RC_TAG"])
                 self.assertEqual(e[f"SENTINEL_{prefix}_IMAGE_REPOSITORY"], "team/nested/" + name)
 
-    def test_driver_manager_updates_both_operands(self):
-        cfg = dict(CONFIG, images=[{"name": "rbln-k8s-driver-manager", "prefix": p}
-                                  for p in ("DRIVER_MANAGER", "VFIO_MANAGER_DRIVER_MANAGER")])
+    def test_driver_manager_updates_driver_operand(self):
+        cfg = dict(CONFIG, images=[{"name": "rbln-k8s-driver-manager", "prefix": "DRIVER_MANAGER"}])
         e = rc.request_payload(cfg, ENV, [PIPELINE])["overrides"]["env"]
-        for prefix in ("DRIVER_MANAGER", "VFIO_MANAGER_DRIVER_MANAGER"):
-            self.assertEqual(e[f"SENTINEL_{prefix}_IMAGE_TAG"], ENV["RC_TAG"])
-            self.assertEqual(e[f"SENTINEL_{prefix}_IMAGE_REPOSITORY"], "team/nested/rbln-k8s-driver-manager")
+        self.assertEqual(e["SENTINEL_DRIVER_MANAGER_IMAGE_TAG"], ENV["RC_TAG"])
+        self.assertEqual(e["SENTINEL_DRIVER_MANAGER_IMAGE_REPOSITORY"], "team/nested/rbln-k8s-driver-manager")
 
     def test_operator_uses_rc_chart_and_keeps_hardware_pins(self):
         cfg = dict(CONFIG, matrix=True, images=[], execution_branch="dev",

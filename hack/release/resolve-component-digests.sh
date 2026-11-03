@@ -26,7 +26,6 @@ done <<'COMPONENTS'
 DEVICE_PLUGIN .devicePlugin.image
 METRICS_EXPORTER .metricsExporter.image
 NPU_FEATURE_DISCOVERY .npuFeatureDiscovery.image
-VFIO_MANAGER .vfioManager.image
 CONTAINER_TOOLKIT .containerToolkit.image
 DRA_KUBELET_PLUGIN .draKubeletPlugin.image
 SANDBOX_DEVICE_PLUGIN .sandboxDevicePlugin.image

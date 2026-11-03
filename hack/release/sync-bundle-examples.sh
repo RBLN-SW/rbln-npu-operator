@@ -41,8 +41,6 @@ yq -o=json '.' "$csv" | jq -e '
     {kind: "RBLNClusterPolicy", path: ["spec", "containerToolkit"], name: "rbln-container-toolkit"},
     {kind: "RBLNClusterPolicy", path: ["spec", "draKubeletPlugin"], name: "dra-kubelet-plugin"},
     {kind: "RBLNClusterPolicy", path: ["spec", "sandboxDevicePlugin"], name: "sandbox-device-plugin"},
-    {kind: "RBLNClusterPolicy", path: ["spec", "vfioManager"], name: "vfio-manager"},
-    {kind: "RBLNClusterPolicy", path: ["spec", "vfioManager", "driverManager"], name: "driver-manager"},
     {kind: "RBLNDriver", path: ["spec", "manager"], name: "driver-manager"}
   ] as $targets |
   .spec.relatedImages as $images |

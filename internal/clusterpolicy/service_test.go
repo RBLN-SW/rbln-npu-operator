@@ -67,11 +67,11 @@ func TestPatchComponents(t *testing.T) {
 			reason: "enabled components should be patched while disabled components should be cleaned up",
 			patchers: []*fakePatcher{
 				{name: "device-plugin", enabled: true},
-				{name: "vfio-manager", enabled: false},
+				{name: "sandbox-device-plugin", enabled: false},
 			},
 			want: want{
-				patchCalls: map[string]int{"device-plugin": 1, "vfio-manager": 0},
-				cleanCalls: map[string]int{"device-plugin": 0, "vfio-manager": 1},
+				patchCalls: map[string]int{"device-plugin": 1, "sandbox-device-plugin": 0},
+				cleanCalls: map[string]int{"device-plugin": 0, "sandbox-device-plugin": 1},
 			},
 		},
 		"wraps patch errors with the component name": {
@@ -89,13 +89,13 @@ func TestPatchComponents(t *testing.T) {
 		"wraps cleanup errors with the component name": {
 			reason: "cleanup errors should be wrapped with the component name",
 			patchers: []*fakePatcher{
-				{name: "vfio-manager", enabled: false, cleanupErr: errCleanup},
+				{name: "sandbox-device-plugin", enabled: false, cleanupErr: errCleanup},
 			},
 			want: want{
 				err:        errCleanup,
-				errString:  "cleanup vfio-manager: cleanup boom",
-				patchCalls: map[string]int{"vfio-manager": 0},
-				cleanCalls: map[string]int{"vfio-manager": 1},
+				errString:  "cleanup sandbox-device-plugin: cleanup boom",
+				patchCalls: map[string]int{"sandbox-device-plugin": 0},
+				cleanCalls: map[string]int{"sandbox-device-plugin": 1},
 			},
 		},
 	}
@@ -177,12 +177,12 @@ func TestAssembleStatus(t *testing.T) {
 			reason: "both workloads ready",
 			patchers: []*fakePatcher{
 				{name: "device-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigContainer, enabled: true, report: containerReady},
-				{name: "vfio-manager", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigVMPassthrough, enabled: true, report: containerReady},
+				{name: "sandbox-device-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigVMPassthrough, enabled: true, report: containerReady},
 			},
 			census: NodeCensus{TotalNPU: 2, ContainerNodes: 1, VMPassthroughNodes: 1},
 			wantComponents: []rblnv1beta1.RBLNComponentStatus{
 				{Name: "device-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigContainer, State: rblnv1beta1.ComponentStateReady, Desired: 1, Ready: 1},
-				{Name: "vfio-manager", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigVMPassthrough, State: rblnv1beta1.ComponentStateReady, Desired: 1, Ready: 1},
+				{Name: "sandbox-device-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigVMPassthrough, State: rblnv1beta1.ComponentStateReady, Desired: 1, Ready: 1},
 			},
 			wantWorkloads: []rblnv1beta1.RBLNWorkloadStatus{
 				{Type: consts.RBLNWorkloadConfigContainer, NodeCount: 1, ComponentCount: 1, ReadyCount: 1, State: rblnv1beta1.WorkloadStateReady},
@@ -248,11 +248,11 @@ func TestAssembleStatus(t *testing.T) {
 		"vm-passthrough enabled but 0 nodes → empty with message hint": {
 			reason: "Scenario C — DS exists but workload has no nodes",
 			patchers: []*fakePatcher{
-				{name: "vfio-manager", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigVMPassthrough, enabled: true, report: components.ReadinessReport{State: rblnv1beta1.ComponentStateReady}},
+				{name: "sandbox-device-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigVMPassthrough, enabled: true, report: components.ReadinessReport{State: rblnv1beta1.ComponentStateReady}},
 			},
 			census: NodeCensus{TotalNPU: 1, ContainerNodes: 1, VMPassthroughNodes: 0},
 			wantComponents: []rblnv1beta1.RBLNComponentStatus{
-				{Name: "vfio-manager", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigVMPassthrough, State: rblnv1beta1.ComponentStateReady},
+				{Name: "sandbox-device-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigVMPassthrough, State: rblnv1beta1.ComponentStateReady},
 			},
 			wantWorkloads: []rblnv1beta1.RBLNWorkloadStatus{
 				{Type: consts.RBLNWorkloadConfigContainer, NodeCount: 1, ComponentCount: 0, ReadyCount: 0, State: rblnv1beta1.WorkloadStateUncovered, Message: "1 container node(s) labeled but no enabled components configured"},
@@ -279,13 +279,13 @@ func TestAssembleStatus(t *testing.T) {
 			reason: "with both node kinds present the all-type component is part of both rollups",
 			patchers: []*fakePatcher{
 				{name: "device-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigContainer, enabled: true, report: containerReady},
-				{name: "vfio-manager", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigVMPassthrough, enabled: true, report: containerReady},
+				{name: "sandbox-device-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigVMPassthrough, enabled: true, report: containerReady},
 				{name: "dra-kubelet-plugin", namespace: "rbln-system", workloadType: consts.RBLNWorkloadConfigAll, enabled: true, report: allReady},
 			},
 			census: NodeCensus{TotalNPU: 2, ContainerNodes: 1, VMPassthroughNodes: 1},
 			wantComponents: []rblnv1beta1.RBLNComponentStatus{
 				{Name: "device-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigContainer, State: rblnv1beta1.ComponentStateReady, Desired: 1, Ready: 1},
-				{Name: "vfio-manager", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigVMPassthrough, State: rblnv1beta1.ComponentStateReady, Desired: 1, Ready: 1},
+				{Name: "sandbox-device-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigVMPassthrough, State: rblnv1beta1.ComponentStateReady, Desired: 1, Ready: 1},
 				{Name: "dra-kubelet-plugin", Namespace: "rbln-system", WorkloadType: consts.RBLNWorkloadConfigAll, State: rblnv1beta1.ComponentStateReady, Desired: 2, Ready: 2},
 			},
 			wantWorkloads: []rblnv1beta1.RBLNWorkloadStatus{

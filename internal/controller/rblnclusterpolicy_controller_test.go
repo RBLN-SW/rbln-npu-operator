@@ -111,7 +111,6 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 			expectResource(ctx, &corev1.Service{}, "rbln-metrics-exporter-service", containerNS, 5*time.Second)
 
 			By("not creating vm-passthrough resources")
-			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-vfio-manager", containerNS, 5*time.Second)
 			expectResourceDeleted(ctx, &appsv1.DaemonSet{}, "rbln-sandbox-device-plugin", containerNS, 5*time.Second)
 
 			By("marking the policy not ready until pods are running")
@@ -172,10 +171,9 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 		})
 
 		It("creates vm-passthrough resources and excludes container workload resources", func() {
-			By("creating the VFIO manager resources")
-			expectResource(ctx, &corev1.ServiceAccount{}, "rbln-vfio-manager", vmNS, 5*time.Second)
-			expectResource(ctx, &appsv1.DaemonSet{}, "rbln-vfio-manager", vmNS, 5*time.Second)
-			expectResource(ctx, &corev1.ConfigMap{}, "rbln-vfio-manager-config", vmNS, 5*time.Second)
+			By("creating the partition manager resources")
+			expectResource(ctx, &corev1.ServiceAccount{}, "rbln-partition-manager", vmNS, 5*time.Second)
+			expectResource(ctx, &appsv1.DaemonSet{}, "rbln-partition-manager", vmNS, 5*time.Second)
 
 			By("creating the sandbox device plugin resources")
 			expectResource(ctx, &corev1.ServiceAccount{}, "rbln-sandbox-device-plugin", vmNS, 5*time.Second)
@@ -496,7 +494,7 @@ func newContainerClusterPolicyFixture(name string) *rblnv1beta1.RBLNClusterPolic
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
 			WorkloadType: consts.RBLNWorkloadConfigContainer,
-			VFIOManager: rblnv1beta1.RBLNVFIOManagerSpec{
+			PartitionManager: rblnv1beta1.RBLNPartitionManagerSpec{
 				Enabled: false,
 			},
 			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{
@@ -523,7 +521,7 @@ func newVMPassthroughClusterPolicyFixture(name string) *rblnv1beta1.RBLNClusterP
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
 			WorkloadType: consts.RBLNWorkloadConfigVMPassthrough,
-			VFIOManager: rblnv1beta1.RBLNVFIOManagerSpec{
+			PartitionManager: rblnv1beta1.RBLNPartitionManagerSpec{
 				Enabled: true,
 			},
 			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{

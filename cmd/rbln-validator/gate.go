@@ -23,22 +23,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// componentWaitsForPartition is the component×node gate table: every gated
-// container-mode component waits for toolkit-ready; components that advertise NPU devices
-// must additionally wait for partition-ready on partitioned nodes, so they
-// never expose a full PF that is about to be carved into VFs. partition-ready
-// is written by the partition-manager once VF partitioning is applied, so the
-// partition-manager itself must never wait for it — it would deadlock on the
-// marker it owns. Until the manager runs, blocking device advertisement on
-// partitioned nodes is the intended fail-closed behavior. DRA on vm-passthrough
-// nodes instead waits for VFIO binding, because neither toolkit nor
-// partition-manager runs there.
+// Device advertisers wait for the partition manager to finish driver binding
+// and VF topology changes. The manager itself owns the marker and must not wait
+// for it. VM gates also validate the resulting PF-only or VF-only PCI layout.
 var componentWaitsForPartition = map[string]bool{
-	consts.RBLNDevicePluginName:     true,
-	consts.RBLNDRAKubeletPluginName: true,
-	consts.RBLNMetricExporterName:   false,
-	consts.RBLNFeatureDiscoveryName: false,
-	consts.RBLNPartitionManagerName: false,
+	consts.RBLNDevicePluginName:        true,
+	consts.RBLNSandboxDevicePluginName: true,
+	consts.RBLNDRAKubeletPluginName:    true,
+	consts.RBLNMetricExporterName:      false,
+	consts.RBLNFeatureDiscoveryName:    false,
+	consts.RBLNPartitionManagerName:    false,
 }
 
 type gateRuntime struct {
@@ -122,13 +116,28 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 			continue
 		}
 
+		partitioned, err := nodeIsPartitioned(labels)
+		if err != nil {
+			slog.Error(
+				"invalid partition labels, fix the node labels to unblock",
+				"node", cfg.nodeName, "err", err, "sleepSeconds", cfg.sleepIntervalSeconds,
+			)
+			rt.sleep(interval)
+			continue
+		}
+
 		// Match the operator's workload resolution: a valid node label wins,
 		// otherwise the policy default determines which stack runs here.
 		workload := labels[consts.RBLNWorkloadConfigLabelKey]
 		if workload != consts.RBLNWorkloadConfigContainer && workload != consts.RBLNWorkloadConfigVMPassthrough {
 			workload = cfg.defaultWorkload
 		}
-		if cfg.component == consts.RBLNDRAKubeletPluginName && workload == consts.RBLNWorkloadConfigVMPassthrough {
+		if waitsForPartition && workload == consts.RBLNWorkloadConfigVMPassthrough {
+			if missing := statusfile.Missing(cfg.outputDir, []string{consts.PartitionReadyFileName}); len(missing) > 0 {
+				slog.Info("waiting for partition manager", "node", cfg.nodeName)
+				rt.sleep(interval)
+				continue
+			}
 			result, err := rt.validateVFIO(vfiovalidator.Config{
 				OutputDir:            cfg.outputDir,
 				SleepIntervalSeconds: cfg.sleepIntervalSeconds,
@@ -143,16 +152,6 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 			continue
 		}
 
-		partitioned, err := nodeIsPartitioned(labels)
-		if err != nil {
-			slog.Error(
-				"invalid partition labels, fix the node labels to unblock",
-				"node", cfg.nodeName, "err", err, "sleepSeconds", cfg.sleepIntervalSeconds,
-			)
-			rt.sleep(interval)
-			continue
-		}
-
 		if err := rt.checkDriver(ctx); err != nil {
 			slog.Info("waiting for current driver container", "node", cfg.nodeName, "err", err)
 			rt.sleep(interval)
@@ -160,7 +159,9 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 		}
 
 		readyFiles := []string{toolkitReadyFile}
-		if waitsForPartition && partitioned {
+		managerLabel := labels["rebellions.ai/npu.deploy.partition-manager"]
+		managerEnabled := managerLabel == "true" || managerLabel == consts.RBLNDeployPausedForDriverUpgrade
+		if waitsForPartition && (partitioned || managerEnabled) {
 			readyFiles = append(readyFiles, consts.PartitionReadyFileName)
 		}
 

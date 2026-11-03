@@ -55,11 +55,12 @@ The keys above are chart values. In a `RBLNClusterPolicy` manifest the same bloc
 > [!NOTE]
 > `npuPodDeletion.force` and `npuPodDeletion.deleteEmptyDirData` apply even with `autoUpgrade: false`. With the workflow off, `k8s-driver-manager` empties the node itself whenever a driver pod restarts while the module is still loaded, and it obeys the same two settings. `timeoutSeconds` is the exception: it bounds only the operator's eviction, which has `upgrade-skipped` to fall back to. `k8s-driver-manager` has no such state and waits instead of giving up.
 >
-> The same two settings govern one more eviction: the one `k8s-driver-manager` runs from the vfio-manager init container when a node is switched from the `container` workload to `vm-passthrough`. Before the NPUs are bound to `vfio-pci` it cordons the node and evicts its container-mode NPU pods: pods that request exactly `rebellions.ai/npu`, and pods that hold a DRA `ResourceClaim` against the container-mode DeviceClass. A KubeVirt VM holding a passthrough resource or the `vfio-` DeviceClass is not matched, and a node whose NPUs already sit on `vfio-pci` gets neither the cordon nor the eviction. A pod that requests a product-specific resource name instead of `rebellions.ai/npu` is not matched either; it shows up as a vfio-mode readiness failure naming the process that holds `/dev/rbln*`, and has to be moved by hand. To keep the switch from evicting anything, set `ENABLE_NPU_POD_EVICTION=false` through `vfioManager.driverManager.env` (chart) or `spec.vfioManager.driverManager.env` (manifest); those entries come after the operator's own, so the duplicate wins.
+> PCI binding and container/VM transitions are managed by partition-manager.
+> Enable `partitionManager.enabled` for VM nodes. Its reconcile loop handles
+> NPU workload draining, SR-IOV changes and PCI rebinding.
 >
-> This needs a `k8s-driver-manager` that binds the `NPU_POD_EVICTION_*` variables, which is what the chart's `driver.manager.image.tag` and `vfioManager.driverManager.image.tag` pin. Releases up to v0.2.2 ignore them: on the driver path they fall back to draining the whole node, since `ENABLE_AUTO_DRAIN=false` is no longer rendered, and on the vfio path they evict nothing, so the switch keeps failing its readiness check until the NPU pods are moved by hand.
->
-> A node stuck this way shows up as a pod whose `k8s-driver-manager` init container is in `CrashLoopBackOff`. On the driver path it is the driver pod, repeating `cannot proceed until all NPU pods are evicted from the node`; on the vfio path it is the vfio-manager pod, repeating `cannot proceed until all container-mode NPU pods are evicted from the node`. Either log names the blocking pod.
+> Driver installation still requires the chart's `driver.manager.image.tag` pin:
+> versions up to v0.2.2 do not understand `NPU_POD_EVICTION_*` and may drain the whole node.
 
 ### Driver Pod Restarts Without a Driver Change
 
@@ -291,7 +292,7 @@ The gauge `rbln_operator_driver_upgrade_nodes{state=...}` reports the number of 
 
 ### Policy Status While a Driver Installs
 
-Every run of the `k8s-driver-manager` init container switches the node's `rebellions.ai/npu.deploy.*` labels to `paused-for-driver-upgrade`, which removes the operator's component pods from the node, and switches them back when the init container ends, before the driver container loads the module. The driver pod runs it whenever its init containers run: when the pod is created, and again when it restarts after a node reboot. The vfio-manager pod on a `vm-passthrough` node runs it the same way. The pause happens with or without `autoUpgrade`, and also on runs that skip the reinstall.
+Every run of the `k8s-driver-manager` init container switches the node's `rebellions.ai/npu.deploy.*` labels to `paused-for-driver-upgrade`, which removes the operator's component pods from the node, and switches them back when the init container ends, before the driver container loads the module. The driver pod runs it whenever its init containers run: when the pod is created, and again when it restarts after a node reboot. The pause happens with or without `autoUpgrade`, and also on runs that skip the reinstall.
 
 While a node is paused its component DaemonSets no longer count it, so their own readiness would read as complete. The operator therefore holds the node's workload at `progressing`, and the policy at `notReady` with reason `WorkloadProgressing`, until no node of that workload is paused. Once the labels are back, the returning component pods wait for the driver before they become Ready, which keeps the policy `notReady` until the install finishes. The `Ready` condition names up to three paused nodes:
 
@@ -302,7 +303,7 @@ Progressing workload(s): container(1 of 3 container node(s) paused for driver in
 
 The `STATUS` column reads `notReady` for the length of every driver install, and for most of a rollout. `rbln_operator_reconcile_failed_total{controller="clusterpolicy"}` counts every reconcile that ends `notReady`, so it grows during these windows too. To alert on a policy that stays unready, use `rbln_operator_clusterpolicy_reconcile_status == 1` with a `for:` longer than a driver install takes on your nodes, not the rate of that counter.
 
-A pause normally ends with its run. When a run is killed before it switches the labels back, the operator restores them itself once every `k8s-driver-manager` init container on the node has terminated. A node with no such container left, that is with neither a driver pod nor a vfio-manager pod, gives the operator nothing to judge the pause by: the labels stay paused and the policy stays `notReady`, naming the node, until you restore them.
+A pause normally ends with its run. When a run is killed before it switches the labels back, the operator restores them itself once every `k8s-driver-manager` init container on the node has terminated. A node with no such container left, for example after the driver pod has been deleted, gives the operator nothing to judge the pause by: the labels stay paused and the policy stays `notReady`, naming the node, until you restore them.
 
 ```bash
 $ kubectl get node <NODE_NAME> --show-labels | tr ',' '\n' | grep paused-for-driver-upgrade

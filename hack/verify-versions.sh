@@ -110,12 +110,9 @@ else
 fi
 
 # 4. rbln-k8s-driver-manager ships as a version pair with this operator (see
-#    the README, "version pair"), and the operator pins it in two places that
-#    must agree: the driver pod's init container (driver.manager) and the
-#    vfio-manager's (vfioManager.driverManager). Both render the same
-#    NPU_POD_EVICTION_* contract, so a pin left behind runs a binary that
-#    ignores it. The chart, its sample overlays, the CR samples and the
-#    RELATED_IMAGE in config/manager all carry the pin by hand.
+#    the README, "version pair"). The driver pod's init container renders the
+#    NPU_POD_EVICTION_* contract. Keep the chart, samples and RELATED_IMAGE pin
+#    aligned so no installation runs an older binary that ignores it.
 dm_files="
 deployments/rbln-npu-operator/values.yaml
 deployments/rbln-npu-operator/sample-values-ContainerWorkload.yaml
