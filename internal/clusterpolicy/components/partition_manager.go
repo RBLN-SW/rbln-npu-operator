@@ -109,6 +109,11 @@ func (h *partitionManagerPatcher) handleClusterRole(ctx context.Context, owner *
 				Verbs:     []string{"create"},
 			},
 			{
+				APIGroups: []string{"resource.k8s.io"},
+				Resources: []string{"resourceclaims"},
+				Verbs:     []string{"get"},
+			},
+			{
 				APIGroups: []string{"apps"},
 				Resources: []string{"daemonsets"},
 				Verbs:     []string{"get", "list", "watch"},
@@ -152,9 +157,14 @@ func (h *partitionManagerPatcher) handleClusterRoleBinding(ctx context.Context, 
 
 func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
 	initContainer := buildGateInitContainer(consts.RBLNPartitionManagerName, owner.Spec.Validator)
+	draDriverName := owner.Spec.DRAKubeletPlugin.DriverName
+	if draDriverName == "" {
+		draDriverName = consts.DefaultDRADeviceClass
+	}
 
 	env := mergeEnvVars(
 		[]corev1.EnvVar{
+			{Name: "DRA_DRIVER_NAME", Value: draDriverName},
 			{
 				Name: "NODE_NAME",
 				ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{

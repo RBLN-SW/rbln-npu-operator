@@ -8,6 +8,7 @@ package drivermanager
 
 import (
 	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -72,4 +73,17 @@ func NPUPodEvictionEnv(policy NPUPodEvictionPolicy) []corev1.EnvVar {
 		{Name: "NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA", Value: strconv.FormatBool(policy.DeleteEmptyDirData)},
 		{Name: "NPU_POD_EVICTION_DEVICE_CLASS", Value: policy.DeviceClass},
 	}
+}
+
+// ContainerDeviceClasses includes the PF class and the built-in SR-IOV classes.
+// The first entry is also the configured DRA driver name.
+func ContainerDeviceClasses(driver string) []string {
+	if driver == "" {
+		return nil
+	}
+	prefix, domain, found := strings.Cut(driver, ".")
+	if found {
+		domain = "." + domain
+	}
+	return []string{driver, prefix + "-vf1" + domain, prefix + "-vf4" + domain}
 }

@@ -16,6 +16,8 @@ import (
 	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
+const testCustomDRADriverName = "custom.example.com"
+
 func TestDRAKubeletPluginPatch(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
@@ -113,8 +115,7 @@ func TestDRAKubeletPluginPatch(t *testing.T) {
 	if len(dc.Spec.Selectors) == 0 || dc.Spec.Selectors[0].CEL == nil {
 		t.Fatal("DeviceClass should have CEL selector")
 	}
-	wantExpr := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q",
-		"npu.rebellions.ai", "npu.rebellions.ai", "npu")
+	wantExpr := `device.driver == "npu.rebellions.ai" && device.attributes["npu.rebellions.ai"].type == "npu" && (!has(device.attributes["npu.rebellions.ai"].vf) || !device.attributes["npu.rebellions.ai"].vf)`
 	if dc.Spec.Selectors[0].CEL.Expression != wantExpr {
 		t.Fatalf("DeviceClass CEL expression = %q, want %q", dc.Spec.Selectors[0].CEL.Expression, wantExpr)
 	}
@@ -192,6 +193,8 @@ func TestDRAKubeletPluginCleanUp(t *testing.T) {
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name + draClusterRoleSuffix}, &rbacv1.ClusterRole{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name + draClusterBindSuffix}, &rbacv1.ClusterRoleBinding{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: "npu.rebellions.ai"}, &resourcev1.DeviceClass{})
+	assertObjectNotExists(t, c, types.NamespacedName{Name: "npu-vf1.rebellions.ai"}, &resourcev1.DeviceClass{})
+	assertObjectNotExists(t, c, types.NamespacedName{Name: "npu-vf4.rebellions.ai"}, &resourcev1.DeviceClass{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
 	assertNoNodeViewerRBAC(t, c, name)
 }
@@ -207,6 +210,53 @@ func TestDRAKubeletPluginGatePolicyDefault(t *testing.T) {
 			pod := p.buildPodSpec(owner)
 			if got := envValue(pod.InitContainers[0].Env, "DEFAULT_WORKLOAD_TYPE"); got != workload {
 				t.Fatalf("DRA gate default workload = %q, want policy workload %q", got, workload)
+			}
+		})
+	}
+}
+
+func TestDRAKubeletPluginSRIOVClasses(t *testing.T) {
+	for _, driver := range []string{"npu.rebellions.ai", testCustomDRADriverName} {
+		t.Run(driver, func(t *testing.T) {
+			scheme := newTestScheme(t)
+			c := newFakeClient(t, scheme)
+			ctx := context.Background()
+			owner := newTestOwner()
+			owner.Spec.DRAKubeletPlugin = rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: true, DriverName: driver}
+			p := NewDRAKubeletPluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
+			if err := p.Patch(ctx, owner); err != nil {
+				t.Fatal(err)
+			}
+			classes := &resourcev1.DeviceClassList{}
+			if err := c.List(ctx, classes); err != nil {
+				t.Fatal(err)
+			}
+			if len(classes.Items) != 4 {
+				t.Fatalf("expected PF, VFIO, vf1 and vf4 DeviceClasses, got %v", classes.Items)
+			}
+			for _, count := range []int{1, 4} {
+				name := fmt.Sprintf("npu-vf%d.rebellions.ai", count)
+				if driver == testCustomDRADriverName {
+					name = fmt.Sprintf("custom-vf%d.example.com", count)
+				}
+				vfClass := &resourcev1.DeviceClass{}
+				assertObjectExists(t, c, types.NamespacedName{Name: name}, vfClass)
+				want := fmt.Sprintf(`device.driver == %[1]q && device.attributes[%[1]q].type == "npu" && has(device.attributes[%[1]q].vf) && device.attributes[%[1]q].vf && has(device.attributes[%[1]q].partitionMode) && device.attributes[%[1]q].partitionMode == "vf%[2]d"`, driver, count)
+				if len(vfClass.Spec.Selectors) != 1 || vfClass.Spec.Selectors[0].CEL == nil || vfClass.Spec.Selectors[0].CEL.Expression != want {
+					t.Fatalf("unexpected VF selector: %+v", vfClass.Spec.Selectors)
+				}
+				if vfClass.Spec.ExtendedResourceName == nil || *vfClass.Spec.ExtendedResourceName != fmt.Sprintf("rebellions.ai/npu-vf%d", count) {
+					t.Fatal("VF class must bridge the device-plugin resource name")
+				}
+			}
+			if err := p.CleanUp(ctx, owner); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.List(ctx, classes); err != nil {
+				t.Fatal(err)
+			}
+			if len(classes.Items) != 0 {
+				t.Fatalf("cleanup left DeviceClasses: %v", classes.Items)
 			}
 		})
 	}

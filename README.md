@@ -123,6 +123,20 @@ The gate is **fail-closed**: on API errors or invalid label values it retries fo
 of assuming an unpartitioned node — misreading a `vf4` node would let components advertise
 full PFs that are about to be carved into VFs. Fix the label to unblock the node.
 
+For DRA container workloads, the operator creates the profile-specific
+`npu-vf1.rebellions.ai` and `npu-vf4.rebellions.ai` classes alongside the physical
+`npu.rebellions.ai` class.
+They bridge `rebellions.ai/npu-vf1` and `rebellions.ai/npu-vf4` when the
+cluster's DRA extended-resource feature is enabled. Physical NPU requests
+exclude VFs. Deploy a DRA driver build that publishes `vf` and
+`partitionMode`, and a partition-manager build that resolves allocated DRA
+ResourceClaims before draining. The manager receives ResourceClaim read
+permissions and `DRA_DRIVER_NAME` from the policy's DRA driver name. Do not
+advertise the same devices through device-plugin and DRA on one node.
+The upgrade controller recognizes these VF classes even when the API server
+does not retain the extended-resource bridge. Claim read failures block that
+node's upgrade; allocated VFIO VM claims are excluded from container eviction.
+
 Current limitations:
 
 - The gate only runs at pod start. Already-running pods do not react to label changes;

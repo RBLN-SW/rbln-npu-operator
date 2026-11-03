@@ -628,7 +628,7 @@ func TestPodArrivingAfterDrainSelectionDoesNotCausePolicySkip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := stored.Labels[UpgradeStateLabelKey]; got != UpgradeStatePodRestartRequired {
+	if got := stored.Labels[UpgradeStateLabelKey]; got != UpgradeStatePodDeletionRequired {
 		t.Fatalf("state=%q, reason=%q", got, stored.Annotations[UpgradeSkipReasonAnnotationKey])
 	}
 	if _, err := cs.CoreV1().Pods(first.Namespace).Get(ctx, first.Name, metav1.GetOptions{}); !apierrors.IsNotFound(err) {

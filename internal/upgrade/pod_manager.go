@@ -220,6 +220,9 @@ func (m *PodManager) evictNodePods(ctx context.Context, n *corev1.Node, spec *v1
 				held = append(held, p)
 			}
 		}
+		if matcher.lookupErr != nil {
+			return nil, matcher.lookupErr
+		}
 		return held, nil
 	}
 	initial, err := selectHeld()
@@ -240,6 +243,9 @@ func (m *PodManager) evictNodePods(ctx context.Context, n *corev1.Node, spec *v1
 		}},
 	}
 	list, issues := helper.GetPodsForDeletion(n.Name)
+	if matcher.lookupErr != nil {
+		return matcher.lookupErr
+	}
 	if list == nil {
 		return fmt.Errorf("pod list failed: %w", errors.Join(issues...))
 	}
@@ -260,6 +266,13 @@ func (m *PodManager) evictNodePods(ctx context.Context, n *corev1.Node, spec *v1
 		reason := fmt.Sprintf("pod eviction failed: %v", err)
 		logger.Info("NPU workload eviction did not complete", "reason", reason)
 		return &evictionVerdict{reason: reason}
+	}
+	remaining, err := selectHeld()
+	if err != nil {
+		return err
+	}
+	if len(remaining) > 0 {
+		return fmt.Errorf("NPU claim holders remain after drain: %v", podKeys(remaining))
 	}
 	logger.Info("NPU workload eviction completed", "pods", len(victims))
 	return nil

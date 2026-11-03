@@ -129,10 +129,15 @@ func (h *draKubeletPluginPatcher) className() string {
 }
 
 func (h *draKubeletPluginPatcher) handleDRAClass(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	npuCEL := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q",
-		h.className(), h.className(), "npu")
+	npuCEL := fmt.Sprintf("device.driver == %[1]q && device.attributes[%[1]q].type == \"npu\" && (!has(device.attributes[%[1]q].vf) || !device.attributes[%[1]q].vf)", h.className())
 	if err := h.handleDeviceClass(ctx, owner, h.className(), npuCEL, ptr(draExtendedResource)); err != nil {
 		return err
+	}
+	for _, count := range []int{1, 4} {
+		vfCEL := fmt.Sprintf("device.driver == %[1]q && device.attributes[%[1]q].type == \"npu\" && has(device.attributes[%[1]q].vf) && device.attributes[%[1]q].vf && has(device.attributes[%[1]q].partitionMode) && device.attributes[%[1]q].partitionMode == \"vf%[2]d\"", h.className(), count)
+		if err := h.handleDeviceClass(ctx, owner, h.sriovClassName(count), vfCEL, ptr(fmt.Sprintf("rebellions.ai/npu-vf%d", count))); err != nil {
+			return err
+		}
 	}
 	// No extended-resource bridge on purpose — passthrough devices must be
 	// requested explicitly through a ResourceClaim.
@@ -143,6 +148,14 @@ func (h *draKubeletPluginPatcher) handleDRAClass(ctx context.Context, owner *rbl
 
 func (h *draKubeletPluginPatcher) vfioClassName() string {
 	return "vfio-" + h.className()
+}
+
+func (h *draKubeletPluginPatcher) sriovClassName(count int) string {
+	prefix, domain, found := strings.Cut(h.className(), ".")
+	if !found {
+		return fmt.Sprintf("%s-vf%d", prefix, count)
+	}
+	return fmt.Sprintf("%s-vf%d.%s", prefix, count, domain)
 }
 
 func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy, name, celExpression string, extendedResourceName *string) error {
@@ -171,7 +184,7 @@ func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *
 }
 
 func (h *draKubeletPluginPatcher) deleteDeviceClass(ctx context.Context) error {
-	for _, name := range []string{h.className(), h.vfioClassName()} {
+	for _, name := range []string{h.className(), h.vfioClassName(), h.sriovClassName(1), h.sriovClassName(4)} {
 		if err := h.client.Delete(ctx, &resourcev1.DeviceClass{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
 		}); err != nil && !kapierrors.IsNotFound(err) && !isNoMatchError(err) {

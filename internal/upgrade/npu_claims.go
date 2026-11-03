@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/drivermanager"
 )
 
 // npuDeviceClassNames returns the DRA DeviceClasses whose claims mark a pod as
@@ -51,7 +52,7 @@ func npuDeviceClassNames(ctx context.Context, k8sInterface kubernetes.Interface,
 			continue
 		}
 		extendedResource := class.Spec.ExtendedResourceName
-		if extendedResource != nil && strings.HasPrefix(*extendedResource, consts.RBLNResourceNamePrefix) {
+		if slices.Contains(drivermanager.ContainerDeviceClasses(npuDeviceClass), class.Name) || (extendedResource != nil && strings.HasPrefix(*extendedResource, consts.RBLNResourceNamePrefix)) {
 			names = append(names, class.Name)
 		}
 	}
@@ -85,7 +86,7 @@ func resolveNPUDeviceClasses(ctx context.Context, k8sInterface kubernetes.Interf
 		log.FromContext(ctx).Error(err,
 			"Failed to list DRA device classes; only ResourceClaims on the configured NPU class will be evicted",
 			"deviceClass", npuDeviceClass)
-		return []string{npuDeviceClass}
+		return drivermanager.ContainerDeviceClasses(npuDeviceClass)
 	}
 }
 
@@ -103,13 +104,12 @@ func resolveNPUDeviceClasses(ctx context.Context, k8sInterface kubernetes.Interf
 // serves one node's eviction on that node's goroutine; it is not safe for
 // concurrent use.
 //
-// A claim that cannot be read counts as not holding an NPU: one missing RBAC
-// rule must not park every node in the cluster, and the unread claim's pod
-// surfaces as a driver pod that cannot unload the module.
+// An unreadable claim blocks this node's drain until the lookup succeeds.
 type npuClaimMatcher struct {
 	k8sInterface  kubernetes.Interface
 	deviceClasses []string
 	verdicts      map[string]bool
+	lookupErr     error
 }
 
 func newNPUClaimMatcher(k8sInterface kubernetes.Interface, deviceClasses []string) *npuClaimMatcher {
@@ -121,14 +121,19 @@ func newNPUClaimMatcher(k8sInterface kubernetes.Interface, deviceClasses []strin
 }
 
 func (m *npuClaimMatcher) holdsNPUClaim(ctx context.Context, pod *corev1.Pod) bool {
-	if len(m.deviceClasses) == 0 || len(pod.Spec.ResourceClaims) == 0 || !podRunningOrPending(pod) {
+	if len(m.deviceClasses) == 0 || !podRunningOrPending(pod) {
 		return false
 	}
 	for _, claimName := range podResourceClaimNames(pod) {
 		key := pod.Namespace + "/" + claimName
 		holdsNPU, decided := m.verdicts[key]
 		if !decided {
-			holdsNPU = claimUsesNPUDeviceClass(ctx, m.k8sInterface, pod.Namespace, claimName, m.deviceClasses)
+			var err error
+			holdsNPU, err = claimUsesNPUDeviceClass(ctx, m.k8sInterface, pod.Namespace, claimName, m.deviceClasses)
+			if err != nil {
+				m.lookupErr = err
+				return false
+			}
 			m.verdicts[key] = holdsNPU
 		}
 		if holdsNPU {
@@ -162,6 +167,9 @@ func podResourceClaimNames(pod *corev1.Pod) []string {
 			names = append(names, *name)
 		}
 	}
+	if status := pod.Status.ExtendedResourceClaimStatus; status != nil && status.ResourceClaimName != "" {
+		names = append(names, status.ResourceClaimName)
+	}
 	return names
 }
 
@@ -170,28 +178,38 @@ func claimUsesNPUDeviceClass(
 	k8sInterface kubernetes.Interface,
 	namespace, name string,
 	deviceClasses []string,
-) bool {
+) (bool, error) {
 	claim, err := k8sInterface.ResourceV1().ResourceClaims(namespace).Get(ctx, name, metav1.GetOptions{})
-	switch {
-	case apierrors.IsNotFound(err):
-		// Raced with claim creation or deletion; nothing to hold.
-		return false
-	case err != nil:
-		log.FromContext(ctx).Error(err,
-			"Cannot read a DRA ResourceClaim; a pod holding an NPU through it will not be evicted",
-			"namespace", namespace, "name", name)
-		return false
+	if err != nil {
+		return false, fmt.Errorf("read ResourceClaim %s/%s before drain: %w", namespace, name, err)
 	}
-	return claimRequestsDeviceClass(claim, deviceClasses)
+	return claimRequestsDeviceClass(claim, deviceClasses), nil
 }
 
 func claimRequestsDeviceClass(claim *resourcev1.ResourceClaim, deviceClasses []string) bool {
+	if len(deviceClasses) == 0 {
+		return false
+	}
+	driver := deviceClasses[0]
+	deviceClasses = append(slices.Clone(deviceClasses), drivermanager.ContainerDeviceClasses(driver)...)
+	allocated := map[string]bool{}
+	if claim.Status.Allocation != nil {
+		for _, result := range claim.Status.Allocation.Devices.Results {
+			if result.Driver != "" {
+				if result.Driver == driver && result.Device != "" && !strings.HasPrefix(result.Device, "vfio-") {
+					return true
+				}
+				continue
+			}
+			allocated[result.Request] = true
+		}
+	}
 	for _, request := range claim.Spec.Devices.Requests {
-		if request.Exactly != nil && slices.Contains(deviceClasses, request.Exactly.DeviceClassName) {
+		if request.Exactly != nil && (claim.Status.Allocation == nil || allocated[request.Name]) && slices.Contains(deviceClasses, request.Exactly.DeviceClassName) {
 			return true
 		}
 		for _, alternative := range request.FirstAvailable {
-			if slices.Contains(deviceClasses, alternative.DeviceClassName) {
+			if (claim.Status.Allocation == nil || allocated[request.Name+"/"+alternative.Name]) && slices.Contains(deviceClasses, alternative.DeviceClassName) {
 				return true
 			}
 		}

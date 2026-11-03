@@ -158,7 +158,7 @@ func TestResolveNPUDeviceClasses(t *testing.T) {
 		},
 		"list failure keeps the configured class": {
 			listErr: apierrors.NewInternalError(errors.New("etcd timeout")),
-			want:    []string{npuDeviceClass},
+			want:    []string{npuDeviceClass, "npu-vf1.rebellions.ai", "npu-vf4.rebellions.ai"},
 		},
 	}
 
@@ -345,9 +345,9 @@ func TestNPUClaimMatcherSkipsLookupWithoutDeviceClasses(t *testing.T) {
 	}
 }
 
-// One missing RBAC rule or a flaky read must not park every node in the
-// cluster: an unreadable claim counts as not holding an NPU.
-func TestNPUClaimMatcherTreatsUnreadableClaimAsAbsent(t *testing.T) {
+// An unreadable claim cannot be classified; the drain checks lookupErr before
+// moving on to driver replacement.
+func TestNPUClaimMatcherRecordsUnreadableClaim(t *testing.T) {
 	clientset := k8sfake.NewClientset()
 	clientset.PrependReactor("get", "resourceclaims",
 		func(k8stesting.Action) (bool, runtime.Object, error) {
@@ -359,5 +359,43 @@ func TestNPUClaimMatcherTreatsUnreadableClaimAsAbsent(t *testing.T) {
 	matcher := newNPUClaimMatcher(clientset, []string{npuDeviceClass})
 	if matcher.holdsNPUClaim(context.Background(), claimingPod("ns", "vllm", "npu-claim")) {
 		t.Fatal("holdsNPUClaim() = true, want false for a claim that cannot be read")
+	}
+	if matcher.lookupErr == nil {
+		t.Fatal("unreadable claim must be reported to the drain")
+	}
+}
+
+func TestVFClassesWithoutExtendedResourceBridge(t *testing.T) {
+	cs := k8sfake.NewClientset(deviceClass("npu-vf1.rebellions.ai", nil), deviceClass("npu-vf4.rebellions.ai", nil))
+	classes, err := npuDeviceClassNames(context.Background(), cs, npuDeviceClass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"npu-vf1.rebellions.ai", "npu-vf4.rebellions.ai"} {
+		if !slices.Contains(classes, name) {
+			t.Fatalf("class without bridge was missed: %s", name)
+		}
+		if !claimRequestsDeviceClass(claimForClass("ns", "claim", name), []string{npuDeviceClass}) {
+			t.Fatalf("VF claim missed: %s", name)
+		}
+	}
+}
+
+func TestAllocatedNativeAliasAndVFIOStayDistinct(t *testing.T) {
+	for _, dev := range []string{"rbln0-0", "vfio-0000-17-00-1"} {
+		claim := claimForClass("ns", "c", "custom-class")
+		claim.Status.Allocation = &resourcev1.AllocationResult{Devices: resourcev1.DeviceAllocationResult{Results: []resourcev1.DeviceRequestAllocationResult{{Request: "npu", Driver: npuDeviceClass, Device: dev}}}}
+		if got := claimRequestsDeviceClass(claim, []string{npuDeviceClass}); got != (dev == "rbln0-0") {
+			t.Fatalf("allocated %s matched=%v", dev, got)
+		}
+	}
+}
+
+func TestUnreadableDRAClaimBlocksUpgrade(t *testing.T) {
+	cs := k8sfake.NewClientset()
+	matcher := newNPUClaimMatcher(cs, []string{npuDeviceClass})
+	matcher.holdsNPUClaim(context.Background(), claimingPod("ns", "pod", "missing"))
+	if matcher.lookupErr == nil {
+		t.Fatal("missing claim must block hardware changes")
 	}
 }

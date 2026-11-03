@@ -47,6 +47,7 @@ func TestPartitionManagerPatch(t *testing.T) {
 	assertClusterRoleHasRule(t, cr, "", "nodes/status")
 	assertClusterRoleHasRule(t, cr, "", "pods")
 	assertClusterRoleHasRule(t, cr, "", "pods/eviction")
+	assertClusterRoleHasRule(t, cr, "resource.k8s.io", "resourceclaims")
 	assertClusterRoleHasRule(t, cr, "apps", "daemonsets")
 
 	crb := &rbacv1.ClusterRoleBinding{}
@@ -68,6 +69,9 @@ func TestPartitionManagerPatch(t *testing.T) {
 	assertGateInitContainer(t, ds, consts.RBLNPartitionManagerName)
 
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
+	if envValue(mainContainer.Env, "DRA_DRIVER_NAME") != consts.DefaultDRADeviceClass {
+		t.Fatal("partition manager must recognize the DRA driver's allocated claims")
+	}
 	assertContainerImage(t, mainContainer, "rebellions/k8s-partition-manager", "v0.1.0")
 	if !slices.Equal(mainContainer.Args, []string{"reconcile-partition-state"}) {
 		t.Fatalf("container args = %v, want [reconcile-partition-state]", mainContainer.Args)
@@ -94,6 +98,7 @@ func TestPartitionManagerEnvOverride(t *testing.T) {
 	ctx := context.Background()
 
 	owner := newPartitionManagerOwner()
+	owner.Spec.DRAKubeletPlugin.DriverName = testCustomDRADriverName
 	owner.Spec.PartitionManager.Env = []corev1.EnvVar{
 		{Name: "SMD_ADDRESS", Value: "127.0.0.1:50052"},
 		{Name: "DRAIN_TIMEOUT_SECONDS", Value: "300"},
@@ -110,6 +115,9 @@ func TestPartitionManagerEnvOverride(t *testing.T) {
 	assertObjectExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, ds)
 
 	env := ds.Spec.Template.Spec.Containers[0].Env
+	if envValue(env, "DRA_DRIVER_NAME") != testCustomDRADriverName {
+		t.Fatal("partition manager must track the configured DRA driver")
+	}
 	if envValue(env, "SMD_ADDRESS") != "127.0.0.1:50052" {
 		t.Fatalf("SMD_ADDRESS = %q, want 127.0.0.1:50052", envValue(env, "SMD_ADDRESS"))
 	}
