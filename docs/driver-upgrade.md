@@ -13,7 +13,22 @@ alone; it does not remove VFs or call SMD.
 Partition-manager starts through a driver-only `component-gate` init container.
 It never waits for toolkit, partition, or VFIO readiness in that gate. VM
 consumer gates also check the current managed driver installation. Existing
-cordon ownership and release timing are unchanged.
+cordon ownership and rollout phases are retained.
+
+For an unowned node with no active driver Pod, the binding gate lists
+`RBLNDriver` configurations and checks their node selectors. A matching driver
+keeps the gate waiting for assignment; no matching configuration permits the
+unmanaged/host path even when `npu.deploy.driver=true`. The deploy label is an
+eligibility flag, not proof that a managed driver is configured. PM and VM
+consumer gate service accounts need read-only `list` access to `rblndrivers`,
+including standalone partition-manager deployments. Other component gates do
+not receive this permission. An API error never counts as an empty list.
+
+Automatic upgrade validation follows the effective node workload (a valid node
+label overrides the policy default). Container nodes wait for `operator-validator`;
+VM nodes wait for the enabled `dra-kubelet-plugin` or `sandbox-device-plugin`.
+Validation checks non-terminating, ready Pods in the operator namespace on the
+target node. Missing/unready consumers retain the existing validation timeout.
 
 This document covers the rollout the operator performs when `spec.driver.upgradePolicy.autoUpgrade` is `true`: how a node moves from the old driver to the new one, which policy options change that path, what happens when a step fails, and where to look while a rollout is running.
 
@@ -146,7 +161,7 @@ Each node advances through the states below one step at a time. The current stat
 | `wait-for-jobs-required` | Waits until no pod matching `waitForCompletion.podSelector` is Running or Pending. Skipped when the selector is empty | proceeds on timeout |
 | `pod-deletion-required` | Evicts the node's NPU pods, then moves to `pod-restart-required`. A pod the eviction cannot remove parks the node; see [Why a node is skipped](#why-a-node-is-skipped) | `upgrade-skipped` |
 | `pod-restart-required` | Deletes the driver pod and waits for the replacement to become Ready | `upgrade-failed` |
-| `validation-required` | Waits up to 600 seconds for the operator validator pod on the node to become Ready | `upgrade-failed` |
+| `validation-required` | Waits up to 600 seconds for the workload's validator/consumer on the node: `operator-validator` for containers, the enabled DRA or sandbox device plugin for VMs | `upgrade-failed` |
 | `uncordon-required` | Uncordons the node. A node that was already cordoned before the upgrade stays cordoned, unless that cordon was `k8s-driver-manager`'s own (see below) | retried |
 | `upgrade-done` | Terminal until the next driver revision | N/A |
 

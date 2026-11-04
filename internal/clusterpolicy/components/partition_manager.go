@@ -89,6 +89,7 @@ func (h *partitionManagerPatcher) handleClusterRole(ctx context.Context, owner *
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, clusterRole, func() error {
 		clusterRole.Rules = []rbacv1.PolicyRule{
+			{APIGroups: []string{"rebellions.ai"}, Resources: []string{"rblndrivers"}, Verbs: []string{"list"}},
 			{APIGroups: []string{"resource.k8s.io"}, Resources: []string{"resourceclaims"}, Verbs: []string{"get"}},
 			{
 				APIGroups: []string{""},

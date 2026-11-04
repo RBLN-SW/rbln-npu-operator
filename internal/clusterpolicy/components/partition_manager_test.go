@@ -48,6 +48,7 @@ func TestPartitionManagerPatch(t *testing.T) {
 	assertClusterRoleHasRule(t, cr, "", "pods")
 	assertClusterRoleHasRule(t, cr, "", "pods/eviction")
 	assertClusterRoleHasRule(t, cr, "apps", "daemonsets")
+	assertClusterRoleHasRule(t, cr, "rebellions.ai", "rblndrivers")
 
 	crb := &rbacv1.ClusterRoleBinding{}
 	assertObjectExists(t, c, types.NamespacedName{Name: name}, crb)

@@ -687,7 +687,7 @@ func TestProcessValidationRequiredNodes(t *testing.T) {
 				UpgradeStateValidationRequired: {ns},
 			})
 
-			err := mgr.ProcessValidationRequiredNodes(context.Background(), state)
+			err := mgr.ProcessValidationRequiredNodes(context.Background(), state, ValidationOptions{})
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -721,7 +721,7 @@ func TestProcessValidationRequiredNodesContinuesPastNodeError(t *testing.T) {
 		UpgradeStateValidationRequired: {bad, good},
 	})
 
-	if err := mgr.ProcessValidationRequiredNodes(context.Background(), state); err == nil {
+	if err := mgr.ProcessValidationRequiredNodes(context.Background(), state, ValidationOptions{}); err == nil {
 		t.Fatal("expected the bad node's validation error to be reported")
 	}
 
@@ -1760,7 +1760,7 @@ func TestDriverAndValidatorReadiness(t *testing.T) {
 			if err != nil || got != tc.want {
 				t.Fatalf("driver ready=%v error=%v", got, err)
 			}
-			if got := (&ValidationManager{}).isPodReady(context.Background(), *pod); got != tc.want {
+			if got := (&ValidationManager{}).isPodReady(context.Background(), *pod); got != (tc.want && !tc.terminating) {
 				t.Fatalf("validator ready=%v", got)
 			}
 		})

@@ -6,12 +6,22 @@ import (
 	"os"
 	"path/filepath"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation"
 
+	driverapi "github.com/RBLN-SW/rbln-npu-operator/api/v1alpha1"
 	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 const deployedLabelValue = "true"
+
+var driverResource = schema.GroupVersionResource{
+	Group: driverapi.GroupVersion.Group, Version: driverapi.GroupVersion.Version, Resource: "rblndrivers",
+}
 
 // VM gates must also wait for a managed installation: VFIO bindings and a
 // partition marker left by an earlier run are not evidence of driver readiness.
@@ -45,6 +55,16 @@ func (c *Checker) CheckForBinding(ctx context.Context, root string) error {
 		if node.Labels[consts.RBLNDeployDriverLabelKey] != deployedLabelValue {
 			return nil
 		}
+		// The deploy label is eligibility, not evidence of a desired driver.
+		// Check configuration so unowned nodes work without racing a pending
+		// owner assignment for a driver that actually targets this node.
+		expected, err := c.driverConfiguredForNode(ctx, node)
+		if err != nil {
+			return err
+		}
+		if !expected {
+			return nil
+		}
 		return fmt.Errorf("managed driver has not been assigned")
 	}
 	if owner == "" || node.Labels[consts.RBLNDeployDriverLabelKey] != deployedLabelValue {
@@ -55,4 +75,35 @@ func (c *Checker) CheckForBinding(ctx context.Context, root string) error {
 	}
 	_, err = os.Stat(filepath.Join(root, ".driver-ctr-ready"))
 	return err
+}
+
+func (c *Checker) driverConfiguredForNode(ctx context.Context, node *corev1.Node) (bool, error) {
+	if c.drivers == nil {
+		return false, fmt.Errorf("driver configuration reader is unavailable")
+	}
+	list, err := c.drivers.Resource(driverResource).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return false, fmt.Errorf("list driver configurations: %w", err)
+	}
+	for _, item := range list.Items {
+		var instance driverapi.RBLNDriver
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(item.Object, &instance); err != nil {
+			return false, fmt.Errorf("read driver configuration %s: %w", item.GetName(), err)
+		}
+		// Match the owner resolver's routable-candidate rules. Any matching
+		// candidate (including an ownership conflict) keeps the gate closed.
+		if instance.DeletionTimestamp != nil || len(instance.Name) > validation.LabelValueMaxLength {
+			continue
+		}
+		if _, reserved := instance.Spec.NodeSelector[consts.RBLNDriverOwnerLabelKey]; reserved {
+			continue
+		}
+		if _, reserved := instance.Spec.NodeSelector[consts.RBLNDeployDriverLabelKey]; reserved {
+			continue
+		}
+		if labels.SelectorFromSet(instance.Spec.NodeSelector).Matches(labels.Set(node.Labels)) {
+			return true, nil
+		}
+	}
+	return false, nil
 }

@@ -36,7 +36,7 @@ func TestManagerOptionsConfigureOptionalOperations(t *testing.T) {
 
 func TestDisabledValidationDoesNotReadPods(t *testing.T) {
 	validator := NewValidationManager(nil, nil, "")
-	if done, err := validator.Validate(context.Background(), &corev1.Node{}); err != nil || !done {
+	if done, err := validator.Validate(context.Background(), &corev1.Node{}, ValidationOptions{}); err != nil || !done {
 		t.Fatalf("disabled validation: done=%v, err=%v", done, err)
 	}
 }

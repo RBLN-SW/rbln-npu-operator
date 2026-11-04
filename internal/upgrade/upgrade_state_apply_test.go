@@ -71,7 +71,7 @@ func TestApplyStateRunsAllStepsAndJoinsErrors(t *testing.T) {
 	state.DepartedNodes = []*corev1.Node{departed}
 
 	err := mgr.ApplyState(context.Background(), state,
-		&v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true}, "npu.rebellions.ai")
+		&v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true}, "npu.rebellions.ai", ValidationOptions{})
 	if err == nil {
 		t.Fatal("expected the failing cordon step's error to be reported")
 	}
@@ -100,7 +100,7 @@ func TestApplyStateRunsAllStepsAndJoinsErrors(t *testing.T) {
 func TestNilState(t *testing.T) {
 	m := newTestManager(t)
 	for _, policy := range []*v1beta1.DriverUpgradePolicySpec{nil, {}, {AutoUpgrade: true}} {
-		if err := m.ApplyState(context.Background(), nil, policy, ""); err == nil {
+		if err := m.ApplyState(context.Background(), nil, policy, "", ValidationOptions{}); err == nil {
 			t.Fatal("nil state must return an error without panicking")
 		}
 	}
@@ -115,7 +115,7 @@ func TestApplyStateDoesNotRestartDepartedNodes(t *testing.T) {
 	registerNodes(t, manager, observed.Node)
 	state := newClusterState(map[string][]*NodeUpgradeState{UpgradeStatePodRestartRequired: {observed}})
 	state.DepartedNodes = []*corev1.Node{observed.Node}
-	if err := manager.ApplyState(context.Background(), state, &v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true}, "npu.rebellions.ai"); err != nil {
+	if err := manager.ApplyState(context.Background(), state, &v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true}, "npu.rebellions.ai", ValidationOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(pods.restartedPods) != 0 {
@@ -143,7 +143,7 @@ func TestAdmissionSeesSlotFreedEarlierInThePass(t *testing.T) {
 	state := newClusterState(map[string][]*NodeUpgradeState{
 		UpgradeStateFailed: {failed}, UpgradeStateUpgradeRequired: {queued},
 	})
-	if err := m.ApplyState(context.Background(), state, &v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true, MaxParallelUpgrades: 1}, "npu.example.com"); err != nil {
+	if err := m.ApplyState(context.Background(), state, &v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true, MaxParallelUpgrades: 1}, "npu.example.com", ValidationOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if failed.Node.Labels[UpgradeStateLabelKey] != UpgradeStateUpgradeRequired {

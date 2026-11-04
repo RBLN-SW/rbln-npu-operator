@@ -142,7 +142,14 @@ const nodeViewerSuffix = "-node-viewer"
 
 // reconcileNodeViewerClusterRBAC supports the gate's node and driver Pod checks.
 func (b *basePatcher) reconcileNodeViewerClusterRBAC(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	return k8sutil.ReconcileNodePodReader(ctx, b.client, b.scheme, owner, b.namespace, b.name, b.name+nodeViewerSuffix, true)
+	var driverRules []rbacv1.PolicyRule
+	switch b.name {
+	case consts.RBLNBaseName + "-" + consts.RBLNDRAKubeletPluginName,
+		consts.RBLNBaseName + "-" + consts.RBLNSandboxDevicePluginName:
+		driverRules = []rbacv1.PolicyRule{{APIGroups: []string{"rebellions.ai"}, Resources: []string{"rblndrivers"}, Verbs: []string{"list"}}}
+	}
+	return k8sutil.ReconcileNodePodReader(ctx, b.client, b.scheme, owner, b.namespace, b.name, b.name+nodeViewerSuffix, true,
+		driverRules...)
 }
 
 func (b *basePatcher) deleteNodeViewerClusterRBAC(ctx context.Context) error {

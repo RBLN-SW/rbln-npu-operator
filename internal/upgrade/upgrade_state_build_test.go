@@ -87,7 +87,7 @@ func TestSnapshotStatusAndMetricsExcludeLingeringDepartedPods(t *testing.T) {
 	if len(state.nodes) != 1 || len(state.DepartedNodes) != 1 {
 		t.Fatalf("active nodes=%d, departed nodes=%d", len(state.nodes), len(state.DepartedNodes))
 	}
-	if err := m.ApplyState(ctx, state, &v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true, MaxParallelUpgrades: 1}, "npu.example.com"); err != nil {
+	if err := m.ApplyState(ctx, state, &v1beta1.DriverUpgradePolicySpec{AutoUpgrade: true, MaxParallelUpgrades: 1}, "npu.example.com", ValidationOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	summary := SummarizeClusterUpgrade(state)

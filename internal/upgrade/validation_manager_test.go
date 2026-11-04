@@ -12,6 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+
+	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
 // The validator DaemonSet may not have a pod on the node yet — its deploy
@@ -45,7 +47,7 @@ func TestValidateWithoutValidatorPodRunsTheClock(t *testing.T) {
 			}
 			vm := NewValidationManager(k8sfake.NewClientset(), provider, "app=validator")
 
-			done, err := vm.Validate(context.Background(), node.DeepCopy())
+			done, err := vm.Validate(context.Background(), node.DeepCopy(), ValidationOptions{})
 			if err != nil {
 				t.Fatalf("Validate: %v", err)
 			}
@@ -71,7 +73,7 @@ func TestValidationStillUnblocksSafeLoad(t *testing.T) {
 	n := newNodeUpgradeState("worker", UpgradeStateValidationRequired, "rev1")
 	n.Node.Annotations = map[string]string{UpgradeWaitForSafeDriverLoadAnnotationKey: "true"}
 	registerNodes(t, m, n.Node)
-	if err := m.ProcessValidationRequiredNodes(context.Background(), newClusterState(map[string][]*NodeUpgradeState{UpgradeStateValidationRequired: {n}})); err != nil {
+	if err := m.ProcessValidationRequiredNodes(context.Background(), newClusterState(map[string][]*NodeUpgradeState{UpgradeStateValidationRequired: {n}}), ValidationOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := m.nodeUpgradeStateProvider.GetNode(context.Background(), n.Node.Name)
@@ -109,9 +111,64 @@ func TestValidationRequiresEveryMatchingPodToBeReady(t *testing.T) {
 				})
 			}
 			manager := NewValidationManager(k8sfake.NewClientset(objects...), provider, "app=validator")
-			done, err := manager.Validate(context.Background(), node)
+			done, err := manager.Validate(context.Background(), node, ValidationOptions{})
 			if err != nil || done != tc.want {
 				t.Fatalf("validation=%v err=%v, want %v", done, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidationUsesTheConfiguredWorkloadConsumer(t *testing.T) {
+	for _, tc := range []struct {
+		name, workload, fallback, component, namespace  string
+		dra, sandbox, ready, terminating, want, wantErr bool
+	}{
+		{name: "PF VM sandbox", workload: "vm-passthrough", sandbox: true, component: "sandbox-device-plugin", ready: true, want: true},
+		{name: "VF VM DRA", workload: "vm-passthrough", dra: true, component: "dra-kubelet-plugin", ready: true, want: true},
+		{name: "VM default without a node label", fallback: "vm-passthrough", dra: true, component: "dra-kubelet-plugin", ready: true, want: true},
+		{name: "invalid label uses policy default", workload: "invalid", fallback: "vm-passthrough", sandbox: true, component: "sandbox-device-plugin", ready: true, want: true},
+		{name: "container label overrides VM default", workload: "container", fallback: "vm-passthrough", dra: true, component: "operator-validator", ready: true, want: true},
+		{name: "VM label overrides container default", workload: "vm-passthrough", fallback: "container", sandbox: true, component: "sandbox-device-plugin", ready: true, want: true},
+		{name: "native SRIOV uses container validator", workload: "container", component: "operator-validator", ready: true, want: true},
+		{name: "VM does not accept container validator", workload: "vm-passthrough", dra: true, component: "operator-validator", ready: true},
+		{name: "wrong VM plugin", workload: "vm-passthrough", dra: true, component: "sandbox-device-plugin", ready: true},
+		{name: "VM plugin still initializing", workload: "vm-passthrough", dra: true, component: "dra-kubelet-plugin"},
+		{name: "terminating VM plugin", workload: "vm-passthrough", sandbox: true, component: "sandbox-device-plugin", ready: true, terminating: true},
+		{name: "another operator namespace", workload: "vm-passthrough", dra: true, component: "dra-kubelet-plugin", namespace: "other", ready: true},
+		{name: "no VM plugin configured", workload: "vm-passthrough", wantErr: true},
+		{name: "both VM plugins configured", workload: "vm-passthrough", dra: true, sandbox: true, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := newTestNodeUpgradeStateProvider(t)
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", Labels: map[string]string{UpgradeStateLabelKey: UpgradeStateValidationRequired}}}
+			if tc.workload != "" {
+				node.Labels[consts.RBLNWorkloadConfigLabelKey] = tc.workload
+			}
+			if err := provider.K8sClient.Create(context.Background(), node); err != nil {
+				t.Fatal(err)
+			}
+			var pods []runtime.Object
+			if tc.component != "" {
+				namespace := tc.namespace
+				if namespace == "" {
+					namespace = "operator"
+				}
+				pod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{Name: "consumer", Namespace: namespace, Labels: map[string]string{"app.kubernetes.io/name": consts.OperatorName, "app.kubernetes.io/component": tc.component}},
+					Spec:       corev1.PodSpec{NodeName: node.Name},
+					Status:     corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Name: tc.component, Ready: tc.ready}}},
+				}
+				if tc.terminating {
+					now := metav1.Now()
+					pod.DeletionTimestamp = &now
+				}
+				pods = append(pods, pod)
+			}
+			manager := NewValidationManager(k8sfake.NewClientset(pods...), provider, "app.kubernetes.io/name=rbln-npu-operator,app.kubernetes.io/component=operator-validator")
+			done, err := manager.Validate(context.Background(), node, ValidationOptions{Namespace: "operator", DefaultWorkload: tc.fallback, DRAEnabled: tc.dra, SandboxEnabled: tc.sandbox})
+			if done != tc.want || (err != nil) != tc.wantErr {
+				t.Fatalf("done=%v err=%v, want done=%v err=%v", done, err, tc.want, tc.wantErr)
 			}
 		})
 	}

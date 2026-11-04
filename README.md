@@ -123,6 +123,12 @@ Consumer `component-gate` init containers read node labels on every poll:
 | Partition-manager / either workload | Current driver installation only; no toolkit, partition, or VFIO wait |
 
 SMD retains its driver-ready gate. VM consumers do not require toolkit-ready.
+
+When a node has no driver owner or active driver Pod, binding gates check for
+matching `RBLNDriver` configurations before waiting. The deploy label alone is
+only eligibility: a VM node without a matching driver configuration can proceed,
+while one awaiting owner assignment stays gated. These gates need read-only
+`list` access to `rblndrivers`; configuration lookup failures keep them closed.
 Malformed labels, incomplete topology, or incorrect bindings keep consumers
 blocked. Existing consumers are refreshed by partition-manager after a transition.
 VM policies require `partitionManager.enabled=true`; the controller also rejects
