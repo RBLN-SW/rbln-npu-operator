@@ -36,10 +36,11 @@ var componentWaitsForPartition = map[string]bool{
 }
 
 type gateRuntime struct {
-	getNodeLabels func(ctx context.Context, nodeName string) (map[string]string, error)
-	validateVFIO  func(vfiovalidator.Config) (vfiovalidator.Result, error)
-	checkDriver   func(context.Context) error
-	sleep         func(time.Duration)
+	getNodeLabels      func(ctx context.Context, nodeName string) (map[string]string, error)
+	validateVFIO       func(vfiovalidator.Config) (vfiovalidator.Result, error)
+	checkDriver        func(context.Context) error
+	checkBindingDriver func(context.Context) error
+	sleep              func(time.Duration)
 }
 
 func defaultGateRuntime() gateRuntime {
@@ -82,6 +83,7 @@ func newGateCommand(config *rootConfig) *cobra.Command {
 			}
 			rt := defaultGateRuntime()
 			rt.checkDriver = checker.Check
+			rt.checkBindingDriver = func(ctx context.Context) error { return checker.CheckForBinding(ctx, cfg.outputDir) }
 			return runGate(cmd.Context(), cfg, rt)
 		},
 	}
@@ -90,7 +92,8 @@ func newGateCommand(config *rootConfig) *cobra.Command {
 	return cmd
 }
 
-// runGate re-reads the node's partition labels on every poll, so a label
+// Except for the driver-only partition-manager gate, runGate re-reads the
+// node's partition labels on every poll, so a label
 // change during the wait (partitioning requested or aborted) is honored
 // without a pod restart. Fail-closed: on API errors or invalid label values
 // it keeps retrying instead of assuming an unpartitioned node — misreading a
@@ -104,11 +107,24 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 	if cfg.nodeName == "" {
 		return errors.New("NODE_NAME environment variable is required")
 	}
+	if cfg.component == consts.RBLNPartitionManagerName && rt.checkBindingDriver == nil {
+		return errors.New("partition-manager gate requires a driver readiness checker")
+	}
 
 	interval := time.Duration(cfg.sleepIntervalSeconds) * time.Second
 	slog.Info("gate started", "component", cfg.component, "node", cfg.nodeName)
 
 	for {
+		if cfg.component == consts.RBLNPartitionManagerName {
+			if err := rt.checkBindingDriver(ctx); err == nil {
+				slog.Info("driver readiness gate passed", "component", cfg.component)
+				return nil
+			} else {
+				slog.Info("waiting for current driver installation", "err", err)
+			}
+			rt.sleep(interval)
+			continue
+		}
 		labels, err := rt.getNodeLabels(ctx, cfg.nodeName)
 		if err != nil {
 			slog.Error("failed to get node labels", "node", cfg.nodeName, "err", err, "sleepSeconds", cfg.sleepIntervalSeconds)
@@ -133,6 +149,13 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 			workload = cfg.defaultWorkload
 		}
 		if waitsForPartition && workload == consts.RBLNWorkloadConfigVMPassthrough {
+			if rt.checkBindingDriver != nil {
+				if err := rt.checkBindingDriver(ctx); err != nil {
+					slog.Info("waiting for current driver installation", "err", err)
+					rt.sleep(interval)
+					continue
+				}
+			}
 			if missing := statusfile.Missing(cfg.outputDir, []string{consts.PartitionReadyFileName}); len(missing) > 0 {
 				slog.Info("waiting for partition manager", "node", cfg.nodeName)
 				rt.sleep(interval)

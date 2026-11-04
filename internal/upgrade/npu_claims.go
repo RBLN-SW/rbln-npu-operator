@@ -33,9 +33,8 @@ import (
 // through the rollout still holding /dev/rbln*. The bridge is kept as a hint
 // only: any other class bridged to a rebellions.ai/* resource is added, so a
 // hand-made class on a cluster that does persist the field is still honored.
-// The passthrough class vfio-<driverName> is never one, bridged or not: the
-// device a KubeVirt VM holds through it sits on vfio-pci, not on the driver
-// being replaced.
+// Both native and vfio classes are included: driver replacement now releases
+// passthrough devices before restoring their partition layout.
 func npuDeviceClassNames(ctx context.Context, k8sInterface kubernetes.Interface, npuDeviceClass string) ([]string, error) {
 	list, err := k8sInterface.ResourceV1().DeviceClasses().List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -43,7 +42,7 @@ func npuDeviceClassNames(ctx context.Context, k8sInterface kubernetes.Interface,
 	}
 
 	names := make([]string, 0, len(list.Items)+1)
-	names = append(names, npuDeviceClass)
+	names = append(names, npuDeviceClass, passthroughDeviceClassName(npuDeviceClass))
 	passthroughClass := passthroughDeviceClassName(npuDeviceClass)
 	for i := range list.Items {
 		class := &list.Items[i]
@@ -83,9 +82,9 @@ func resolveNPUDeviceClasses(ctx context.Context, k8sInterface kubernetes.Interf
 		return nil
 	default:
 		log.FromContext(ctx).Error(err,
-			"Failed to list DRA device classes; only ResourceClaims on the configured NPU class will be evicted",
+			"Failed to list DRA device classes; using the configured native and VFIO classes",
 			"deviceClass", npuDeviceClass)
-		return []string{npuDeviceClass}
+		return []string{npuDeviceClass, passthroughDeviceClassName(npuDeviceClass)}
 	}
 }
 
@@ -103,13 +102,13 @@ func resolveNPUDeviceClasses(ctx context.Context, k8sInterface kubernetes.Interf
 // serves one node's eviction on that node's goroutine; it is not safe for
 // concurrent use.
 //
-// A claim that cannot be read counts as not holding an NPU: one missing RBAC
-// rule must not park every node in the cluster, and the unread claim's pod
-// surfaces as a driver pod that cannot unload the module.
+// An unreadable or unresolved claim prevents the caller from advancing to
+// driver replacement. The next eviction pass retries its API observation.
 type npuClaimMatcher struct {
 	k8sInterface  kubernetes.Interface
 	deviceClasses []string
 	verdicts      map[string]bool
+	err           error
 }
 
 func newNPUClaimMatcher(k8sInterface kubernetes.Interface, deviceClasses []string) *npuClaimMatcher {
@@ -124,11 +123,20 @@ func (m *npuClaimMatcher) holdsNPUClaim(ctx context.Context, pod *corev1.Pod) bo
 	if len(m.deviceClasses) == 0 || len(pod.Spec.ResourceClaims) == 0 || !podRunningOrPending(pod) {
 		return false
 	}
-	for _, claimName := range podResourceClaimNames(pod) {
+	names := podResourceClaimNames(pod)
+	if len(names) < len(pod.Spec.ResourceClaims) {
+		m.err = fmt.Errorf("unresolved claim reference on pod %s/%s", pod.Namespace, pod.Name)
+	}
+	for _, claimName := range names {
 		key := pod.Namespace + "/" + claimName
 		holdsNPU, decided := m.verdicts[key]
 		if !decided {
-			holdsNPU = claimUsesNPUDeviceClass(ctx, m.k8sInterface, pod.Namespace, claimName, m.deviceClasses)
+			claim, err := m.k8sInterface.ResourceV1().ResourceClaims(pod.Namespace).Get(ctx, claimName, metav1.GetOptions{})
+			if err != nil {
+				m.err = fmt.Errorf("resolve NPU claim %s/%s: %w", pod.Namespace, claimName, err)
+			} else {
+				holdsNPU = claimRequestsDeviceClass(claim, m.deviceClasses)
+			}
 			m.verdicts[key] = holdsNPU
 		}
 		if holdsNPU {
@@ -165,27 +173,31 @@ func podResourceClaimNames(pod *corev1.Pod) []string {
 	return names
 }
 
-func claimUsesNPUDeviceClass(
-	ctx context.Context,
-	k8sInterface kubernetes.Interface,
-	namespace, name string,
-	deviceClasses []string,
-) bool {
-	claim, err := k8sInterface.ResourceV1().ResourceClaims(namespace).Get(ctx, name, metav1.GetOptions{})
-	switch {
-	case apierrors.IsNotFound(err):
-		// Raced with claim creation or deletion; nothing to hold.
-		return false
-	case err != nil:
-		log.FromContext(ctx).Error(err,
-			"Cannot read a DRA ResourceClaim; a pod holding an NPU through it will not be evicted",
-			"namespace", namespace, "name", name)
+func claimRequestsDeviceClass(claim *resourcev1.ResourceClaim, deviceClasses []string) bool {
+	if claim.Status.Allocation != nil {
+		for _, result := range claim.Status.Allocation.Devices.Results {
+			for _, class := range deviceClasses {
+				if result.Driver == strings.TrimPrefix(class, "vfio-") {
+					return true
+				}
+			}
+			name, alternative, _ := strings.Cut(result.Request, "/")
+			for _, request := range claim.Spec.Devices.Requests {
+				if request.Name != name {
+					continue
+				}
+				if request.Exactly != nil && slices.Contains(deviceClasses, request.Exactly.DeviceClassName) {
+					return true
+				}
+				for _, sub := range request.FirstAvailable {
+					if sub.Name == alternative && slices.Contains(deviceClasses, sub.DeviceClassName) {
+						return true
+					}
+				}
+			}
+		}
 		return false
 	}
-	return claimRequestsDeviceClass(claim, deviceClasses)
-}
-
-func claimRequestsDeviceClass(claim *resourcev1.ResourceClaim, deviceClasses []string) bool {
 	for _, request := range claim.Spec.Devices.Requests {
 		if request.Exactly != nil && slices.Contains(deviceClasses, request.Exactly.DeviceClassName) {
 			return true

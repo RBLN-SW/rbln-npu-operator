@@ -1,5 +1,20 @@
 # NPU Driver Auto Upgrade
 
+Driver replacement also includes VM workloads using the `vfio-<driverName>`
+DRA DeviceClass. Unresolved claim references or reads keep eviction pending;
+they are not evidence that the node is free of device users. The DRA plugin
+remains available until workload eviction and claim cleanup finish.
+
+Driver-manager pauses the partition reconciler, invalidates `partition-ready`,
+then stops NPU consumers and components before releasing VFIO bindings and
+unloading the native module. Its VFIO cleanup leaves SR-IOV and native bindings
+alone; it does not remove VFs or call SMD.
+
+Partition-manager starts through a driver-only `component-gate` init container.
+It never waits for toolkit, partition, or VFIO readiness in that gate. VM
+consumer gates also check the current managed driver installation. Existing
+cordon ownership and release timing are unchanged.
+
 This document covers the rollout the operator performs when `spec.driver.upgradePolicy.autoUpgrade` is `true`: how a node moves from the old driver to the new one, which policy options change that path, what happens when a step fails, and where to look while a rollout is running.
 
 This document covers:
@@ -155,7 +170,7 @@ There is no limit on skipped nodes; a rollout that ends with skipped nodes repor
 
 ### Why a node is skipped
 
-Only NPU pods are ever evicted; every other pod on the node is left alone. A pod counts as an NPU pod when it requests a `rebellions.ai/*` resource, or when it holds a DRA `ResourceClaim` against the container-mode DeviceClass: `draKubeletPlugin.driverName`, `npu.rebellions.ai` by default, the same class `k8s-driver-manager` is handed as `NPU_POD_EVICTION_DEVICE_CLASS`. The class is matched by name, not by its `rebellions.ai/npu` extended-resource bridge, because an API server without the `DRAExtendedResource` feature gate (off by default through Kubernetes 1.35) does not persist that field; any other DeviceClass that does carry a `rebellions.ai/*` bridge is matched as well. A `ResourceClaim` against the passthrough DeviceClass `vfio-<driverName>` is never evicted: the device it holds is bound to `vfio-pci` rather than to the driver being replaced. The skip reason names the NPU pods that blocked the eviction and how to clear them.
+Only NPU pods are ever evicted; every other pod on the node is left alone. A pod counts as an NPU pod when it requests a `rebellions.ai/*` resource, or when it holds a DRA `ResourceClaim` against the container-mode DeviceClass: `draKubeletPlugin.driverName`, `npu.rebellions.ai` by default, the same class `k8s-driver-manager` is handed as `NPU_POD_EVICTION_DEVICE_CLASS`. The class is matched by name, not by its `rebellions.ai/npu` extended-resource bridge, because an API server without the `DRAExtendedResource` feature gate (off by default through Kubernetes 1.35) does not persist that field; any other DeviceClass that does carry a `rebellions.ai/*` bridge is matched as well. Claims against the passthrough DeviceClass `vfio-<driverName>` are included because driver replacement releases VFIO bindings too. Unresolved claim references or reads keep the operation pending instead of allowing driver replacement. The skip reason names the NPU pods that blocked the eviction and how to clear them.
 
 | Blocking NPU pod | Skip reason says | Remedy |
 |------------------|------------------|--------|

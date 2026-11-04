@@ -385,9 +385,8 @@ func TestSchedulePodEviction(t *testing.T) {
 			wantState:   UpgradeStatePodRestartRequired,
 			wantDeleted: []string{"dra-vllm"},
 		},
-		// A VM holding the passthrough class is not a container-mode NPU pod
-		// to move; its device sits on vfio-pci, not on the driver being replaced.
-		"passthrough DRA claim is left alone": {
+		// Driver updates release VFIO devices too, so their VM consumers must exit.
+		"passthrough DRA claim is evicted before driver replacement": {
 			spec: v1beta1.PodDeletionSpec{TimeoutSeconds: 5},
 			pods: []*corev1.Pod{withClaim(newPod("virt-launcher", false, false, rsOwner), "vfio-claim")},
 			draObjs: []runtime.Object{
@@ -395,8 +394,8 @@ func TestSchedulePodEviction(t *testing.T) {
 				deviceClass(vfioDeviceClass, nil),
 				claimForClass(ns, "vfio-claim", vfioDeviceClass),
 			},
-			wantState: UpgradeStatePodRestartRequired,
-			wantKept:  []string{"virt-launcher"},
+			wantState:   UpgradeStatePodRestartRequired,
+			wantDeleted: []string{"virt-launcher"},
 		},
 		"blocked DRA claim pod is named in the skip reason": {
 			spec: v1beta1.PodDeletionSpec{TimeoutSeconds: 5},

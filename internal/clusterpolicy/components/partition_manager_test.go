@@ -65,8 +65,19 @@ func TestPartitionManagerPatch(t *testing.T) {
 		t.Fatal("expected pod HostNetwork=true (dials rbln-smd node-locally at 127.0.0.1:50051)")
 	}
 
-	if len(ds.Spec.Template.Spec.InitContainers) != 0 {
-		t.Fatal("partition-manager must start without readiness gates")
+	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
+		t.Fatal("partition-manager requires a driver readiness init container")
+	}
+	gate := ds.Spec.Template.Spec.InitContainers[0]
+	if gate.Name != "component-gate" || !slices.Equal(gate.Command, []string{"rbln-validator"}) || !slices.Equal(gate.Args, []string{"gate", "--component", "partition-manager"}) {
+		t.Fatalf("wrong driver gate: %+v", gate)
+	}
+	assertContainerHasVolumeMount(t, gate, consts.ValidationsVolumeName)
+	if envFieldRef(gate.Env, "NODE_NAME") == nil || envFieldRef(gate.Env, "OPERATOR_NAMESPACE") == nil {
+		t.Fatal("driver gate needs node and namespace identity")
+	}
+	if gate.SecurityContext.RunAsUser == nil || *gate.SecurityContext.RunAsUser != 0 {
+		t.Fatal("driver gate must read root-owned readiness files")
 	}
 	if p.WorkloadType() != consts.RBLNWorkloadConfigAll {
 		t.Fatal("partition-manager must serve both workloads")
@@ -176,10 +187,22 @@ func TestPartitionManagerDisabled(t *testing.T) {
 func TestPartitionManagerVMDeployment(t *testing.T) {
 	owner := newPartitionManagerOwner()
 	owner.Spec.WorkloadType = consts.RBLNWorkloadConfigVMPassthrough
+	owner.Spec.Validator.Registry = "private.example.com"
+	owner.Spec.Validator.Image = "validator"
+	owner.Spec.Validator.Version = "gate-test"
+	owner.Spec.Validator.ImagePullSecrets = []string{"shared", "validator-secret"}
+	owner.Spec.PartitionManager.ImagePullSecrets = []string{"shared", "partition-secret"}
 	p := NewPartitionManagerPatcher(newFakeClient(t, newTestScheme(t)), logf.Log, testNamespace, &owner.Spec, newTestScheme(t), "").(*partitionManagerPatcher)
 	pod := p.buildPodSpec(owner)
-	if len(pod.InitContainers) != 0 {
-		t.Fatal("VM manager cannot depend on toolkit or VFIO readiness")
+	if pod.InitContainers[0].Image != "private.example.com/validator:gate-test" {
+		t.Fatalf("wrong validator image: %s", pod.InitContainers[0].Image)
+	}
+	wantSecrets := []corev1.LocalObjectReference{{Name: "shared"}, {Name: "partition-secret"}, {Name: "validator-secret"}}
+	if !slices.Equal(pod.ImagePullSecrets, wantSecrets) {
+		t.Fatalf("image pull secrets = %v", pod.ImagePullSecrets)
+	}
+	if len(pod.InitContainers) != 1 || !slices.Equal(pod.InitContainers[0].Args, []string{"gate", "--component", "partition-manager"}) {
+		t.Fatal("VM manager must wait only for driver installation")
 	}
 	if envValue(pod.Containers[0].Env, "DEFAULT_WORKLOAD_TYPE") != consts.RBLNWorkloadConfigVMPassthrough {
 		t.Fatal("missing policy default for nodes without a workload label")

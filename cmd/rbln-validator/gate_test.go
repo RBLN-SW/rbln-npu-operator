@@ -117,7 +117,7 @@ func TestRunGate(t *testing.T) {
 			want: want{sleepCallCount: 0},
 		},
 		"PartitionManagerNeverWaitsForPartitionReady": {
-			reason: "the partition-manager owns partition-ready, so waiting for it on a partitioned node would deadlock",
+			reason: "the partition-manager waits only for the driver, never toolkit or its own partition-ready",
 			fields: fields{
 				getter: &fakeNodeLabelsGetter{results: []nodeLabelsResult{
 					{labels: map[string]string{consts.RBLNPartitionLabelKey: consts.RBLNPartitionModeVF4}},
@@ -126,7 +126,7 @@ func TestRunGate(t *testing.T) {
 			args: args{
 				component:     consts.RBLNPartitionManagerName,
 				nodeName:      "node-1",
-				existingFiles: []string{toolkitReadyFile},
+				existingFiles: nil,
 			},
 			want: want{sleepCallCount: 0},
 		},
@@ -228,8 +228,9 @@ func TestRunGate(t *testing.T) {
 
 			sleepCalls := 0
 			rt := gateRuntime{
-				checkDriver:   func(context.Context) error { return nil },
-				getNodeLabels: tc.fields.getter.get,
+				checkDriver:        func(context.Context) error { return nil },
+				checkBindingDriver: func(context.Context) error { return nil },
+				getNodeLabels:      tc.fields.getter.get,
 				sleep: func(time.Duration) {
 					sleepCalls++
 					for _, f := range tc.args.createOnSleeps[sleepCalls] {
@@ -470,5 +471,44 @@ func TestContainerPFConsumerWaitsForBindingReconcile(t *testing.T) {
 	}
 	if sleeps != 1 {
 		t.Fatal("PF-only node bypassed manager binding readiness")
+	}
+}
+
+func TestPartitionManagerInitWaitsOnlyForDriver(t *testing.T) {
+	for _, workload := range []string{consts.RBLNWorkloadConfigContainer, consts.RBLNWorkloadConfigVMPassthrough} {
+		t.Run(workload, func(t *testing.T) {
+			checks, sleeps := 0, 0
+			cfg := &gateConfig{
+				nodeName:        "node",
+				component:       consts.RBLNPartitionManagerName,
+				defaultWorkload: workload,
+				outputDir:       t.TempDir(),
+			}
+			rt := gateRuntime{
+				checkBindingDriver: func(context.Context) error {
+					checks++
+					if checks < 3 {
+						return errors.New("driver installing")
+					}
+					return nil
+				},
+				getNodeLabels: func(context.Context, string) (map[string]string, error) {
+					t.Fatal("driver gate must not wait on partition labels")
+					return nil, nil
+				},
+				checkDriver: func(context.Context) error { t.Fatal("must use host-aware driver check"); return nil },
+				validateVFIO: func(vfiovalidator.Config) (vfiovalidator.Result, error) {
+					t.Fatal("driver gate cannot wait for VFIO binding")
+					return vfiovalidator.Result{}, nil
+				},
+				sleep: func(time.Duration) { sleeps++ },
+			}
+			if err := runGate(context.Background(), cfg, rt); err != nil {
+				t.Fatal(err)
+			}
+			if checks != 3 || sleeps != 2 {
+				t.Fatalf("checks=%d sleeps=%d", checks, sleeps)
+			}
+		})
 	}
 }

@@ -74,7 +74,7 @@ func TestNPUDeviceClassNames(t *testing.T) {
 				deviceClass(npuDeviceClass, nil),
 				deviceClass(vfioDeviceClass, nil),
 			},
-			want: []string{npuDeviceClass},
+			want: []string{npuDeviceClass, vfioDeviceClass},
 		},
 		"configured class is listed once when its bridge is persisted": {
 			npuDeviceClass: npuDeviceClass,
@@ -82,7 +82,7 @@ func TestNPUDeviceClassNames(t *testing.T) {
 				deviceClass(npuDeviceClass, strPtr("rebellions.ai/npu")),
 				deviceClass(vfioDeviceClass, nil),
 			},
-			want: []string{npuDeviceClass},
+			want: []string{npuDeviceClass, vfioDeviceClass},
 		},
 		"customized driverName replaces the default class": {
 			npuDeviceClass: "npu.example.com",
@@ -91,7 +91,7 @@ func TestNPUDeviceClassNames(t *testing.T) {
 				deviceClass("vfio-npu.example.com", nil),
 				deviceClass(npuDeviceClass, nil),
 			},
-			want: []string{"npu.example.com"},
+			want: []string{"npu.example.com", "vfio-npu.example.com"},
 		},
 		"another class bridged to a rebellions.ai resource is a hint": {
 			npuDeviceClass: npuDeviceClass,
@@ -100,16 +100,16 @@ func TestNPUDeviceClassNames(t *testing.T) {
 				deviceClass("npu-shared.example.com", strPtr("rebellions.ai/npu")),
 				deviceClass("gpu.example.com", strPtr("example.com/gpu")),
 			},
-			want: []string{npuDeviceClass, "npu-shared.example.com"},
+			want: []string{npuDeviceClass, vfioDeviceClass, "npu-shared.example.com"},
 		},
-		"passthrough class is excluded even when bridged": {
+		"passthrough class is included once even when bridged": {
 			npuDeviceClass: npuDeviceClass,
 			classes:        []runtime.Object{deviceClass(vfioDeviceClass, strPtr("rebellions.ai/npu"))},
-			want:           []string{npuDeviceClass},
+			want:           []string{npuDeviceClass, vfioDeviceClass},
 		},
 		"configured class is matched before its DeviceClass exists": {
 			npuDeviceClass: npuDeviceClass,
-			want:           []string{npuDeviceClass},
+			want:           []string{npuDeviceClass, vfioDeviceClass},
 		},
 	}
 
@@ -158,7 +158,7 @@ func TestResolveNPUDeviceClasses(t *testing.T) {
 		},
 		"list failure keeps the configured class": {
 			listErr: apierrors.NewInternalError(errors.New("etcd timeout")),
-			want:    []string{npuDeviceClass},
+			want:    []string{npuDeviceClass, vfioDeviceClass},
 		},
 	}
 

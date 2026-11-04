@@ -90,7 +90,7 @@ Admin label contract (values are lowercase; `vf2` is not supported):
 
 No partition labels means the node is not partitioned.
 
-Partition-manager starts without an init gate and retries unavailable modules or
+Partition-manager waits for driver installation in its init gate and retries unavailable modules or
 SMD through reconciliation. It runs on both container and VM nodes, with host
 networking for SMD, writable `/sys` for PCI binding, and read-only `/host` for
 host module loading. The policy workload default is passed as
@@ -120,7 +120,7 @@ Consumer `component-gate` init containers read node labels on every poll:
 | Device plugin or DRA / container | Current driver and `toolkit-ready`; also `partition-ready` when manager is enabled or partitioning is requested |
 | DRA or sandbox plugin / VM | `partition-ready` and a complete PF-only or VF-only VFIO layout |
 | Metrics exporter or feature discovery / container | Current driver and `toolkit-ready` |
-| Partition-manager / either workload | No init gate |
+| Partition-manager / either workload | Current driver installation only; no toolkit, partition, or VFIO wait |
 
 SMD retains its driver-ready gate. VM consumers do not require toolkit-ready.
 Malformed labels, incomplete topology, or incorrect bindings keep consumers
