@@ -19,6 +19,7 @@ import (
 
 	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
 	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/draclass"
 	k8sutil "github.com/RBLN-SW/rbln-npu-operator/internal/utils/k8s"
 )
 
@@ -160,20 +161,15 @@ func (h *draKubeletPluginPatcher) handleDRAClass(ctx context.Context, owner *rbl
 }
 
 func (h *draKubeletPluginPatcher) vfioClassName() string {
-	return "vfio-" + h.className()
+	return draclass.VFIOName(h.className())
 }
 
 func (h *draKubeletPluginPatcher) vfioVFClassName(count int) string {
-	return "vfio-" + h.vfClassName(count)
+	return draclass.VFIOName(h.vfClassName(count))
 }
 
 func (h *draKubeletPluginPatcher) vfClassName(count int) string {
-	name, domain, hasDomain := strings.Cut(h.className(), ".")
-	name = fmt.Sprintf("%s-vf%d", name, count)
-	if hasDomain {
-		name += "." + domain
-	}
-	return name
+	return draclass.VFName(h.className(), count)
 }
 
 func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy, name, celExpression string, extendedResourceName *string) error {
@@ -202,7 +198,7 @@ func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *
 }
 
 func (h *draKubeletPluginPatcher) deleteDeviceClass(ctx context.Context) error {
-	for _, name := range []string{h.className(), h.vfioClassName(), h.vfClassName(1), h.vfClassName(4), h.vfioVFClassName(1), h.vfioVFClassName(4)} {
+	for _, name := range draclass.Names(h.className()) {
 		if err := h.client.Delete(ctx, &resourcev1.DeviceClass{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
 		}); err != nil && !kapierrors.IsNotFound(err) && !isNoMatchError(err) {

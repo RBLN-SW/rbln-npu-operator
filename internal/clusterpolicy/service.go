@@ -68,6 +68,7 @@ func newComponents(
 	containerRuntime string,
 ) []components.Patcher {
 	return []components.Patcher{
+		components.NewLegacyVFIOManagerCleanup(client, log, namespace, scheme),
 		components.NewNPUFamilyRulePatcher(client, log, namespace, scheme, openShiftVersion),
 		components.NewNPUFeatureDiscoveryPatcher(client, log, namespace, spec, scheme, openShiftVersion),
 		components.NewMetricsExporterPatcher(client, log, namespace, spec, scheme, openShiftVersion),

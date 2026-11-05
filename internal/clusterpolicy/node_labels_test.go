@@ -293,22 +293,23 @@ func TestReconcileNodes(t *testing.T) {
 				absentLabels: []string{consts.RBLNDeploySmdLabelKey},
 			},
 		},
-		"sweeps the pre-rename rbln-daemon label off an upgraded node": {
+		"sweeps retired component labels off an upgraded node": {
 			workloadType: consts.RBLNWorkloadConfigContainer,
 			node: &corev1.Node{
 				ObjectMeta: newObjectMeta("node-upgraded", mergeLabelMaps(
 					rblnComponentLabels[consts.RBLNWorkloadConfigContainer],
 					map[string]string{
-						consts.NFDDevicePCILabelKey:         labelValueTrue,
-						consts.RBLNPresentLabelKey:          labelValueTrue,
-						consts.RBLNDeployRBLNDaemonLabelKey: labelValueTrue,
+						consts.NFDDevicePCILabelKey:             labelValueTrue,
+						consts.RBLNPresentLabelKey:              labelValueTrue,
+						consts.RBLNDeployRBLNDaemonLabelKey:     labelValueTrue,
+						"rebellions.ai/npu.deploy.vfio-manager": labelValueTrue,
 					},
 				)),
 			},
 			want: want{
 				count:        1,
 				labels:       map[string]string{consts.RBLNDeploySmdLabelKey: labelValueTrue},
-				absentLabels: []string{consts.RBLNDeployRBLNDaemonLabelKey},
+				absentLabels: []string{consts.RBLNDeployRBLNDaemonLabelKey, "rebellions.ai/npu.deploy.vfio-manager"},
 			},
 		},
 		// Fill-only: k8s-driver-manager owns every value transition on these

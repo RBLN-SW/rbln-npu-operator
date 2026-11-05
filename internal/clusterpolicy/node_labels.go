@@ -51,6 +51,7 @@ var rblnComponentLabels = map[string]map[string]string{
 // rbln-daemon cleanup once no supported upgrade path carries these keys.
 var legacyComponentLabelKeys = []string{
 	consts.RBLNDeployRBLNDaemonLabelKey,
+	"rebellions.ai/npu.deploy.vfio-manager",
 }
 
 // ListAndClassifyNodes returns NPU-candidate nodes and whether NFD is

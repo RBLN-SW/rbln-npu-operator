@@ -15,6 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/draclass"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/npuusage"
 )
 
 // npuDeviceClassNames returns the DRA DeviceClasses whose claims mark a pod as
@@ -41,27 +43,18 @@ func npuDeviceClassNames(ctx context.Context, k8sInterface kubernetes.Interface,
 		return nil, fmt.Errorf("list DRA device classes: %w", err)
 	}
 
-	names := make([]string, 0, len(list.Items)+1)
-	names = append(names, npuDeviceClass, passthroughDeviceClassName(npuDeviceClass))
-	passthroughClass := passthroughDeviceClassName(npuDeviceClass)
+	names := draclass.Names(npuDeviceClass)
 	for i := range list.Items {
 		class := &list.Items[i]
-		if class.Name == npuDeviceClass || class.Name == passthroughClass {
+		if slices.Contains(names, class.Name) {
 			continue
 		}
 		extendedResource := class.Spec.ExtendedResourceName
-		if extendedResource != nil && strings.HasPrefix(*extendedResource, consts.RBLNResourceNamePrefix) {
+		if extendedResource != nil && npuusage.IsResourceName(*extendedResource) {
 			names = append(names, class.Name)
 		}
 	}
 	return names, nil
-}
-
-// passthroughDeviceClassName mirrors the DRA kubelet plugin patcher's
-// vfioClassName: the passthrough class is the container-mode class name with
-// a "vfio-" prefix.
-func passthroughDeviceClassName(npuDeviceClass string) string {
-	return "vfio-" + npuDeviceClass
 }
 
 // resolveNPUDeviceClasses resolves the NPU DeviceClasses for one eviction pass.
@@ -84,7 +77,7 @@ func resolveNPUDeviceClasses(ctx context.Context, k8sInterface kubernetes.Interf
 		log.FromContext(ctx).Error(err,
 			"Failed to list DRA device classes; using the configured native and VFIO classes",
 			"deviceClass", npuDeviceClass)
-		return []string{npuDeviceClass, passthroughDeviceClassName(npuDeviceClass)}
+		return draclass.Names(npuDeviceClass)
 	}
 }
 
@@ -120,12 +113,12 @@ func newNPUClaimMatcher(k8sInterface kubernetes.Interface, deviceClasses []strin
 }
 
 func (m *npuClaimMatcher) holdsNPUClaim(ctx context.Context, pod *corev1.Pod) bool {
-	if len(m.deviceClasses) == 0 || len(pod.Spec.ResourceClaims) == 0 || !podRunningOrPending(pod) {
+	if len(m.deviceClasses) == 0 || !podRunningOrPending(pod) {
 		return false
 	}
-	names := podResourceClaimNames(pod)
-	if len(names) < len(pod.Spec.ResourceClaims) {
-		m.err = fmt.Errorf("unresolved claim reference on pod %s/%s", pod.Namespace, pod.Name)
+	names, err := npuusage.ClaimNames(pod)
+	if err != nil {
+		m.err = err
 	}
 	for _, claimName := range names {
 		key := pod.Namespace + "/" + claimName
@@ -146,66 +139,22 @@ func (m *npuClaimMatcher) holdsNPUClaim(ctx context.Context, pod *corev1.Pod) bo
 	return false
 }
 
-// podResourceClaimNames resolves the ResourceClaim objects a pod refers to. A
-// direct spec reference is the name outright; the pod status is consulted only
-// for a template-generated claim, whose real name lives there and nowhere else.
-// That is the precedence k8s.io/dynamic-resource-allocation's resourceclaim.Name
-// applies. Letting the status win instead would drop a named claim the moment
-// anything wrote a nameless status entry for it, and a dropped claim here is an
-// NPU pod that survives the eviction still holding /dev/rbln*. A status entry
-// with no name means that entry needed no claim.
-func podResourceClaimNames(pod *corev1.Pod) []string {
-	names := make([]string, 0, len(pod.Spec.ResourceClaims))
-	for _, claim := range pod.Spec.ResourceClaims {
-		name := claim.ResourceClaimName
-		if name == nil {
-			for _, status := range pod.Status.ResourceClaimStatuses {
-				if status.Name == claim.Name {
-					name = status.ResourceClaimName
-					break
-				}
-			}
-		}
-		if name != nil && *name != "" {
-			names = append(names, *name)
-		}
-	}
-	return names
-}
-
+// claimRequestsDeviceClass applies the upgrade policy to the shared detector.
+// Allocated claims match the configured driver or the selected classes only;
+// pending claims match every candidate, including FirstAvailable alternatives.
+// Native and VFIO consumers must both release devices before driver replacement.
 func claimRequestsDeviceClass(claim *resourcev1.ResourceClaim, deviceClasses []string) bool {
-	if claim.Status.Allocation != nil {
-		for _, result := range claim.Status.Allocation.Devices.Results {
-			for _, class := range deviceClasses {
-				if result.Driver == strings.TrimPrefix(class, "vfio-") {
-					return true
-				}
-			}
-			name, alternative, _ := strings.Cut(result.Request, "/")
-			for _, request := range claim.Spec.Devices.Requests {
-				if request.Name != name {
-					continue
-				}
-				if request.Exactly != nil && slices.Contains(deviceClasses, request.Exactly.DeviceClassName) {
-					return true
-				}
-				for _, sub := range request.FirstAvailable {
-					if sub.Name == alternative && slices.Contains(deviceClasses, sub.DeviceClassName) {
-						return true
-					}
-				}
-			}
-		}
-		return false
-	}
-	for _, request := range claim.Spec.Devices.Requests {
-		if request.Exactly != nil && slices.Contains(deviceClasses, request.Exactly.DeviceClassName) {
-			return true
-		}
-		for _, alternative := range request.FirstAvailable {
-			if slices.Contains(deviceClasses, alternative.DeviceClassName) {
+	usage := npuusage.InspectClaim(claim)
+	for _, driver := range usage.Drivers {
+		for _, class := range deviceClasses {
+			if driver == strings.TrimPrefix(class, "vfio-") {
 				return true
 			}
+		}
+	}
+	for _, class := range usage.Classes {
+		if slices.Contains(deviceClasses, class) {
+			return true
 		}
 	}
 	return false

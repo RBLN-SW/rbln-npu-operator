@@ -210,11 +210,22 @@ func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithArgs([]string{partitionManagerCommand}).
 		WithEnvs(env).
 		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
-		WithSecurityContext(&corev1.SecurityContext{Privileged: ptr(true), RunAsUser: ptr(int64(0))}).
+		// VF provisioning uses SMD, but PCI bind/unbind and host module
+		// loading are performed directly by partition-manager.
+		WithSecurityContext(&corev1.SecurityContext{
+			Privileged:     ptr(true),
+			RunAsUser:      ptr(int64(0)),
+			SELinuxOptions: &corev1.SELinuxOptions{Level: "s0"},
+		}).
 		WithVolumeMounts([]corev1.VolumeMount{
-			{Name: "host-sys", MountPath: "/sys"},
-			{Name: "host-root", MountPath: "/host", ReadOnly: true, MountPropagation: ptr(corev1.MountPropagationHostToContainer)},
 			{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
+			{Name: "host-sys", MountPath: "/sys"},
+			{
+				Name:             "host-root",
+				MountPath:        "/host",
+				ReadOnly:         true,
+				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
+			},
 		}).
 		Build()
 
@@ -227,9 +238,9 @@ func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithImagePullSecrets(pullSecrets).
 		WithPriorityClassName(podDefaultsPriorityClassName(h.podDefaults)).
 		WithVolumes([]corev1.Volume{
+			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
 			hostPathVolume("host-root", "/", corev1.HostPathDirectory),
-			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 		}).
 		WithInitContainers([]*corev1.Container{initContainer}).
 		WithContainers([]*corev1.Container{managerContainer}).

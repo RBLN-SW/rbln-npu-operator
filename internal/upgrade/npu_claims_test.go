@@ -21,6 +21,12 @@ const (
 	vfioDeviceClass = "vfio-npu.rebellions.ai"
 )
 
+var operatorDeviceClasses = []string{
+	npuDeviceClass, vfioDeviceClass,
+	"npu-vf1.rebellions.ai", "npu-vf4.rebellions.ai",
+	"vfio-npu-vf1.rebellions.ai", "vfio-npu-vf4.rebellions.ai",
+}
+
 func strPtr(s string) *string { return &s }
 
 func deviceClass(name string, extendedResource *string) *resourcev1.DeviceClass {
@@ -61,7 +67,7 @@ func claimingPod(namespace, name, claimName string) *corev1.Pod {
 // server without the DRAExtendedResource feature gate drops the
 // extended-resource bridge the operator renders on the class, and a matcher
 // keyed on the bridge saw no NPU class at all. The bridge stays a hint for
-// classes the operator did not render; the passthrough class is never one.
+// classes the operator did not render; native and VFIO PF/VF names are always known.
 func TestNPUDeviceClassNames(t *testing.T) {
 	tests := map[string]struct {
 		npuDeviceClass string
@@ -74,7 +80,7 @@ func TestNPUDeviceClassNames(t *testing.T) {
 				deviceClass(npuDeviceClass, nil),
 				deviceClass(vfioDeviceClass, nil),
 			},
-			want: []string{npuDeviceClass, vfioDeviceClass},
+			want: operatorDeviceClasses,
 		},
 		"configured class is listed once when its bridge is persisted": {
 			npuDeviceClass: npuDeviceClass,
@@ -82,7 +88,7 @@ func TestNPUDeviceClassNames(t *testing.T) {
 				deviceClass(npuDeviceClass, strPtr("rebellions.ai/npu")),
 				deviceClass(vfioDeviceClass, nil),
 			},
-			want: []string{npuDeviceClass, vfioDeviceClass},
+			want: operatorDeviceClasses,
 		},
 		"customized driverName replaces the default class": {
 			npuDeviceClass: "npu.example.com",
@@ -91,7 +97,7 @@ func TestNPUDeviceClassNames(t *testing.T) {
 				deviceClass("vfio-npu.example.com", nil),
 				deviceClass(npuDeviceClass, nil),
 			},
-			want: []string{"npu.example.com", "vfio-npu.example.com"},
+			want: []string{"npu.example.com", "vfio-npu.example.com", "npu-vf1.example.com", "npu-vf4.example.com", "vfio-npu-vf1.example.com", "vfio-npu-vf4.example.com"},
 		},
 		"another class bridged to a rebellions.ai resource is a hint": {
 			npuDeviceClass: npuDeviceClass,
@@ -100,16 +106,16 @@ func TestNPUDeviceClassNames(t *testing.T) {
 				deviceClass("npu-shared.example.com", strPtr("rebellions.ai/npu")),
 				deviceClass("gpu.example.com", strPtr("example.com/gpu")),
 			},
-			want: []string{npuDeviceClass, vfioDeviceClass, "npu-shared.example.com"},
+			want: append(slices.Clone(operatorDeviceClasses), "npu-shared.example.com"),
 		},
 		"passthrough class is included once even when bridged": {
 			npuDeviceClass: npuDeviceClass,
 			classes:        []runtime.Object{deviceClass(vfioDeviceClass, strPtr("rebellions.ai/npu"))},
-			want:           []string{npuDeviceClass, vfioDeviceClass},
+			want:           operatorDeviceClasses,
 		},
 		"configured class is matched before its DeviceClass exists": {
 			npuDeviceClass: npuDeviceClass,
-			want:           []string{npuDeviceClass, vfioDeviceClass},
+			want:           operatorDeviceClasses,
 		},
 	}
 
@@ -158,7 +164,7 @@ func TestResolveNPUDeviceClasses(t *testing.T) {
 		},
 		"list failure keeps the configured class": {
 			listErr: apierrors.NewInternalError(errors.New("etcd timeout")),
-			want:    []string{npuDeviceClass, vfioDeviceClass},
+			want:    operatorDeviceClasses,
 		},
 	}
 
@@ -178,68 +184,6 @@ func TestResolveNPUDeviceClasses(t *testing.T) {
 	}
 }
 
-func TestPodResourceClaimNames(t *testing.T) {
-	tests := map[string]struct {
-		pod  corev1.Pod
-		want []string
-	}{
-		"claim named in the spec": {
-			pod:  *claimingPod("ns", "pod", "shared-claim"),
-			want: []string{"shared-claim"},
-		},
-		// A nameless status entry must not erase a direct reference: only a
-		// template-generated claim takes its name from the status.
-		"direct reference wins over a nameless status entry": {
-			pod: corev1.Pod{
-				Spec: corev1.PodSpec{ResourceClaims: []corev1.PodResourceClaim{{
-					Name: "npu", ResourceClaimName: strPtr("shared-claim"),
-				}}},
-				Status: corev1.PodStatus{ResourceClaimStatuses: []corev1.PodResourceClaimStatus{{Name: "npu"}}},
-			},
-			want: []string{"shared-claim"},
-		},
-		// A template-generated claim has no name in the spec; the kubelet
-		// records the generated one in the pod status.
-		"template-generated claim is named only in the status": {
-			pod: corev1.Pod{
-				Spec: corev1.PodSpec{ResourceClaims: []corev1.PodResourceClaim{{
-					Name:                      "npu",
-					ResourceClaimTemplateName: strPtr("npu-template"),
-				}}},
-				Status: corev1.PodStatus{ResourceClaimStatuses: []corev1.PodResourceClaimStatus{{
-					Name: "npu", ResourceClaimName: strPtr("pod-npu-abcde"),
-				}}},
-			},
-			want: []string{"pod-npu-abcde"},
-		},
-		// A status entry with no name means the entry needed no claim.
-		"status entry without a name yields nothing": {
-			pod: corev1.Pod{
-				Spec: corev1.PodSpec{ResourceClaims: []corev1.PodResourceClaim{{
-					Name: "npu", ResourceClaimTemplateName: strPtr("npu-template"),
-				}}},
-				Status: corev1.PodStatus{ResourceClaimStatuses: []corev1.PodResourceClaimStatus{{Name: "npu"}}},
-			},
-			want: []string{},
-		},
-		"no claims": {pod: corev1.Pod{}, want: []string{}},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			got := podResourceClaimNames(&tc.pod)
-			if len(got) != len(tc.want) {
-				t.Fatalf("names = %v, want %v", got, tc.want)
-			}
-			for i := range got {
-				if got[i] != tc.want[i] {
-					t.Fatalf("names = %v, want %v", got, tc.want)
-				}
-			}
-		})
-	}
-}
-
 func TestClaimRequestsDeviceClass(t *testing.T) {
 	tests := map[string]struct {
 		claim resourcev1.ResourceClaim
@@ -249,7 +193,7 @@ func TestClaimRequestsDeviceClass(t *testing.T) {
 			claim: *claimForClass("ns", "c", npuDeviceClass),
 			want:  true,
 		},
-		"passthrough class is not an NPU the container-mode upgrade must free": {
+		"pending passthrough class requires a configured match": {
 			claim: *claimForClass("ns", "c", vfioDeviceClass),
 			want:  false,
 		},
@@ -345,9 +289,9 @@ func TestNPUClaimMatcherSkipsLookupWithoutDeviceClasses(t *testing.T) {
 	}
 }
 
-// One missing RBAC rule or a flaky read must not park every node in the
-// cluster: an unreadable claim counts as not holding an NPU.
-func TestNPUClaimMatcherTreatsUnreadableClaimAsAbsent(t *testing.T) {
+// An unreadable claim must prevent driver replacement until a later pass
+// can determine whether the workload needs to release an NPU.
+func TestNPUClaimMatcherBlocksOnUnreadableClaim(t *testing.T) {
 	clientset := k8sfake.NewClientset()
 	clientset.PrependReactor("get", "resourceclaims",
 		func(k8stesting.Action) (bool, runtime.Object, error) {
@@ -359,5 +303,117 @@ func TestNPUClaimMatcherTreatsUnreadableClaimAsAbsent(t *testing.T) {
 	matcher := newNPUClaimMatcher(clientset, []string{npuDeviceClass})
 	if matcher.holdsNPUClaim(context.Background(), claimingPod("ns", "vllm", "npu-claim")) {
 		t.Fatal("holdsNPUClaim() = true, want false for a claim that cannot be read")
+	}
+	if matcher.err == nil {
+		t.Fatal("unreadable claim must block driver replacement")
+	}
+}
+
+func TestNPUClaimMatcherDetectsAllocatedSchedulerClaims(t *testing.T) {
+	for _, class := range operatorDeviceClasses {
+		t.Run(class, func(t *testing.T) {
+			claim := claimForClass("ns", "scheduled", class)
+			claim.Status.Allocation = &resourcev1.AllocationResult{Devices: resourcev1.DeviceAllocationResult{Results: []resourcev1.DeviceRequestAllocationResult{{Request: "npu", Driver: npuDeviceClass}}}}
+			pod := claimingPod("ns", "workload", "scheduled")
+			pod.Spec.ResourceClaims = nil
+			pod.Status.ExtendedResourceClaimStatus = &corev1.PodExtendedResourceClaimStatus{ResourceClaimName: "scheduled"}
+			matcher := newNPUClaimMatcher(k8sfake.NewClientset(claim), []string{npuDeviceClass})
+			if !matcher.holdsNPUClaim(context.Background(), pod) {
+				t.Fatalf("allocated %s scheduler claim must be evicted", class)
+			}
+		})
+	}
+}
+
+func TestNPUClaimMatcherReferenceErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		refs     []corev1.PodResourceClaim
+		statuses []corev1.PodResourceClaimStatus
+		extended *corev1.PodExtendedResourceClaimStatus
+		wantErr  bool
+	}{
+		{
+			name: "two references share one resolved claim",
+			refs: []corev1.PodResourceClaim{
+				{Name: "first", ResourceClaimName: strPtr("known")},
+				{Name: "second", ResourceClaimName: strPtr("known")},
+			},
+		},
+		{
+			name:     "explicit unused template is resolved",
+			refs:     []corev1.PodResourceClaim{{Name: "unused", ResourceClaimTemplateName: strPtr("template")}},
+			statuses: []corev1.PodResourceClaimStatus{{Name: "unused"}},
+		},
+		{
+			name:     "scheduler claim cannot mask unresolved template",
+			refs:     []corev1.PodResourceClaim{{Name: "pending", ResourceClaimTemplateName: strPtr("template")}},
+			extended: &corev1.PodExtendedResourceClaimStatus{ResourceClaimName: "known"},
+			wantErr:  true,
+		},
+		{
+			name:     "empty scheduler claim blocks replacement",
+			extended: &corev1.PodExtendedResourceClaimStatus{},
+			wantErr:  true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pod := claimingPod("ns", "workload", "known")
+			pod.Spec.ResourceClaims = tc.refs
+			pod.Status.ResourceClaimStatuses = tc.statuses
+			pod.Status.ExtendedResourceClaimStatus = tc.extended
+			matcher := newNPUClaimMatcher(k8sfake.NewClientset(claimForClass("ns", "known", "other.example.com")), operatorDeviceClasses)
+			if matcher.holdsNPUClaim(context.Background(), pod) {
+				t.Fatal("foreign claim must not be evicted")
+			}
+			if (matcher.err != nil) != tc.wantErr {
+				t.Fatalf("error=%v, want error=%v", matcher.err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestClaimEligibilityUsesAllocatedAlternative(t *testing.T) {
+	for _, tc := range []struct {
+		name, request, driver string
+		allocated             bool
+		want                  bool
+	}{
+		{name: "pending NPU alternative", want: true},
+		{name: "selected GPU ignores NPU alternative", allocated: true, request: "device/gpu", driver: "gpu.example.com"},
+		{name: "allocated alias uses configured driver", allocated: true, request: "device/alias", driver: npuDeviceClass, want: true},
+		{name: "empty allocation has no device", allocated: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			claim := &resourcev1.ResourceClaim{Spec: resourcev1.ResourceClaimSpec{
+				Devices: resourcev1.DeviceClaim{Requests: []resourcev1.DeviceRequest{{
+					Name: "device", FirstAvailable: []resourcev1.DeviceSubRequest{
+						{Name: "gpu", DeviceClassName: "gpu.example.com"},
+						{Name: "npu", DeviceClassName: npuDeviceClass},
+						{Name: "alias", DeviceClassName: "alias.example.com"},
+					},
+				}}},
+			}}
+			if tc.allocated {
+				claim.Status.Allocation = &resourcev1.AllocationResult{}
+				if tc.request != "" {
+					claim.Status.Allocation.Devices.Results = []resourcev1.DeviceRequestAllocationResult{{Request: tc.request, Driver: tc.driver}}
+				}
+			}
+			if got := claimRequestsDeviceClass(claim, operatorDeviceClasses); got != tc.want {
+				t.Fatalf("eligible=%v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPendingPFAndVFClaimsDoNotRequireExtendedResourceBridge(t *testing.T) {
+	classes := resolveNPUDeviceClasses(context.Background(), k8sfake.NewClientset(), npuDeviceClass)
+	for _, class := range operatorDeviceClasses {
+		t.Run(class, func(t *testing.T) {
+			if !claimRequestsDeviceClass(claimForClass("ns", "pending", class), classes) {
+				t.Fatalf("pending operator class %s must be eligible without an allocation or bridge", class)
+			}
+		})
 	}
 }

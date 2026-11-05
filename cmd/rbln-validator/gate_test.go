@@ -84,23 +84,22 @@ func TestRunGate(t *testing.T) {
 			},
 			want: want{sleepCallCount: 1},
 		},
-		"IndexOverrideAloneMakesNodePartitioned": {
-			reason: "a single per-index vf override makes the node partitioned even when the base label is none",
+		"VFOverrideKeepsPFNodeUnpartitioned": {
+			reason: "a per-index VF override cannot change a PF node's effective partition family",
 			fields: fields{
 				getter: &fakeNodeLabelsGetter{results: []nodeLabelsResult{
 					{labels: map[string]string{
-						consts.RBLNPartitionLabelKey:               consts.RBLNPartitionModeNone,
+						consts.RBLNPartitionLabelKey:               consts.RBLNPartitionModePF,
 						consts.RBLNPartitionIndexLabelPrefix + "6": consts.RBLNPartitionModeVF1,
 					}},
 				}},
 			},
 			args: args{
-				component:      consts.RBLNDevicePluginName,
-				nodeName:       "node-1",
-				existingFiles:  []string{toolkitReadyFile},
-				createOnSleeps: map[int][]string{1: {consts.PartitionReadyFileName}},
+				component:     consts.RBLNDevicePluginName,
+				nodeName:      "node-1",
+				existingFiles: []string{toolkitReadyFile},
 			},
-			want: want{sleepCallCount: 1},
+			want: want{sleepCallCount: 0},
 		},
 		"MetricsExporterIgnoresPartitioning": {
 			reason: "metrics-exporter does not advertise devices, so it never waits for partition-ready",
@@ -130,13 +129,21 @@ func TestRunGate(t *testing.T) {
 			},
 			want: want{sleepCallCount: 0},
 		},
-		"LabelRemovedDuringWaitUnblocks": {
-			reason: "labels are re-read every poll: aborting partitioning drops the partition-ready requirement",
+		"DefaultRemovedDuringWaitIgnoresRemainingOverride": {
+			reason: "removing the VF node default drops the partition-ready requirement even if a VF override remains",
 			fields: fields{
 				getter: &fakeNodeLabelsGetter{results: []nodeLabelsResult{
-					{labels: map[string]string{consts.RBLNPartitionLabelKey: consts.RBLNPartitionModeVF4}},
-					{labels: map[string]string{consts.RBLNPartitionLabelKey: consts.RBLNPartitionModeVF4}},
-					{labels: map[string]string{}},
+					{labels: map[string]string{
+						consts.RBLNPartitionLabelKey:               consts.RBLNPartitionModeVF4,
+						consts.RBLNPartitionIndexLabelPrefix + "6": consts.RBLNPartitionModeVF1,
+					}},
+					{labels: map[string]string{
+						consts.RBLNPartitionLabelKey:               consts.RBLNPartitionModeVF4,
+						consts.RBLNPartitionIndexLabelPrefix + "6": consts.RBLNPartitionModeVF1,
+					}},
+					{labels: map[string]string{
+						consts.RBLNPartitionIndexLabelPrefix + "6": consts.RBLNPartitionModeVF1,
+					}},
 				}},
 			},
 			args: args{
@@ -233,6 +240,9 @@ func TestRunGate(t *testing.T) {
 				getNodeLabels:      tc.fields.getter.get,
 				sleep: func(time.Duration) {
 					sleepCalls++
+					if sleepCalls > tc.want.sleepCallCount {
+						t.Fatalf("%s: gate did not pass when expected", tc.reason)
+					}
 					for _, f := range tc.args.createOnSleeps[sleepCalls] {
 						createFile(f)
 					}
@@ -515,7 +525,7 @@ func TestPartitionManagerInitWaitsOnlyForDriver(t *testing.T) {
 
 func TestPolicyBackedGateRetriesAndReadsCurrentDefault(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, consts.PartitionReadyFileName), nil, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, consts.PartitionReadyFileName), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	calls, sleeps := 0, 0
@@ -552,7 +562,7 @@ func TestPolicyBackedGateRetriesAndReadsCurrentDefault(t *testing.T) {
 
 func TestExplicitWorkloadLabelDoesNotRequirePolicyDefault(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, consts.PartitionReadyFileName), nil, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, consts.PartitionReadyFileName), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	rt := gateRuntime{

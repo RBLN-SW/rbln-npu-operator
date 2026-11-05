@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -132,7 +130,7 @@ func newGateCommand(config *rootConfig) *cobra.Command {
 // Except for the driver-only partition-manager gate, runGate re-reads the
 // node's partition labels on every poll, so a label
 // change during the wait (partitioning requested or aborted) is honored
-// without a pod restart. Fail-closed: on API errors or invalid label values
+// without a pod restart. Fail-closed: on API errors or invalid node defaults
 // it keeps retrying instead of assuming an unpartitioned node — misreading a
 // partitioned node would let components advertise full PFs that are about to
 // be carved into VFs.
@@ -175,7 +173,7 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 		partitioned, err := nodeIsPartitioned(labels)
 		if err != nil {
 			slog.Error(
-				"invalid partition labels, fix the node labels to unblock",
+				"invalid partition default, fix the node label to unblock",
 				"node", cfg.nodeName, "err", err, "sleepSeconds", cfg.sleepIntervalSeconds,
 			)
 			rt.sleep(interval)
@@ -246,32 +244,22 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 	}
 }
 
-// nodeIsPartitioned reports whether any NPU on the node is configured for VF
-// partitioning via the rebellions.ai/npu.partition[.<idx>] labels. Unknown
-// mode tokens or malformed NPU indexes are an error so callers block until
-// the admin fixes the label, instead of silently treating the node as
-// unpartitioned.
+// nodeIsPartitioned reports the effective PF/VF family for both workloads.
+// The node default selects the family (absent means pf); overrides can only
+// change the VF count within a VF node. Unsupported or cross-family overrides
+// fall back to the node default, so no override can change this gate decision.
+// Only an explicitly invalid node default is an error. Labels are never changed.
 func nodeIsPartitioned(labels map[string]string) (bool, error) {
-	partitioned := false
-	for key, value := range labels {
-		switch {
-		case key == consts.RBLNPartitionLabelKey:
-		case strings.HasPrefix(key, consts.RBLNPartitionIndexLabelPrefix):
-			idx, err := strconv.Atoi(strings.TrimPrefix(key, consts.RBLNPartitionIndexLabelPrefix))
-			if err != nil || idx < 0 {
-				return false, fmt.Errorf("invalid NPU index in label %q", key)
-			}
-		default:
-			continue
-		}
-
-		switch value {
-		case consts.RBLNPartitionModeVF1, consts.RBLNPartitionModeVF4:
-			partitioned = true
-		case consts.RBLNPartitionModeNone:
-		default:
-			return false, fmt.Errorf("invalid %s label value %q", key, value)
-		}
+	value, present := labels[consts.RBLNPartitionLabelKey]
+	if !present {
+		return false, nil
 	}
-	return partitioned, nil
+	switch value {
+	case consts.RBLNPartitionModePF:
+		return false, nil
+	case consts.RBLNPartitionModeVF1, consts.RBLNPartitionModeVF4:
+		return true, nil
+	default:
+		return false, fmt.Errorf("invalid %s label value %q (want pf, vf1, or vf4)", consts.RBLNPartitionLabelKey, value)
+	}
 }
