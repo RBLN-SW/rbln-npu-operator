@@ -456,7 +456,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(mock.validationOptions).To(Equal(upgrade.ValidationOptions{
 				Namespace: reconciler.Namespace, DefaultWorkload: consts.RBLNWorkloadConfigVMPassthrough,
-				DRAEnabled: true,
+				DRAEnabled: true, PartitionManagerEnabled: true,
 			}))
 		})
 

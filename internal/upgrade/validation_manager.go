@@ -15,10 +15,11 @@ import (
 // ValidationOptions is the current policy's workload context for this pass.
 // A deploy label alone cannot tell which of the two VM plugins is enabled.
 type ValidationOptions struct {
-	Namespace       string
-	DefaultWorkload string
-	DRAEnabled      bool
-	SandboxEnabled  bool
+	Namespace               string
+	DefaultWorkload         string
+	DRAEnabled              bool
+	SandboxEnabled          bool
+	PartitionManagerEnabled bool
 }
 
 type ValidationManagerInterface interface {
@@ -39,6 +40,9 @@ func (m *ValidationManager) isPodReady(_ context.Context, p corev1.Pod) bool {
 }
 
 func (m *ValidationManager) Validate(ctx context.Context, n *corev1.Node, options ValidationOptions) (bool, error) {
+	if options.PartitionManagerEnabled && !partitionRegistrationReady(n) {
+		return false, m.handleTimeout(ctx, n, DefaultValidationTimeoutSeconds)
+	}
 	if m.podSelector == "" {
 		return true, nil
 	}
@@ -62,6 +66,18 @@ func (m *ValidationManager) Validate(ctx context.Context, n *corev1.Node, option
 		return true, m.nodeUpgradeStateProvider.RemoveNodeUpgradeAnnotation(ctx, n, UpgradeValidationStartTimeAnnotationKey)
 	}
 	return false, m.handleTimeout(ctx, n, DefaultValidationTimeoutSeconds)
+}
+
+func partitionRegistrationReady(node *corev1.Node) bool {
+	if node.Annotations["rebellions.ai/npu.partition.transition-pfs"] != "" || node.Annotations["rebellions.ai/npu.partition.cordoned-by"] != "" {
+		return false
+	}
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == "NPUPartitionReady" {
+			return condition.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 func (o ValidationOptions) podSelector(node *corev1.Node, containerSelector string) (string, error) {

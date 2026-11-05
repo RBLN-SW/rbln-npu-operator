@@ -3,6 +3,7 @@ package components
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -89,6 +90,7 @@ func (h *partitionManagerPatcher) handleClusterRole(ctx context.Context, owner *
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, clusterRole, func() error {
 		clusterRole.Rules = []rbacv1.PolicyRule{
+			{APIGroups: []string{"resource.k8s.io"}, Resources: []string{"resourceslices"}, Verbs: []string{"list"}},
 			{APIGroups: []string{"rebellions.ai"}, Resources: []string{"rblndrivers"}, Verbs: []string{"list"}},
 			{APIGroups: []string{"resource.k8s.io"}, Resources: []string{"resourceclaims"}, Verbs: []string{"get"}},
 			{
@@ -167,10 +169,25 @@ func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 	if defaultWorkload == "" {
 		defaultWorkload = consts.RBLNWorkloadConfigContainer
 	}
+	var advertisers []string
+	if owner.Spec.DevicePlugin.Enabled {
+		advertisers = append(advertisers, consts.RBLNDevicePluginName)
+	}
+	if owner.Spec.DRAKubeletPlugin.Enabled {
+		advertisers = append(advertisers, consts.RBLNDRAKubeletPluginName)
+	}
+	if owner.Spec.SandboxDevicePlugin.Enabled {
+		advertisers = append(advertisers, consts.RBLNSandboxDevicePluginName)
+	}
+	expectedAdvertisers := strings.Join(advertisers, ",")
+	if expectedAdvertisers == "" {
+		expectedAdvertisers = "none"
+	}
 
 	env := mergeEnvVars(
 		[]corev1.EnvVar{
 			{Name: "DEFAULT_WORKLOAD_TYPE", Value: defaultWorkload},
+			{Name: "EXPECTED_DEVICE_PLUGINS", Value: expectedAdvertisers},
 			{
 				Name: "NODE_NAME",
 				ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{

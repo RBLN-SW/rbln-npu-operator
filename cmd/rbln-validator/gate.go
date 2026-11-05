@@ -11,6 +11,9 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -37,6 +40,7 @@ var componentWaitsForPartition = map[string]bool{
 
 type gateRuntime struct {
 	getNodeLabels      func(ctx context.Context, nodeName string) (map[string]string, error)
+	getDefaultWorkload func(context.Context, string) (string, error)
 	validateVFIO       func(vfiovalidator.Config) (vfiovalidator.Result, error)
 	checkDriver        func(context.Context) error
 	checkBindingDriver func(context.Context) error
@@ -45,10 +49,43 @@ type gateRuntime struct {
 
 func defaultGateRuntime() gateRuntime {
 	return gateRuntime{
-		getNodeLabels: getNodeLabelsFromAPI,
-		validateVFIO:  vfiovalidator.Validate,
-		sleep:         time.Sleep,
+		getNodeLabels:      getNodeLabelsFromAPI,
+		getDefaultWorkload: getDefaultWorkloadFromAPI,
+		validateVFIO:       vfiovalidator.Validate,
+		sleep:              time.Sleep,
 	}
+}
+
+// Reading the policy at init time keeps a default-mode change out of the DRA
+// Pod template. Its running server must remain available for claim Unprepare.
+func getDefaultWorkloadFromAPI(ctx context.Context, name string) (string, error) {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		return "", err
+	}
+	cfg.Timeout = 10 * time.Second
+	c, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return "", err
+	}
+	resource := schema.GroupVersionResource{
+		Group: "rebellions.ai", Version: "v1beta1", Resource: "rblnclusterpolicies",
+	}
+	policy, err := c.Resource(resource).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	workload, _, err := unstructured.NestedString(policy.Object, "spec", "workloadType")
+	if err != nil {
+		return "", err
+	}
+	if workload == "" {
+		workload = consts.RBLNWorkloadConfigContainer
+	}
+	if workload != consts.RBLNWorkloadConfigContainer && workload != consts.RBLNWorkloadConfigVMPassthrough {
+		return "", fmt.Errorf("policy %s has invalid workloadType %q", name, workload)
+	}
+	return workload, nil
 }
 
 func getNodeLabelsFromAPI(ctx context.Context, nodeName string) (map[string]string, error) {
@@ -110,6 +147,9 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 	if cfg.component == consts.RBLNPartitionManagerName && rt.checkBindingDriver == nil {
 		return errors.New("partition-manager gate requires a driver readiness checker")
 	}
+	if cfg.policyName != "" && rt.getDefaultWorkload == nil {
+		return errors.New("policy-backed gate requires a workload reader")
+	}
 
 	interval := time.Duration(cfg.sleepIntervalSeconds) * time.Second
 	slog.Info("gate started", "component", cfg.component, "node", cfg.nodeName)
@@ -147,6 +187,14 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 		workload := labels[consts.RBLNWorkloadConfigLabelKey]
 		if workload != consts.RBLNWorkloadConfigContainer && workload != consts.RBLNWorkloadConfigVMPassthrough {
 			workload = cfg.defaultWorkload
+			if cfg.policyName != "" {
+				workload, err = rt.getDefaultWorkload(ctx, cfg.policyName)
+				if err != nil {
+					slog.Info("waiting for workload policy", "policy", cfg.policyName, "err", err)
+					rt.sleep(interval)
+					continue
+				}
+			}
 		}
 		if waitsForPartition && workload == consts.RBLNWorkloadConfigVMPassthrough {
 			if rt.checkBindingDriver != nil {

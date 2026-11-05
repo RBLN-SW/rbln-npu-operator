@@ -173,3 +173,35 @@ func TestValidationUsesTheConfiguredWorkloadConsumer(t *testing.T) {
 		})
 	}
 }
+
+func TestUpgradeWaitsForPartitionRegistrationEvenWithReadyConsumer(t *testing.T) {
+	for _, tc := range []struct {
+		name                              string
+		enabled, condition, pending, want bool
+	}{
+		{name: "PM disabled", want: true},
+		{name: "PM has not finished", enabled: true},
+		{name: "stale success while transition recorded", enabled: true, condition: true, pending: true},
+		{name: "PM registration complete", enabled: true, condition: true, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := newTestNodeUpgradeStateProvider(t)
+			n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", Labels: map[string]string{UpgradeStateLabelKey: UpgradeStateValidationRequired}}}
+			if tc.condition {
+				n.Status.Conditions = []corev1.NodeCondition{{Type: "NPUPartitionReady", Status: corev1.ConditionTrue}}
+			}
+			if tc.pending {
+				n.Annotations = map[string]string{"rebellions.ai/npu.partition.transition-pfs": "[\"0000:03:00.0\"]"}
+			}
+			if err := provider.K8sClient.Create(context.Background(), n); err != nil {
+				t.Fatal(err)
+			}
+			p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "validator", Namespace: "operator", Labels: map[string]string{"app": "validator"}}, Spec: corev1.PodSpec{NodeName: n.Name}, Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Ready: true}}}}
+			m := NewValidationManager(k8sfake.NewClientset(p), provider, "app=validator")
+			done, err := m.Validate(context.Background(), n, ValidationOptions{Namespace: "operator", PartitionManagerEnabled: tc.enabled})
+			if err != nil || done != tc.want {
+				t.Fatalf("done=%v err=%v want=%v", done, err, tc.want)
+			}
+		})
+	}
+}

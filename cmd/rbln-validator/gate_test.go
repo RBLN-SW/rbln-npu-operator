@@ -512,3 +512,64 @@ func TestPartitionManagerInitWaitsOnlyForDriver(t *testing.T) {
 		})
 	}
 }
+
+func TestPolicyBackedGateRetriesAndReadsCurrentDefault(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, consts.PartitionReadyFileName), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	calls, sleeps := 0, 0
+	rt := gateRuntime{
+		getNodeLabels: func(context.Context, string) (map[string]string, error) { return map[string]string{}, nil },
+		getDefaultWorkload: func(context.Context, string) (string, error) {
+			calls++
+			if calls == 1 {
+				return "", errors.New("API unavailable")
+			}
+			if calls == 2 {
+				return "container", nil
+			}
+			return "vm-passthrough", nil
+		},
+		checkDriver:        func(context.Context) error { return nil },
+		checkBindingDriver: func(context.Context) error { return nil },
+		validateVFIO:       func(vfiovalidator.Config) (vfiovalidator.Result, error) { return vfiovalidator.Result{}, nil },
+		sleep: func(time.Duration) {
+			sleeps++
+			if sleeps > 3 {
+				t.Fatal("gate did not observe updated policy")
+			}
+		},
+	}
+	cfg := &gateConfig{
+		component: consts.RBLNDRAKubeletPluginName, nodeName: "node", policyName: "policy", outputDir: dir,
+	}
+	err := runGate(context.Background(), cfg, rt)
+	if err != nil || calls != 3 || sleeps != 2 {
+		t.Fatalf("calls=%d sleeps=%d error=%v", calls, sleeps, err)
+	}
+}
+
+func TestExplicitWorkloadLabelDoesNotRequirePolicyDefault(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, consts.PartitionReadyFileName), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	rt := gateRuntime{
+		getNodeLabels: func(context.Context, string) (map[string]string, error) {
+			return map[string]string{consts.RBLNWorkloadConfigLabelKey: "vm-passthrough"}, nil
+		},
+		getDefaultWorkload: func(context.Context, string) (string, error) {
+			t.Fatal("explicit label must take precedence")
+			return "", nil
+		},
+		checkBindingDriver: func(context.Context) error { return nil },
+		validateVFIO:       func(vfiovalidator.Config) (vfiovalidator.Result, error) { return vfiovalidator.Result{}, nil },
+	}
+	cfg := &gateConfig{
+		component: consts.RBLNDRAKubeletPluginName, nodeName: "node", policyName: "policy", outputDir: dir,
+	}
+	if err := runGate(context.Background(), cfg, rt); err != nil {
+		t.Fatal(err)
+	}
+}
