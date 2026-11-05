@@ -10,7 +10,6 @@ nightly run repeats the scan against `main` and reports to Slack.
 | image | Dockerfile | base |
 | --- | --- | --- |
 | `rbln-npu-operator` | `Dockerfile` | `redhat/ubi9-minimal` |
-| `rbln-vfio-manager` | `images/vfio-manager/Dockerfile` | `redhat/ubi9` |
 
 The operator image carries three binaries — `npu-operator`, `rbln-validator`
 and `crd-apply` — each analysed separately for Go dependencies.

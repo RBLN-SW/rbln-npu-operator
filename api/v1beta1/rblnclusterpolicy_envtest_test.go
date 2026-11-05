@@ -95,7 +95,6 @@ func TestRBLNClusterPolicy_DefaultsApplied(t *testing.T) {
 			"kind":       "RBLNClusterPolicy",
 			"metadata":   map[string]any{"name": "defaults-test"},
 			"spec": map[string]any{
-				"vfioManager":         emptyNested,
 				"sandboxDevicePlugin": emptyNested,
 				"devicePlugin":        emptyNested,
 				"metricsExporter":     emptyNested,
@@ -147,10 +146,9 @@ func TestRBLNClusterPolicy_CELRejection(t *testing.T) {
 		spec      rblnv1beta1.RBLNClusterPolicySpec
 		errSubstr string
 	}{
-		"vm-passthrough without vfioManager": {
+		"vm-passthrough without partitionManager": {
 			spec: rblnv1beta1.RBLNClusterPolicySpec{
 				WorkloadType:        "vm-passthrough",
-				VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: false},
 				SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: true},
 				DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{},
 				MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{},
@@ -158,12 +156,12 @@ func TestRBLNClusterPolicy_CELRejection(t *testing.T) {
 				ContainerToolkit:    rblnv1beta1.RBLNContainerToolkitSpec{},
 				Driver:              rblnv1beta1.DriverSpec{},
 			},
-			errSubstr: "vfioManager.enabled must be true",
+			errSubstr: "partitionManager.enabled must be true",
 		},
 		"vm-passthrough without any vfio consumer": {
 			spec: rblnv1beta1.RBLNClusterPolicySpec{
 				WorkloadType:        "vm-passthrough",
-				VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: true},
+				PartitionManager:    rblnv1beta1.RBLNPartitionManagerSpec{Enabled: true},
 				SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
 				DRAKubeletPlugin:    rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: false},
 				DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{},
@@ -177,7 +175,7 @@ func TestRBLNClusterPolicy_CELRejection(t *testing.T) {
 		"sandboxDevicePlugin and draKubeletPlugin both enabled": {
 			spec: rblnv1beta1.RBLNClusterPolicySpec{
 				WorkloadType:        "vm-passthrough",
-				VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: true},
+				PartitionManager:    rblnv1beta1.RBLNPartitionManagerSpec{Enabled: true},
 				SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: true},
 				DRAKubeletPlugin:    rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: true},
 				DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{},
@@ -191,7 +189,6 @@ func TestRBLNClusterPolicy_CELRejection(t *testing.T) {
 		"devicePlugin and draKubeletPlugin both enabled": {
 			spec: rblnv1beta1.RBLNClusterPolicySpec{
 				WorkloadType:        "container",
-				VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{},
 				SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{},
 				DRAKubeletPlugin:    rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: true},
 				DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{Enabled: true},
@@ -208,7 +205,6 @@ func TestRBLNClusterPolicy_CELRejection(t *testing.T) {
 				DevicePlugin: rblnv1beta1.RBLNDevicePluginSpec{
 					PodSpec: rblnv1beta1.PodSpec{ImagePullPolicy: "Sometimes"},
 				},
-				VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{},
 				SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{},
 				MetricsExporter:     rblnv1beta1.RBLNMetricsExporterSpec{},
 				NPUFeatureDiscovery: rblnv1beta1.RBLNNPUFeatureDiscoverySpec{},
@@ -245,7 +241,7 @@ func TestRBLNClusterPolicy_CELAcceptsDRAPassthrough(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "cel-dra-passthrough"},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
 			WorkloadType:        "vm-passthrough",
-			VFIOManager:         rblnv1beta1.RBLNVFIOManagerSpec{Enabled: true},
+			PartitionManager:    rblnv1beta1.RBLNPartitionManagerSpec{Enabled: true},
 			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
 			DRAKubeletPlugin:    rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: true},
 			DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{},

@@ -32,8 +32,12 @@ func Validate(cfg Config) (Result, error) {
 			rblnVendorID, rblnDeviceClassNPU, root)
 	}
 
-	unbound := make([]string, 0, len(matched))
-	for _, dev := range matched {
+	targets, err := passthroughDevices(matched)
+	if err != nil {
+		return Result{}, err
+	}
+	unbound := make([]string, 0, len(targets))
+	for _, dev := range targets {
 		if bindErr := verifyVFIOBindingFn(dev); bindErr != nil {
 			unbound = append(unbound, dev)
 		}
@@ -42,5 +46,5 @@ func Validate(cfg Config) (Result, error) {
 		return Result{}, fmt.Errorf("npu devices not bound to %s: %v", vfioPCIDriverName, unbound)
 	}
 
-	return Result{BoundDevices: matched}, nil
+	return Result{BoundDevices: targets}, nil
 }

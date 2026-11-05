@@ -145,7 +145,11 @@ func (r *UpgradeReconciler) advanceRollout(ctx context.Context, policy *rblnv1be
 
 	var failures []error
 	if err := r.StateManager.ApplyState(ctx, state, policy.Spec.Driver.UpgradePolicy,
-		drivermanager.NPUDeviceClass(&policy.Spec)); err != nil {
+		drivermanager.NPUDeviceClass(&policy.Spec), upgrade.ValidationOptions{
+			Namespace: r.Namespace, DefaultWorkload: policy.Spec.WorkloadType,
+			DRAEnabled: policy.Spec.DRAKubeletPlugin.Enabled, SandboxEnabled: policy.Spec.SandboxDevicePlugin.Enabled,
+			PartitionManagerEnabled: policy.Spec.PartitionManager.Enabled,
+		}); err != nil {
 		failures = append(failures, err)
 	}
 

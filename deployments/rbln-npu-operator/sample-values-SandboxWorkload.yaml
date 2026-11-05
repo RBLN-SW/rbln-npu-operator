@@ -139,9 +139,8 @@ operator:
 
 # Driver configuration
 driver:
-  # Master switch: false renders no RBLNDriver CRs, including instances below.
-  # Set true to deploy the per-family release versions.
-  enabled: false
+  # Native PF driver and SMD are required to create and resize VFs for VMs.
+  enabled: true
   # Deploy the default RBLNDriver CR (rbln-driver): the fallback for every NPU
   # node not claimed by an entry in driver.instances. Set false to run only
   # explicitly targeted instances (requires at least one instance).
@@ -321,7 +320,7 @@ draKubeletPlugin:
 
 # NPU Partition Manager configuration
 partitionManager:
-  enabled: false
+  enabled: true
   image:
     registry: docker.io
     repository: rebellions/k8s-partition-manager
@@ -443,43 +442,6 @@ sandboxDevicePlugin:
   # Per-model: empty RBLN_PT_ALIAS → one resource per (model, function),
   # e.g. rebellions.ai/RBLN-CA22_PF. KubeVirt permittedHostDevices must
   # whitelist each name in use.
-
-# VFIO Manager for VM workloads
-vfioManager:
-  # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
-  # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
-  # Replace updateStrategy: {} with one of the examples below to configure it.
-  # Automatic rolling updates:
-  # updateStrategy:
-  #   type: RollingUpdate
-  #   rollingUpdate:
-  #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
-  # Manual pod replacement:
-  # updateStrategy:
-  #   type: OnDelete
-  # When switching to OnDelete with merged values or --reuse-values, also set
-  # updateStrategy.rollingUpdate=null to clear any previous rollingUpdate block.
-  updateStrategy: {}
-  enabled: true
-  image:
-    registry: docker.io
-    repository: rebellions/rbln-vfio-manager
-    tag: v1.0.1
-    pullPolicy: IfNotPresent
-  driverManager:
-    image:
-      registry: docker.io
-      repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.3.0
-      pullPolicy: IfNotPresent
-    # Appended after the env the operator renders, so a duplicate name set here
-    # wins. Before binding vfio-pci, k8s-driver-manager evicts the node's
-    # container-mode NPU pods under driver.upgradePolicy.npuPodDeletion. To keep
-    # that switch from evicting anything (an NPU pod left running then blocks it
-    # until moved by hand), add:
-    #   - name: ENABLE_NPU_POD_EVICTION
-    #     value: "false"
-    env: []
 
 # Validator configuration
 validator:

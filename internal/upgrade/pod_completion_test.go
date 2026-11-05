@@ -72,7 +72,7 @@ func TestPodCompletionPublishesCommittedState(t *testing.T) {
 				AutoUpgrade:       true,
 				WaitForCompletion: &v1beta1.WaitForCompletionSpec{PodSelector: "app=wait", TimeoutSeconds: tc.timeout},
 			}
-			if err := m.ApplyState(ctx, state, policy, ""); err != nil {
+			if err := m.ApplyState(ctx, state, policy, "", ValidationOptions{}); err != nil {
 				t.Fatal(err)
 			}
 			live, err := m.nodeUpgradeStateProvider.GetNode(ctx, n.Node.Name)

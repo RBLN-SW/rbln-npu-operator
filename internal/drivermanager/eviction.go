@@ -1,9 +1,5 @@
-// Package drivermanager is the operator's half of its contract with the
-// rbln-k8s-driver-manager binary: what the operator renders into the init
-// container that runs it. Two DaemonSets run that container, the driver pod
-// (reconcile-driver-state) and the vfio-manager pod (reconcile-vfio-state),
-// and both empty a node of NPU pods under one policy, so the policy and its
-// env rendering live here rather than in either component.
+// Package drivermanager renders the driver pod init container's contract with
+// rbln-k8s-driver-manager, including the NPU pod eviction policy.
 package drivermanager
 
 import (

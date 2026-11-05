@@ -155,29 +155,6 @@ spec:
     image: rebellions/sandbox-device-plugin
     version: v0.1.1
     imagePullPolicy: IfNotPresent
-  vfioManager:
-    # Leave null to preserve the existing strategy. New DaemonSets default to
-    # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
-    # Replace updateStrategy: null with one of these examples to configure it.
-    # Automatic rolling updates:
-    # updateStrategy:
-    #   type: RollingUpdate
-    #   rollingUpdate:
-    #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
-    # Manual pod replacement (omit rollingUpdate):
-    # updateStrategy:
-    #   type: OnDelete
-    updateStrategy: null
-    enabled: false
-    registry: docker.io
-    image: rebellions/rbln-vfio-manager
-    version: v1.0.1
-    imagePullPolicy: IfNotPresent
-    driverManager:
-      registry: docker.io
-      image: rebellions/rbln-k8s-driver-manager
-      version: v0.3.0
-      imagePullPolicy: IfNotPresent
   validator:
     # Leave null to preserve the existing strategy. New DaemonSets default to
     # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.

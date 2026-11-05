@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -19,6 +20,7 @@ import (
 // that the container which published it is still running.
 type Checker struct {
 	client              kubernetes.Interface
+	drivers             dynamic.Interface
 	node                string
 	namespace           string
 	hostDriverValidated func() (bool, error)
@@ -37,7 +39,11 @@ func New(node, namespace string, hostDriverValidated func() (bool, error)) (*Che
 	if err != nil {
 		return nil, fmt.Errorf("create driver readiness client: %w", err)
 	}
-	return &Checker{client: c, node: node, namespace: namespace, hostDriverValidated: hostDriverValidated}, nil
+	drivers, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create driver configuration client: %w", err)
+	}
+	return &Checker{client: c, drivers: drivers, node: node, namespace: namespace, hostDriverValidated: hostDriverValidated}, nil
 }
 
 func (c *Checker) Check(ctx context.Context) error {

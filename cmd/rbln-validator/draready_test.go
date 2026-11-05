@@ -45,7 +45,7 @@ func TestWaitDRAReady(t *testing.T) {
 			wantVFIOCalls:  2,
 		},
 		"VFIOBindsAfterRetries": {
-			reason:         "vm-passthrough node: the gate waits out vfio-manager binding",
+			reason:         "vm-passthrough node: the gate waits out PCI binding",
 			toolkitReadyAt: -1,
 			vfioReadyAt:    2,
 			wantSleeps:     2,

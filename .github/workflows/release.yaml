@@ -342,7 +342,6 @@ jobs:
             echo "device_plugin=$DEVICE_PLUGIN"
             echo "metrics_exporter=$METRICS_EXPORTER"
             echo "npu_feature_discovery=$NPU_FEATURE_DISCOVERY"
-            echo "vfio_manager=$VFIO_MANAGER"
             echo "container_toolkit=$CONTAINER_TOOLKIT"
             echo "dra_kubelet_plugin=$DRA_KUBELET_PLUGIN"
             echo "sandbox_device_plugin=$SANDBOX_DEVICE_PLUGIN"
@@ -355,7 +354,6 @@ jobs:
           DEVICE_PLUGIN_DIGEST: ${{ steps.digests.outputs.device_plugin }}
           METRICS_EXPORTER_DIGEST: ${{ steps.digests.outputs.metrics_exporter }}
           NPU_FEATURE_DISCOVERY_DIGEST: ${{ steps.digests.outputs.npu_feature_discovery }}
-          VFIO_MANAGER_DIGEST: ${{ steps.digests.outputs.vfio_manager }}
           CONTAINER_TOOLKIT_DIGEST: ${{ steps.digests.outputs.container_toolkit }}
           DRA_KUBELET_PLUGIN_DIGEST: ${{ steps.digests.outputs.dra_kubelet_plugin }}
           SANDBOX_DEVICE_PLUGIN_DIGEST: ${{ steps.digests.outputs.sandbox_device_plugin }}
@@ -367,7 +365,6 @@ jobs:
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_K8S_DEVICE_PLUGIN")).value = env(DEVICE_PLUGIN_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_METRICS_EXPORTER")).value = env(METRICS_EXPORTER_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_NPU_FEATURE_DISCOVERY")).value = env(NPU_FEATURE_DISCOVERY_DIGEST)' "$FILE"
-          yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_VFIO_MANAGER")).value = env(VFIO_MANAGER_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_RBLN_CONTAINER_TOOLKIT")).value = env(CONTAINER_TOOLKIT_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_DRA_KUBELET_PLUGIN")).value = env(DRA_KUBELET_PLUGIN_DIGEST)' "$FILE"
           yq -i '(.spec.template.spec.containers[0].env[] | select(.name == "RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN")).value = env(SANDBOX_DEVICE_PLUGIN_DIGEST)' "$FILE"

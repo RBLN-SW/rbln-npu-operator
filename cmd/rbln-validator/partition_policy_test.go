@@ -76,6 +76,11 @@ func TestGatePartitionPolicy(t *testing.T) {
 					}
 					writeMarker(toolkitReadyFile)
 					vm := workload == consts.RBLNWorkloadConfigVMPassthrough
+					if vm {
+						// VM consumers always wait for the manager to finish binding,
+						// even when the effective node family is PF.
+						writeMarker(consts.PartitionReadyFileName)
+					}
 					wantSleeps := 0
 					if nodeDefault.invalid || (!vm && nodeDefault.partitioned) {
 						wantSleeps = 1

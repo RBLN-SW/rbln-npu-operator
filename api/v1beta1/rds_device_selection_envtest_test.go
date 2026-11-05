@@ -21,7 +21,6 @@ func newRDSTestCR(name string, rds map[string]any) *unstructured.Unstructured {
 			"kind":       "RBLNClusterPolicy",
 			"metadata":   map[string]any{"name": name},
 			"spec": map[string]any{
-				"vfioManager":         emptyNested,
 				"sandboxDevicePlugin": emptyNested,
 				"devicePlugin":        emptyNested,
 				"metricsExporter":     emptyNested,

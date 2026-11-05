@@ -31,7 +31,7 @@ func recordNodeStateMetrics(s *ClusterUpgradeState) {
 	}
 }
 
-func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context, s *ClusterUpgradeState, policy *v1beta1.DriverUpgradePolicySpec, deviceClass string) error {
+func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context, s *ClusterUpgradeState, policy *v1beta1.DriverUpgradePolicySpec, deviceClass string, validation ValidationOptions) error {
 	if s == nil {
 		return errors.New("currentState should not be empty")
 	}
@@ -56,7 +56,7 @@ func (m *ClusterUpgradeStateManagerImpl) ApplyState(ctx context.Context, s *Clus
 		{"completion", func() error { return m.ProcessWaitForJobsRequiredNodes(ctx, s, policy.WaitForCompletion) }},
 		{"eviction", func() error { return m.ProcessPodDeletionRequiredNodes(ctx, s, policy.PodDeletion, deviceClass) }},
 		{"restart", func() error { return m.ProcessPodRestartNodes(ctx, s, int64(policy.PodRestartTimeoutSeconds)) }},
-		{"validation", func() error { return m.ProcessValidationRequiredNodes(ctx, s) }},
+		{"validation", func() error { return m.ProcessValidationRequiredNodes(ctx, s, validation) }},
 		{"uncordon", func() error { return m.ProcessUncordonRequiredNodes(ctx, s) }},
 	}
 	var result error

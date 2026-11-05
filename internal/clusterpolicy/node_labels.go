@@ -35,7 +35,9 @@ var rblnComponentLabels = map[string]map[string]string{
 		"rebellions.ai/npu.deploy.container-toolkit":     labelValueTrue,
 	},
 	consts.RBLNWorkloadConfigVMPassthrough: {
-		"rebellions.ai/npu.deploy.vfio-manager":          labelValueTrue,
+		"rebellions.ai/npu.deploy.partition-manager":     labelValueTrue,
+		consts.RBLNDeployDriverLabelKey:                  labelValueTrue,
+		consts.RBLNDeploySmdLabelKey:                     labelValueTrue,
 		"rebellions.ai/npu.deploy.sandbox-device-plugin": labelValueTrue,
 		"rebellions.ai/npu.deploy.dra-kubelet-plugin":    labelValueTrue,
 	},
@@ -49,6 +51,7 @@ var rblnComponentLabels = map[string]map[string]string{
 // rbln-daemon cleanup once no supported upgrade path carries these keys.
 var legacyComponentLabelKeys = []string{
 	consts.RBLNDeployRBLNDaemonLabelKey,
+	"rebellions.ai/npu.deploy.vfio-manager",
 }
 
 // ListAndClassifyNodes returns NPU-candidate nodes and whether NFD is
@@ -157,7 +160,7 @@ func (s *ClusterPolicyService) ReconcileNodes(ctx context.Context, candidates []
 		}
 		census.TotalNPU++
 		workload, _ := getWorkloadConfig(labels, s.policy.Spec.WorkloadType)
-		paused := len(pausedDesiredComponentLabels(labels, workload)) > 0
+		paused := len(pausedDesiredComponentLabels(labels, workload, s.policy.Spec.PartitionManager.Enabled)) > 0
 		switch workload {
 		case consts.RBLNWorkloadConfigContainer:
 			census.ContainerNodes++
@@ -194,6 +197,10 @@ func (s *ClusterPolicyService) reconcileNode(ctx context.Context, node *corev1.N
 				return err
 			}
 			*node = *fresh
+		}
+		workload, _ := getWorkloadConfig(node.Labels, s.policy.Spec.WorkloadType)
+		if !hasRBLNDeploySkipLabel(node.Labels) && hasRBLNDeviceLabel(node.Labels) && workload == consts.RBLNWorkloadConfigVMPassthrough && !s.policy.Spec.PartitionManager.Enabled {
+			return fmt.Errorf("VM node %s requires partitionManager.enabled=true", node.Name)
 		}
 		if !s.reconcileNodeInPlace(ctx, node, shouldEnableUpgrade) {
 			return nil
@@ -274,13 +281,13 @@ func (s *ClusterPolicyService) reconcileWorkloadLabels(nodeName string, labels m
 		)
 	}
 
-	modified := updateRBLNComponentLabels(labels, workloadConfig)
+	modified := updateRBLNComponentLabels(labels, workloadConfig, s.policy.Spec.PartitionManager.Enabled)
 
 	// A deploy label left empty gates its component off for as long as it stays
 	// empty, and the fill-only loop above will not repair it. Nothing here can
 	// safely fix it, so make it visible instead of letting a node sit silently
 	// without a component.
-	if empty := emptyDesiredComponentLabels(labels, workloadConfig); len(empty) > 0 {
+	if empty := emptyDesiredComponentLabels(labels, workloadConfig, s.policy.Spec.PartitionManager.Enabled); len(empty) > 0 {
 		s.log.Info(
 			"Component deploy labels are empty; those components stay gated off until the value is restored",
 			"node", nodeName,
@@ -293,8 +300,8 @@ func (s *ClusterPolicyService) reconcileWorkloadLabels(nodeName string, labels m
 
 // emptyDesiredComponentLabels returns the deploy labels this node should carry
 // as "true" but whose value is empty, sorted for a stable log line.
-func emptyDesiredComponentLabels(labels map[string]string, config string) []string {
-	desired := desiredComponentLabels(labels, config)
+func emptyDesiredComponentLabels(labels map[string]string, config string, partitionManagerEnabled bool) []string {
+	desired := desiredComponentLabels(labels, config, partitionManagerEnabled)
 	empty := make([]string, 0, len(desired))
 	for key := range desired {
 		if value, exists := labels[key]; exists && value == "" {
@@ -328,7 +335,7 @@ func (s *ClusterPolicyService) restoreStalePausedLabels(ctx context.Context, nod
 		return false
 	}
 	workload, _ := getWorkloadConfig(labels, s.policy.Spec.WorkloadType)
-	paused := pausedDesiredComponentLabels(labels, workload)
+	paused := pausedDesiredComponentLabels(labels, workload, s.policy.Spec.PartitionManager.Enabled)
 	if len(paused) == 0 {
 		return false
 	}
@@ -357,8 +364,8 @@ func (s *ClusterPolicyService) restoreStalePausedLabels(ctx context.Context, nod
 // pausedDesiredComponentLabels returns the deploy labels this node should carry
 // as "true" but which k8s-driver-manager left at paused-for-driver-upgrade,
 // sorted for a stable log line.
-func pausedDesiredComponentLabels(labels map[string]string, config string) []string {
-	desired := desiredComponentLabels(labels, config)
+func pausedDesiredComponentLabels(labels map[string]string, config string, partitionManagerEnabled bool) []string {
+	desired := desiredComponentLabels(labels, config, partitionManagerEnabled)
 	paused := make([]string, 0, len(desired))
 	for key := range desired {
 		if labels[key] == consts.RBLNDeployPausedForDriverUpgrade {
@@ -370,9 +377,8 @@ func pausedDesiredComponentLabels(labels map[string]string, config string) []str
 }
 
 // driverManagerIdle reports whether every k8s-driver-manager init container on
-// the node has terminated. The driver pod and the vfio-manager pod both run
-// one. It reads the API server directly rather than the cache: the question
-// is asked rarely, and a stale answer would undo a live pause. A pod whose
+// the node has terminated. It reads the API server directly rather than the
+// cache: the question is asked rarely, and a stale answer would undo a live pause. A pod whose
 // init container has no reported state yet counts as running; with no such
 // pod on the node at all the answer is false, since there is nothing to judge
 // the pause by.
@@ -482,8 +488,8 @@ func removeLegacyComponentLabels(labels map[string]string) bool {
 	return modified
 }
 
-func updateRBLNComponentLabels(labels map[string]string, config string) bool {
-	desired := desiredComponentLabels(labels, config)
+func updateRBLNComponentLabels(labels map[string]string, config string, partitionManagerEnabled bool) bool {
+	desired := desiredComponentLabels(labels, config, partitionManagerEnabled)
 	modified := removeLegacyComponentLabels(labels)
 
 	for _, labelsMap := range rblnComponentLabels {
@@ -515,16 +521,14 @@ func updateRBLNComponentLabels(labels map[string]string, config string) bool {
 	return modified
 }
 
-func desiredComponentLabels(labels map[string]string, config string) map[string]string {
+func desiredComponentLabels(labels map[string]string, config string, partitionManagerEnabled bool) map[string]string {
 	base := rblnComponentLabels[config]
-	if config != consts.RBLNWorkloadConfigContainer ||
-		labels[consts.RBLNDeployDriverLabelKey] != consts.RBLNDeployDriverPreInstalled {
-		return base
-	}
-
 	desired := make(map[string]string, len(base))
 	for key, value := range base {
-		if key == consts.RBLNDeploySmdLabelKey {
+		if key == consts.RBLNDeploySmdLabelKey && labels[consts.RBLNDeployDriverLabelKey] == consts.RBLNDeployDriverPreInstalled {
+			continue
+		}
+		if key == "rebellions.ai/npu.deploy.partition-manager" && !partitionManagerEnabled {
 			continue
 		}
 		desired[key] = value

@@ -23,8 +23,12 @@ func NodeIdentityEnv() []corev1.EnvVar {
 func ReconcileNodePodReader(
 	ctx context.Context, c client.Client, scheme *runtime.Scheme, owner client.Object,
 	namespace, serviceAccount, name string, controllerOwner bool,
+	additionalClusterRules ...rbacv1.PolicyRule,
 ) error {
 	for _, object := range nodePodReaderObjects(namespace, serviceAccount, name) {
+		if role, ok := object.(*rbacv1.ClusterRole); ok {
+			role.Rules = append(role.Rules, additionalClusterRules...)
+		}
 		desired := object.DeepCopyObject().(client.Object)
 		_, err := controllerutil.CreateOrPatch(ctx, c, object, func() error {
 			switch o := object.(type) {

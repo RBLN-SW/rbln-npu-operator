@@ -17,7 +17,6 @@ COMPONENTS = {
     "containerToolkit": "rbln-container-toolkit",
     "draKubeletPlugin": "dra-kubelet-plugin",
     "sandboxDevicePlugin": "sandbox-device-plugin",
-    "vfioManager": "vfio-manager",
 }
 
 
@@ -28,11 +27,10 @@ class BundleExamples(unittest.TestCase):
         self.csv = Path(temp.name) / "operator.clusterserviceversion.yaml"
         old = {"registry": "docker.io", "image": "rebellions/old", "version": "v0.4.3"}
         policy = {"kind": "RBLNClusterPolicy", "metadata": {"name": "policy"}, "spec": {
-            **{key: {**old, "enabled": key != "vfioManager", "imagePullPolicy": "IfNotPresent"}
+            **{key: {**old, "enabled": True, "imagePullPolicy": "IfNotPresent"}
                for key in COMPONENTS},
             "workloadType": "container",
         }}
-        policy["spec"]["vfioManager"]["driverManager"] = dict(old)
         drivers = [{"kind": "RBLNDriver", "metadata": {"name": f"driver-{family}"}, "spec": {
             "registry": "repo.rebellions.ai", "image": "rebellions/rbln-driver", "version": version,
             "nodeSelector": {"rebellions.ai/npu.family": family}, "imagePullSecrets": ["drivercred"],
@@ -90,7 +88,6 @@ class BundleExamples(unittest.TestCase):
                              ("docker.io", f"rebellions/{name}", "v1.2.3"))
             self.assertEqual(image["enabled"], self.examples[0]["spec"][key]["enabled"])
             self.assertEqual(image["imagePullPolicy"], "IfNotPresent")
-        self.assertEqual(actual[0]["spec"]["vfioManager"]["driverManager"]["version"], "v1.2.3")
         for before, after in zip(self.examples[1:], actual[1:]):
             expected = copy.deepcopy(before)
             expected["spec"]["manager"] = {"registry": "docker.io", "image": "rebellions/driver-manager", "version": "v1.2.3"}

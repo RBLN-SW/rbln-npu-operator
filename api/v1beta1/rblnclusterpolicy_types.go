@@ -22,7 +22,7 @@ import (
 
 // RBLNClusterPolicySpec defines the desired state of RBLNClusterPolicy
 // +kubebuilder:object:generate=true
-// +kubebuilder:validation:XValidation:rule="self.workloadType != 'vm-passthrough' || self.vfioManager.enabled",message="vfioManager.enabled must be true when workloadType is vm-passthrough"
+// +kubebuilder:validation:XValidation:rule="self.workloadType != 'vm-passthrough' || (has(self.partitionManager) && self.partitionManager.enabled)",message="partitionManager.enabled must be true when workloadType is vm-passthrough"
 // +kubebuilder:validation:XValidation:rule="self.workloadType != 'vm-passthrough' || self.sandboxDevicePlugin.enabled || (has(self.draKubeletPlugin) && self.draKubeletPlugin.enabled)",message="either sandboxDevicePlugin.enabled or draKubeletPlugin.enabled must be true when workloadType is vm-passthrough"
 // +kubebuilder:validation:XValidation:rule="!(has(self.draKubeletPlugin) && self.draKubeletPlugin.enabled && self.sandboxDevicePlugin.enabled)",message="sandboxDevicePlugin.enabled and draKubeletPlugin.enabled are mutually exclusive: both advertise the same vfio-pci NPUs on vm-passthrough nodes"
 // +kubebuilder:validation:XValidation:rule="!(has(self.draKubeletPlugin) && self.draKubeletPlugin.enabled && self.devicePlugin.enabled)",message="devicePlugin.enabled and draKubeletPlugin.enabled are mutually exclusive: both advertise the same NPUs as rebellions.ai/npu on container nodes"
@@ -37,10 +37,6 @@ type RBLNClusterPolicySpec struct {
 	// PodDefaults defines common configuration applied to all DaemonSet pods managed by this policy.
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Pod Defaults",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	PodDefaults *PodDefaultsSpec `json:"podDefaults,omitempty"`
-
-	// VFIOManager component spec
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="VFIO Manager",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
-	VFIOManager RBLNVFIOManagerSpec `json:"vfioManager"`
 
 	// SandboxDevicePlugin component spec
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Sandbox Device Plugin",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"

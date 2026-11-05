@@ -1,5 +1,38 @@
 # NPU Driver Auto Upgrade
 
+Driver replacement also includes VM workloads using the `vfio-<driverName>`
+DRA DeviceClass. Unresolved claim references or reads keep eviction pending;
+they are not evidence that the node is free of device users. The DRA plugin
+remains available until workload eviction and claim cleanup finish.
+
+Driver-manager pauses the partition reconciler, invalidates `partition-ready`,
+then stops NPU consumers and components before releasing VFIO bindings and
+unloading the native module. Its VFIO cleanup leaves SR-IOV and native bindings
+alone; it does not remove VFs or call SMD.
+
+Partition-manager starts through a driver-only `component-gate` init container.
+It never waits for toolkit, partition, or VFIO readiness in that gate. VM
+consumer gates also check the current managed driver installation. Existing
+cordon ownership and rollout phases are retained.
+
+For an unowned node with no active driver Pod, the binding gate lists
+`RBLNDriver` configurations and checks their node selectors. A matching driver
+keeps the gate waiting for assignment; no matching configuration permits the
+unmanaged/host path even when `npu.deploy.driver=true`. The deploy label is an
+eligibility flag, not proof that a managed driver is configured. PM and VM
+consumer gate service accounts need read-only `list` access to `rblndrivers`,
+including standalone partition-manager deployments. Other component gates do
+not receive this permission. An API error never counts as an empty list.
+
+Automatic upgrade validation follows the effective node workload (a valid node
+label overrides the policy default). Container nodes wait for `operator-validator`;
+VM nodes wait for the enabled `dra-kubelet-plugin` or `sandbox-device-plugin`.
+Validation checks non-terminating, ready Pods in the operator namespace on the
+target node. With PM enabled it also waits for `NPUPartitionReady=True` and the
+transition annotations to be cleared, after registration and inventory checks.
+Missing/unready consumers or unfinished PM work retain the existing validation
+timeout.
+
 This document covers the rollout the operator performs when `spec.driver.upgradePolicy.autoUpgrade` is `true`: how a node moves from the old driver to the new one, which policy options change that path, what happens when a step fails, and where to look while a rollout is running.
 
 This document covers:
@@ -55,11 +88,12 @@ The keys above are chart values. In a `RBLNClusterPolicy` manifest the same bloc
 > [!NOTE]
 > `npuPodDeletion.force` and `npuPodDeletion.deleteEmptyDirData` apply even with `autoUpgrade: false`. With the workflow off, `k8s-driver-manager` empties the node itself whenever a driver pod restarts while the module is still loaded, and it obeys the same two settings. `timeoutSeconds` is the exception: it bounds only the operator's eviction, which has `upgrade-skipped` to fall back to. `k8s-driver-manager` has no such state and waits instead of giving up.
 >
-> The same two settings govern one more eviction: the one `k8s-driver-manager` runs from the vfio-manager init container when a node is switched from the `container` workload to `vm-passthrough`. Before the NPUs are bound to `vfio-pci` it cordons the node and evicts its container-mode NPU pods: pods that request exactly `rebellions.ai/npu`, and pods that hold a DRA `ResourceClaim` against the container-mode DeviceClass. A KubeVirt VM holding a passthrough resource or the `vfio-` DeviceClass is not matched, and a node whose NPUs already sit on `vfio-pci` gets neither the cordon nor the eviction. A pod that requests a product-specific resource name instead of `rebellions.ai/npu` is not matched either; it shows up as a vfio-mode readiness failure naming the process that holds `/dev/rbln*`, and has to be moved by hand. To keep the switch from evicting anything, set `ENABLE_NPU_POD_EVICTION=false` through `vfioManager.driverManager.env` (chart) or `spec.vfioManager.driverManager.env` (manifest); those entries come after the operator's own, so the duplicate wins.
+> PCI binding and container/VM transitions are managed by partition-manager.
+> Enable `partitionManager.enabled` for VM nodes. Its reconcile loop handles
+> NPU workload draining, SR-IOV changes and PCI rebinding.
 >
-> This needs a `k8s-driver-manager` that binds the `NPU_POD_EVICTION_*` variables, which is what the chart's `driver.manager.image.tag` and `vfioManager.driverManager.image.tag` pin. Releases up to v0.2.2 ignore them: on the driver path they fall back to draining the whole node, since `ENABLE_AUTO_DRAIN=false` is no longer rendered, and on the vfio path they evict nothing, so the switch keeps failing its readiness check until the NPU pods are moved by hand.
->
-> A node stuck this way shows up as a pod whose `k8s-driver-manager` init container is in `CrashLoopBackOff`. On the driver path it is the driver pod, repeating `cannot proceed until all NPU pods are evicted from the node`; on the vfio path it is the vfio-manager pod, repeating `cannot proceed until all container-mode NPU pods are evicted from the node`. Either log names the blocking pod.
+> Driver installation still requires the chart's `driver.manager.image.tag` pin:
+> versions up to v0.2.2 do not understand `NPU_POD_EVICTION_*` and may drain the whole node.
 
 ### Driver Pod Restarts Without a Driver Change
 
@@ -130,7 +164,7 @@ Each node advances through the states below one step at a time. The current stat
 | `wait-for-jobs-required` | Waits until no pod matching `waitForCompletion.podSelector` is Running or Pending. Skipped when the selector is empty | proceeds on timeout |
 | `pod-deletion-required` | Evicts the node's NPU pods, then moves to `pod-restart-required`. A pod the eviction cannot remove parks the node; see [Why a node is skipped](#why-a-node-is-skipped) | `upgrade-skipped` |
 | `pod-restart-required` | Deletes the driver pod and waits for the replacement to become Ready | `upgrade-failed` |
-| `validation-required` | Waits up to 600 seconds for the operator validator pod on the node to become Ready | `upgrade-failed` |
+| `validation-required` | Waits up to 600 seconds for PM registration completion (when enabled) and the workload's validator/consumer on the node: `operator-validator` for containers, the enabled DRA or sandbox device plugin for VMs | `upgrade-failed` |
 | `uncordon-required` | Uncordons the node. A node that was already cordoned before the upgrade stays cordoned, unless that cordon was `k8s-driver-manager`'s own (see below) | retried |
 | `upgrade-done` | Terminal until the next driver revision | N/A |
 
@@ -154,9 +188,11 @@ There is no limit on skipped nodes; a rollout that ends with skipped nodes repor
 
 ### Why a node is skipped
 
-Only NPU pods are ever evicted; every other pod on the node is left alone. A pod counts as an NPU pod when a regular or init container (including a native sidecar) requests or limits a positive quantity of a `rebellions.ai/*` resource, or when it holds a DRA `ResourceClaim` against the container-mode DeviceClass: `draKubeletPlugin.driverName`, `npu.rebellions.ai` by default, the same class `k8s-driver-manager` is handed as `NPU_POD_EVICTION_DEVICE_CLASS`. The class is matched by name, not by its `rebellions.ai/npu` extended-resource bridge, because an API server without the `DRAExtendedResource` feature gate (off by default through Kubernetes 1.35) does not persist that field; any other DeviceClass that does carry a `rebellions.ai/*` bridge is matched as well. A `ResourceClaim` against the passthrough DeviceClass `vfio-<driverName>` is never evicted: the device it holds is bound to `vfio-pci` rather than to the driver being replaced. The skip reason names the NPU pods that blocked the eviction and how to clear them.
+Only NPU pods are evicted. A pod counts as an NPU consumer when a regular or init container (including a native sidecar) requests or limits a positive quantity of a `rebellions.ai/*` resource, or when it holds a matching DRA `ResourceClaim`. Only Running and Pending pods are considered. Direct, template-generated and scheduler-generated claim references are supported.
 
-Only Running and Pending pods are considered. DRA claims referenced directly, generated from templates, or recorded in the pod's scheduler-generated extended-resource claim status are supported.
+Allocated claims match their actual DRA driver or selected DeviceClass; an unselected `FirstAvailable` alternative does not make an allocated claim eligible. Pending claims match their requested classes, including `FirstAvailable` candidates. The configured class is `draKubeletPlugin.driverName` (`npu.rebellions.ai` by default), the same value passed to `k8s-driver-manager` as `NPU_POD_EVICTION_DEVICE_CLASS`. Native and VFIO consumers are included because driver replacement releases VFIO bindings too. DeviceClasses bridged to a `rebellions.ai/*` resource are additional hints; the configured class remains usable when the API server does not persist the extended-resource bridge.
+
+Unresolved claim references or failed reads keep the operation pending instead of allowing driver replacement. Multiple references to the same claim are resolved once. The skip reason names the NPU pods that blocked eviction and how to clear them.
 
 | Blocking NPU pod | Skip reason says | Remedy |
 |------------------|------------------|--------|
@@ -293,7 +329,7 @@ The gauge `rbln_operator_driver_upgrade_nodes{state=...}` reports the number of 
 
 ### Policy Status While a Driver Installs
 
-Every run of the `k8s-driver-manager` init container switches the node's `rebellions.ai/npu.deploy.*` labels to `paused-for-driver-upgrade`, which removes the operator's component pods from the node, and switches them back when the init container ends, before the driver container loads the module. The driver pod runs it whenever its init containers run: when the pod is created, and again when it restarts after a node reboot. The vfio-manager pod on a `vm-passthrough` node runs it the same way. The pause happens with or without `autoUpgrade`, and also on runs that skip the reinstall.
+Every run of the `k8s-driver-manager` init container switches the node's `rebellions.ai/npu.deploy.*` labels to `paused-for-driver-upgrade`, which removes the operator's component pods from the node, and switches them back when the init container ends, before the driver container loads the module. The driver pod runs it whenever its init containers run: when the pod is created, and again when it restarts after a node reboot. The pause happens with or without `autoUpgrade`, and also on runs that skip the reinstall.
 
 While a node is paused its component DaemonSets no longer count it, so their own readiness would read as complete. The operator therefore holds the node's workload at `progressing`, and the policy at `notReady` with reason `WorkloadProgressing`, until no node of that workload is paused. Once the labels are back, the returning component pods wait for the driver before they become Ready, which keeps the policy `notReady` until the install finishes. The `Ready` condition names up to three paused nodes:
 
@@ -304,7 +340,7 @@ Progressing workload(s): container(1 of 3 container node(s) paused for driver in
 
 The `STATUS` column reads `notReady` for the length of every driver install, and for most of a rollout. `rbln_operator_reconcile_failed_total{controller="clusterpolicy"}` counts every reconcile that ends `notReady`, so it grows during these windows too. To alert on a policy that stays unready, use `rbln_operator_clusterpolicy_reconcile_status == 1` with a `for:` longer than a driver install takes on your nodes, not the rate of that counter.
 
-A pause normally ends with its run. When a run is killed before it switches the labels back, the operator restores them itself once every `k8s-driver-manager` init container on the node has terminated. A node with no such container left, that is with neither a driver pod nor a vfio-manager pod, gives the operator nothing to judge the pause by: the labels stay paused and the policy stays `notReady`, naming the node, until you restore them.
+A pause normally ends with its run. When a run is killed before it switches the labels back, the operator restores them itself once every `k8s-driver-manager` init container on the node has terminated. A node with no such container left, for example after the driver pod has been deleted, gives the operator nothing to judge the pause by: the labels stay paused and the policy stays `notReady`, naming the node, until you restore them.
 
 ```bash
 $ kubectl get node <NODE_NAME> --show-labels | tr ',' '\n' | grep paused-for-driver-upgrade

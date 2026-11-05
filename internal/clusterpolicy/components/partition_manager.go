@@ -2,6 +2,8 @@ package components
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -36,7 +38,7 @@ func NewPartitionManagerPatcher(client client.Client, log logr.Logger, namespace
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),
-			workloadType:     consts.RBLNWorkloadConfigContainer,
+			workloadType:     consts.RBLNWorkloadConfigAll,
 		},
 		desiredSpec: &synced,
 		podDefaults: cpSpec.PodDefaults,
@@ -88,6 +90,9 @@ func (h *partitionManagerPatcher) handleClusterRole(ctx context.Context, owner *
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, clusterRole, func() error {
 		clusterRole.Rules = []rbacv1.PolicyRule{
+			{APIGroups: []string{"resource.k8s.io"}, Resources: []string{"resourceslices"}, Verbs: []string{"list"}},
+			{APIGroups: []string{"rebellions.ai"}, Resources: []string{"rblndrivers"}, Verbs: []string{"list"}},
+			{APIGroups: []string{"resource.k8s.io"}, Resources: []string{"resourceclaims"}, Verbs: []string{"get"}},
 			{
 				APIGroups: []string{""},
 				Resources: []string{"nodes"},
@@ -112,11 +117,6 @@ func (h *partitionManagerPatcher) handleClusterRole(ctx context.Context, owner *
 				APIGroups: []string{"apps"},
 				Resources: []string{"daemonsets"},
 				Verbs:     []string{"get", "list", "watch"},
-			},
-			{
-				APIGroups: []string{"resource.k8s.io"},
-				Resources: []string{"resourceclaims"},
-				Verbs:     []string{"get"},
 			},
 		}
 		return ctrl.SetControllerReference(owner, clusterRole, h.scheme)
@@ -156,10 +156,38 @@ func (h *partitionManagerPatcher) handleClusterRoleBinding(ctx context.Context, 
 }
 
 func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
+	// Only driver readiness: toolkit and partition readiness depend on work
+	// this manager performs and would create a circular startup dependency.
 	initContainer := buildGateInitContainer(consts.RBLNPartitionManagerName, owner.Spec.Validator)
+	pullSecrets := slices.Clone(h.desiredSpec.ImagePullSecrets)
+	for _, secret := range owner.Spec.Validator.ImagePullSecrets {
+		if !slices.Contains(pullSecrets, secret) {
+			pullSecrets = append(pullSecrets, secret)
+		}
+	}
+	defaultWorkload := owner.Spec.WorkloadType
+	if defaultWorkload == "" {
+		defaultWorkload = consts.RBLNWorkloadConfigContainer
+	}
+	var advertisers []string
+	if owner.Spec.DevicePlugin.Enabled {
+		advertisers = append(advertisers, consts.RBLNDevicePluginName)
+	}
+	if owner.Spec.DRAKubeletPlugin.Enabled {
+		advertisers = append(advertisers, consts.RBLNDRAKubeletPluginName)
+	}
+	if owner.Spec.SandboxDevicePlugin.Enabled {
+		advertisers = append(advertisers, consts.RBLNSandboxDevicePluginName)
+	}
+	expectedAdvertisers := strings.Join(advertisers, ",")
+	if expectedAdvertisers == "" {
+		expectedAdvertisers = "none"
+	}
 
 	env := mergeEnvVars(
 		[]corev1.EnvVar{
+			{Name: "DEFAULT_WORKLOAD_TYPE", Value: defaultWorkload},
+			{Name: "EXPECTED_DEVICE_PLUGINS", Value: expectedAdvertisers},
 			{
 				Name: "NODE_NAME",
 				ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
@@ -207,7 +235,7 @@ func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.partition-manager": "true"}).
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
-		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithImagePullSecrets(pullSecrets).
 		WithPriorityClassName(podDefaultsPriorityClassName(h.podDefaults)).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
@@ -233,6 +261,7 @@ func (h *partitionManagerPatcher) handleDaemonSet(ctx context.Context, owner *rb
 			WithLabels(h.desiredSpec.Labels).
 			WithAnnotations(h.desiredSpec.Annotations).
 			WithPodSpec(podSpec)
+		applyUpdateStrategy(ds, h.desiredSpec.UpdateStrategy)
 		return ctrl.SetControllerReference(owner, ds, h.scheme)
 	})
 	if err != nil {

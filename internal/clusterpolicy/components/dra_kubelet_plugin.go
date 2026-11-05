@@ -19,6 +19,7 @@ import (
 
 	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
 	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/draclass"
 	k8sutil "github.com/RBLN-SW/rbln-npu-operator/internal/utils/k8s"
 )
 
@@ -134,15 +135,41 @@ func (h *draKubeletPluginPatcher) handleDRAClass(ctx context.Context, owner *rbl
 	if err := h.handleDeviceClass(ctx, owner, h.className(), npuCEL, ptr(draExtendedResource)); err != nil {
 		return err
 	}
+	for _, count := range []int{1, 4} {
+		selector := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q && has(device.attributes[%q].partitionMode) && device.attributes[%q].partitionMode == %q",
+			h.className(), h.className(), "npu-vf", h.className(), h.className(), fmt.Sprintf("vf%d", count))
+		if err := h.handleDeviceClass(ctx, owner, h.vfClassName(count), selector, ptr(fmt.Sprintf("rebellions.ai/npu-vf%d", count))); err != nil {
+			return err
+		}
+	}
 	// No extended-resource bridge on purpose — passthrough devices must be
 	// requested explicitly through a ResourceClaim.
-	vfioCEL := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q",
-		h.className(), h.className(), "vfio")
-	return h.handleDeviceClass(ctx, owner, h.vfioClassName(), vfioCEL, nil)
+	// Keep whole-device requests separate from VFs, as in the standalone DRA chart.
+	vfioCEL := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q && has(device.attributes[%q].vf) && !device.attributes[%q].vf",
+		h.className(), h.className(), "vfio", h.className(), h.className())
+	if err := h.handleDeviceClass(ctx, owner, h.vfioClassName(), vfioCEL, nil); err != nil {
+		return err
+	}
+	for _, count := range []int{1, 4} {
+		selector := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q && has(device.attributes[%q].vf) && device.attributes[%q].vf && has(device.attributes[%q].partitionMode) && device.attributes[%q].partitionMode == %q",
+			h.className(), h.className(), "vfio", h.className(), h.className(), h.className(), h.className(), fmt.Sprintf("vf%d", count))
+		if err := h.handleDeviceClass(ctx, owner, h.vfioVFClassName(count), selector, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *draKubeletPluginPatcher) vfioClassName() string {
-	return "vfio-" + h.className()
+	return draclass.VFIOName(h.className())
+}
+
+func (h *draKubeletPluginPatcher) vfioVFClassName(count int) string {
+	return draclass.VFIOName(h.vfClassName(count))
+}
+
+func (h *draKubeletPluginPatcher) vfClassName(count int) string {
+	return draclass.VFName(h.className(), count)
 }
 
 func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy, name, celExpression string, extendedResourceName *string) error {
@@ -171,7 +198,7 @@ func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *
 }
 
 func (h *draKubeletPluginPatcher) deleteDeviceClass(ctx context.Context) error {
-	for _, name := range []string{h.className(), h.vfioClassName()} {
+	for _, name := range draclass.Names(h.className()) {
 		if err := h.client.Delete(ctx, &resourcev1.DeviceClass{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
 		}); err != nil && !kapierrors.IsNotFound(err) && !isNoMatchError(err) {
@@ -193,6 +220,7 @@ func (h *draKubeletPluginPatcher) handleClusterRole(ctx context.Context, owner *
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, clusterRole, func() error {
 		clusterRole.Rules = []rbacv1.PolicyRule{
+			{APIGroups: []string{"rebellions.ai"}, Resources: []string{"rblnclusterpolicies"}, ResourceNames: []string{owner.Name}, Verbs: []string{"get"}},
 			{
 				APIGroups: []string{"resource.k8s.io"},
 				Resources: []string{"resourceclaims"},
@@ -271,7 +299,7 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 	}
 	env = mergeEnvVars(env, loggingEnvVars(h.desiredSpec.Logging, draLogLevelEnv, draLogFormatEnv))
 
-	var livenessProbe *corev1.Probe
+	var livenessProbe, readinessProbe *corev1.Probe
 	if h.desiredSpec.HealthcheckPort > 0 {
 		env = append(env, corev1.EnvVar{
 			Name:  "HEALTHCHECK_PORT",
@@ -287,6 +315,10 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 			FailureThreshold: 3,
 			PeriodSeconds:    10,
 		}
+		readinessProbe = livenessProbe.DeepCopy()
+		readinessProbe.GRPC.Service = ptr("readiness")
+		readinessProbe.PeriodSeconds = 2
+		readinessProbe.FailureThreshold = 1
 	}
 
 	return k8sutil.NewContainerBuilder().
@@ -297,6 +329,7 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 		WithSecurityContext(&corev1.SecurityContext{Privileged: ptr(true)}).
 		WithEnvs(env).
 		WithLivenessProbe(livenessProbe).
+		WithReadinessProbe(readinessProbe).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
 			{Name: "plugins-registry", MountPath: h.desiredSpec.KubeletRegistrarDirectoryPath},
@@ -318,7 +351,7 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 func (h *draKubeletPluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
 	initContainer := buildDRAReadyInitContainer(owner.Spec.Validator)
 	initContainer.Env = append(initContainer.Env, corev1.EnvVar{
-		Name: "DEFAULT_WORKLOAD_TYPE", Value: owner.Spec.WorkloadType,
+		Name: "CLUSTER_POLICY_NAME", Value: owner.Name,
 	})
 	draContainer := h.buildDRAContainer()
 

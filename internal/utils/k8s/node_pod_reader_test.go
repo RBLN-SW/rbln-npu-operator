@@ -53,8 +53,16 @@ func TestNodePodReaderRBACScopeAndSharedOwners(t *testing.T) {
 		}
 	}
 	controllerOwner := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: "controller-owner", UID: "controller-uid"}}
-	if err := ReconcileNodePodReader(ctx, c, scheme, controllerOwner, "operator", "gate", "gate-reader", true); err != nil {
+	driverRule := rbacv1.PolicyRule{APIGroups: []string{"rebellions.ai"}, Resources: []string{"rblndrivers"}, Verbs: []string{"list"}}
+	if err := ReconcileNodePodReader(ctx, c, scheme, controllerOwner, "operator", "gate", "gate-reader", true, driverRule); err != nil {
 		t.Fatal(err)
+	}
+	gateRole := &rbacv1.ClusterRole{}
+	if err := c.Get(ctx, client.ObjectKey{Name: "gate-reader"}, gateRole); err != nil {
+		t.Fatal(err)
+	}
+	if len(gateRole.Rules) != 2 || gateRole.Rules[1].Resources[0] != "rblndrivers" || gateRole.Rules[1].Verbs[0] != "list" {
+		t.Fatalf("gate cannot read desired drivers: %+v", gateRole.Rules)
 	}
 	for _, object := range nodePodReaderObjects("operator", "gate", "gate-reader") {
 		if err := c.Get(ctx, client.ObjectKeyFromObject(object), object); err != nil {

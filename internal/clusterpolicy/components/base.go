@@ -113,8 +113,9 @@ func (b *basePatcher) IsReady(ctx context.Context, nodeCountForType int32) Readi
 
 // buildGateInitContainer blocks an operand pod until `rbln-validator gate`
 // confirms this node's readiness files for the component (see the gate table
-// in cmd/rbln-validator/gate.go). The gate resolves the node's partition
-// labels itself on every poll, so label changes are honored at the next pod
+// in cmd/rbln-validator/gate.go). Device advertisers resolve partition
+// labels on every poll; partition-manager waits only for the driver. Changes
+// are honored at the next pod
 // (re)start without any intermediate state; that read is why gated
 // components carry node-viewer RBAC (reconcileNodeViewerClusterRBAC).
 func buildGateInitContainer(componentName string, validatorSpec rblnv1beta1.ValidatorSpec) *corev1.Container {
@@ -141,28 +142,18 @@ const nodeViewerSuffix = "-node-viewer"
 
 // reconcileNodeViewerClusterRBAC supports the gate's node and driver Pod checks.
 func (b *basePatcher) reconcileNodeViewerClusterRBAC(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	return k8sutil.ReconcileNodePodReader(ctx, b.client, b.scheme, owner, b.namespace, b.name, b.name+nodeViewerSuffix, true)
+	var driverRules []rbacv1.PolicyRule
+	switch b.name {
+	case consts.RBLNBaseName + "-" + consts.RBLNDRAKubeletPluginName,
+		consts.RBLNBaseName + "-" + consts.RBLNSandboxDevicePluginName:
+		driverRules = []rbacv1.PolicyRule{{APIGroups: []string{"rebellions.ai"}, Resources: []string{"rblndrivers"}, Verbs: []string{"list"}}}
+	}
+	return k8sutil.ReconcileNodePodReader(ctx, b.client, b.scheme, owner, b.namespace, b.name, b.name+nodeViewerSuffix, true,
+		driverRules...)
 }
 
 func (b *basePatcher) deleteNodeViewerClusterRBAC(ctx context.Context) error {
 	return k8sutil.DeleteNodePodReader(ctx, b.client, b.namespace, b.name+nodeViewerSuffix)
-}
-
-func buildVFIOPCIValidationInitContainer(validatorSpec rblnv1beta1.ValidatorSpec) *corev1.Container {
-	return k8sutil.NewContainerBuilder().
-		WithName("vfio-pci-validation").
-		WithImage(k8sutil.ComposeImageReference(validatorSpec.Registry, validatorSpec.Image), validatorSpec.Version, validatorSpec.ImagePullPolicy).
-		WithCommands([]string{"rbln-validator"}).
-		WithArgs([]string{"vfio-pci"}).
-		WithSecurityContext(&corev1.SecurityContext{
-			Privileged: ptr(true),
-			RunAsUser:  ptr(int64(0)),
-		}).
-		WithVolumeMounts([]corev1.VolumeMount{
-			{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
-			{Name: "host-sys", MountPath: "/sys"},
-		}).
-		Build()
 }
 
 func buildRBLNBindingValidationInitContainer(validatorSpec rblnv1beta1.ValidatorSpec) *corev1.Container {

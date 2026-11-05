@@ -48,7 +48,7 @@ func TestPartitionManagerPatch(t *testing.T) {
 	assertClusterRoleHasRule(t, cr, "", "pods")
 	assertClusterRoleHasRule(t, cr, "", "pods/eviction")
 	assertClusterRoleHasRule(t, cr, "apps", "daemonsets")
-	assertClusterRoleHasRule(t, cr, "resource.k8s.io", "resourceclaims")
+	assertClusterRoleHasRule(t, cr, "rebellions.ai", "rblndrivers")
 
 	crb := &rbacv1.ClusterRoleBinding{}
 	assertObjectExists(t, c, types.NamespacedName{Name: name}, crb)
@@ -66,7 +66,23 @@ func TestPartitionManagerPatch(t *testing.T) {
 		t.Fatal("expected pod HostNetwork=true (dials rbln-smd node-locally at 127.0.0.1:50051)")
 	}
 
-	assertGateInitContainer(t, ds, consts.RBLNPartitionManagerName)
+	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
+		t.Fatal("partition-manager requires a driver readiness init container")
+	}
+	gate := ds.Spec.Template.Spec.InitContainers[0]
+	if gate.Name != "component-gate" || !slices.Equal(gate.Command, []string{"rbln-validator"}) || !slices.Equal(gate.Args, []string{"gate", "--component", "partition-manager"}) {
+		t.Fatalf("wrong driver gate: %+v", gate)
+	}
+	assertContainerHasVolumeMount(t, gate, consts.ValidationsVolumeName)
+	if envFieldRef(gate.Env, "NODE_NAME") == nil || envFieldRef(gate.Env, "OPERATOR_NAMESPACE") == nil {
+		t.Fatal("driver gate needs node and namespace identity")
+	}
+	if gate.SecurityContext.RunAsUser == nil || *gate.SecurityContext.RunAsUser != 0 {
+		t.Fatal("driver gate must read root-owned readiness files")
+	}
+	if p.WorkloadType() != consts.RBLNWorkloadConfigAll {
+		t.Fatal("partition-manager must serve both workloads")
+	}
 
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
 	assertContainerImage(t, mainContainer, "rebellions/k8s-partition-manager", "v0.1.0")
@@ -74,6 +90,27 @@ func TestPartitionManagerPatch(t *testing.T) {
 		t.Fatalf("container args = %v, want [reconcile-partition-state]", mainContainer.Args)
 	}
 
+	assertContainerHasVolumeMount(t, mainContainer, "host-sys")
+	assertContainerHasVolumeMount(t, mainContainer, "host-root")
+	assertClusterRoleHasRule(t, cr, "resource.k8s.io", "resourceclaims")
+
+	if ref := envFieldRef(mainContainer.Env, "NODE_NAME"); ref == nil || ref.FieldPath != testNodeNameFieldPath {
+		t.Fatal("expected NODE_NAME env from the spec.nodeName Downward API")
+	}
+	if ref := envFieldRef(mainContainer.Env, "OPERATOR_NAMESPACE"); ref == nil || ref.FieldPath != "metadata.namespace" {
+		t.Fatal("expected OPERATOR_NAMESPACE env from the metadata.namespace Downward API")
+	}
+
+	assertContainerHasVolumeMount(t, mainContainer, consts.ValidationsVolumeName)
+	assertPodHasVolume(t, ds.Spec.Template.Spec, consts.ValidationsVolumeName)
+}
+
+func TestPartitionManagerHostAccess(t *testing.T) {
+	scheme := newTestScheme(t)
+	owner := newPartitionManagerOwner()
+	p := NewPartitionManagerPatcher(newFakeClient(t, scheme), logf.Log, testNamespace, &owner.Spec, scheme, "").(*partitionManagerPatcher)
+	spec := p.buildPodSpec(owner)
+	mainContainer := spec.Containers[0]
 	assertPrivileged(t, mainContainer)
 	if mainContainer.SecurityContext.RunAsUser == nil || *mainContainer.SecurityContext.RunAsUser != 0 {
 		t.Fatal("partition manager must run as root for PCI binding and chroot modprobe")
@@ -88,11 +125,11 @@ func TestPartitionManagerPatch(t *testing.T) {
 		{name: "host-sys", hostPath: "/sys", mountPath: "/sys"},
 		{name: "host-root", hostPath: "/", mountPath: "/host", readOnly: true},
 	} {
-		volumeIndex := slices.IndexFunc(ds.Spec.Template.Spec.Volumes, func(v corev1.Volume) bool { return v.Name == want.name })
+		volumeIndex := slices.IndexFunc(spec.Volumes, func(v corev1.Volume) bool { return v.Name == want.name })
 		if volumeIndex < 0 {
 			t.Fatalf("missing host volume %s", want.name)
 		}
-		host := ds.Spec.Template.Spec.Volumes[volumeIndex].HostPath
+		host := spec.Volumes[volumeIndex].HostPath
 		if host == nil || host.Path != want.hostPath || host.Type == nil || *host.Type != corev1.HostPathDirectory {
 			t.Fatalf("volume %s must use host directory %s: %+v", want.name, want.hostPath, host)
 		}
@@ -108,16 +145,6 @@ func TestPartitionManagerPatch(t *testing.T) {
 			t.Fatal("host root mount must receive host submounts for chroot modprobe")
 		}
 	}
-
-	if ref := envFieldRef(mainContainer.Env, "NODE_NAME"); ref == nil || ref.FieldPath != testNodeNameFieldPath {
-		t.Fatal("expected NODE_NAME env from the spec.nodeName Downward API")
-	}
-	if ref := envFieldRef(mainContainer.Env, "OPERATOR_NAMESPACE"); ref == nil || ref.FieldPath != "metadata.namespace" {
-		t.Fatal("expected OPERATOR_NAMESPACE env from the metadata.namespace Downward API")
-	}
-
-	assertContainerHasVolumeMount(t, mainContainer, consts.ValidationsVolumeName)
-	assertPodHasVolume(t, ds.Spec.Template.Spec, consts.ValidationsVolumeName)
 }
 
 func TestPartitionManagerPatchOpenShift(t *testing.T) {
@@ -220,4 +247,42 @@ func TestPartitionManagerDisabled(t *testing.T) {
 		t.Fatalf("Patch() error: %v", err)
 	}
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &appsv1.DaemonSet{})
+}
+
+func TestPartitionManagerVMDeployment(t *testing.T) {
+	owner := newPartitionManagerOwner()
+	owner.Spec.WorkloadType = consts.RBLNWorkloadConfigVMPassthrough
+	owner.Spec.Validator.Registry = "private.example.com"
+	owner.Spec.Validator.Image = "validator"
+	owner.Spec.Validator.Version = "gate-test"
+	owner.Spec.Validator.ImagePullSecrets = []string{"shared", "validator-secret"}
+	owner.Spec.PartitionManager.ImagePullSecrets = []string{"shared", "partition-secret"}
+	p := NewPartitionManagerPatcher(newFakeClient(t, newTestScheme(t)), logf.Log, testNamespace, &owner.Spec, newTestScheme(t), "").(*partitionManagerPatcher)
+	pod := p.buildPodSpec(owner)
+	if pod.InitContainers[0].Image != "private.example.com/validator:gate-test" {
+		t.Fatalf("wrong validator image: %s", pod.InitContainers[0].Image)
+	}
+	wantSecrets := []corev1.LocalObjectReference{{Name: "shared"}, {Name: "partition-secret"}, {Name: "validator-secret"}}
+	if !slices.Equal(pod.ImagePullSecrets, wantSecrets) {
+		t.Fatalf("image pull secrets = %v", pod.ImagePullSecrets)
+	}
+	if len(pod.InitContainers) != 1 || !slices.Equal(pod.InitContainers[0].Args, []string{"gate", "--component", "partition-manager"}) {
+		t.Fatal("VM manager must wait only for driver installation")
+	}
+	if envValue(pod.Containers[0].Env, "DEFAULT_WORKLOAD_TYPE") != consts.RBLNWorkloadConfigVMPassthrough {
+		t.Fatal("missing policy default for nodes without a workload label")
+	}
+	mounts := pod.Containers[0].VolumeMounts
+	for _, mount := range mounts {
+		switch mount.Name {
+		case "host-sys":
+			if mount.ReadOnly || mount.MountPath != "/sys" {
+				t.Fatal("PCI binding needs writable host sysfs")
+			}
+		case "host-root":
+			if !mount.ReadOnly || mount.MountPath != "/host" || mount.MountPropagation == nil || *mount.MountPropagation != corev1.MountPropagationHostToContainer {
+				t.Fatal("host modprobe requires the host root and its submounts")
+			}
+		}
+	}
 }

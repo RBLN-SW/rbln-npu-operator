@@ -9,6 +9,9 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -21,37 +24,66 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// componentWaitsForPartition is the component×node gate table: every gated
-// container-mode component waits for toolkit-ready; components that advertise NPU devices
-// must additionally wait for partition-ready on partitioned nodes, so they
-// never expose a full PF that is about to be carved into VFs. partition-ready
-// is written by the partition-manager once VF partitioning is applied, so the
-// partition-manager itself must never wait for it — it would deadlock on the
-// marker it owns. Until the manager runs, blocking device advertisement on
-// partitioned nodes is the intended fail-closed behavior. DRA on vm-passthrough
-// nodes instead waits for VFIO binding, because neither toolkit nor
-// partition-manager runs there.
+// Device advertisers wait for the partition manager to finish driver binding
+// and VF topology changes. The manager itself owns the marker and must not wait
+// for it. VM gates also validate the resulting PF-only or VF-only PCI layout.
 var componentWaitsForPartition = map[string]bool{
-	consts.RBLNDevicePluginName:     true,
-	consts.RBLNDRAKubeletPluginName: true,
-	consts.RBLNMetricExporterName:   false,
-	consts.RBLNFeatureDiscoveryName: false,
-	consts.RBLNPartitionManagerName: false,
+	consts.RBLNDevicePluginName:        true,
+	consts.RBLNSandboxDevicePluginName: true,
+	consts.RBLNDRAKubeletPluginName:    true,
+	consts.RBLNMetricExporterName:      false,
+	consts.RBLNFeatureDiscoveryName:    false,
+	consts.RBLNPartitionManagerName:    false,
 }
 
 type gateRuntime struct {
-	getNodeLabels func(ctx context.Context, nodeName string) (map[string]string, error)
-	validateVFIO  func(vfiovalidator.Config) (vfiovalidator.Result, error)
-	checkDriver   func(context.Context) error
-	sleep         func(time.Duration)
+	getNodeLabels      func(ctx context.Context, nodeName string) (map[string]string, error)
+	getDefaultWorkload func(context.Context, string) (string, error)
+	validateVFIO       func(vfiovalidator.Config) (vfiovalidator.Result, error)
+	checkDriver        func(context.Context) error
+	checkBindingDriver func(context.Context) error
+	sleep              func(time.Duration)
 }
 
 func defaultGateRuntime() gateRuntime {
 	return gateRuntime{
-		getNodeLabels: getNodeLabelsFromAPI,
-		validateVFIO:  vfiovalidator.Validate,
-		sleep:         time.Sleep,
+		getNodeLabels:      getNodeLabelsFromAPI,
+		getDefaultWorkload: getDefaultWorkloadFromAPI,
+		validateVFIO:       vfiovalidator.Validate,
+		sleep:              time.Sleep,
 	}
+}
+
+// Reading the policy at init time keeps a default-mode change out of the DRA
+// Pod template. Its running server must remain available for claim Unprepare.
+func getDefaultWorkloadFromAPI(ctx context.Context, name string) (string, error) {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		return "", err
+	}
+	cfg.Timeout = 10 * time.Second
+	c, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return "", err
+	}
+	resource := schema.GroupVersionResource{
+		Group: "rebellions.ai", Version: "v1beta1", Resource: "rblnclusterpolicies",
+	}
+	policy, err := c.Resource(resource).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	workload, _, err := unstructured.NestedString(policy.Object, "spec", "workloadType")
+	if err != nil {
+		return "", err
+	}
+	if workload == "" {
+		workload = consts.RBLNWorkloadConfigContainer
+	}
+	if workload != consts.RBLNWorkloadConfigContainer && workload != consts.RBLNWorkloadConfigVMPassthrough {
+		return "", fmt.Errorf("policy %s has invalid workloadType %q", name, workload)
+	}
+	return workload, nil
 }
 
 func getNodeLabelsFromAPI(ctx context.Context, nodeName string) (map[string]string, error) {
@@ -86,6 +118,7 @@ func newGateCommand(config *rootConfig) *cobra.Command {
 			}
 			rt := defaultGateRuntime()
 			rt.checkDriver = checker.Check
+			rt.checkBindingDriver = func(ctx context.Context) error { return checker.CheckForBinding(ctx, cfg.outputDir) }
 			return runGate(cmd.Context(), cfg, rt)
 		},
 	}
@@ -94,7 +127,8 @@ func newGateCommand(config *rootConfig) *cobra.Command {
 	return cmd
 }
 
-// runGate re-reads the node's partition labels on every poll, so a label
+// Except for the driver-only partition-manager gate, runGate re-reads the
+// node's partition labels on every poll, so a label
 // change during the wait (partitioning requested or aborted) is honored
 // without a pod restart. Fail-closed: on API errors or invalid node defaults
 // it keeps retrying instead of assuming an unpartitioned node — misreading a
@@ -108,11 +142,27 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 	if cfg.nodeName == "" {
 		return errors.New("NODE_NAME environment variable is required")
 	}
+	if cfg.component == consts.RBLNPartitionManagerName && rt.checkBindingDriver == nil {
+		return errors.New("partition-manager gate requires a driver readiness checker")
+	}
+	if cfg.policyName != "" && rt.getDefaultWorkload == nil {
+		return errors.New("policy-backed gate requires a workload reader")
+	}
 
 	interval := time.Duration(cfg.sleepIntervalSeconds) * time.Second
 	slog.Info("gate started", "component", cfg.component, "node", cfg.nodeName)
 
 	for {
+		if cfg.component == consts.RBLNPartitionManagerName {
+			if err := rt.checkBindingDriver(ctx); err == nil {
+				slog.Info("driver readiness gate passed", "component", cfg.component)
+				return nil
+			} else {
+				slog.Info("waiting for current driver installation", "err", err)
+			}
+			rt.sleep(interval)
+			continue
+		}
 		labels, err := rt.getNodeLabels(ctx, cfg.nodeName)
 		if err != nil {
 			slog.Error("failed to get node labels", "node", cfg.nodeName, "err", err, "sleepSeconds", cfg.sleepIntervalSeconds)
@@ -135,8 +185,28 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 		workload := labels[consts.RBLNWorkloadConfigLabelKey]
 		if workload != consts.RBLNWorkloadConfigContainer && workload != consts.RBLNWorkloadConfigVMPassthrough {
 			workload = cfg.defaultWorkload
+			if cfg.policyName != "" {
+				workload, err = rt.getDefaultWorkload(ctx, cfg.policyName)
+				if err != nil {
+					slog.Info("waiting for workload policy", "policy", cfg.policyName, "err", err)
+					rt.sleep(interval)
+					continue
+				}
+			}
 		}
-		if cfg.component == consts.RBLNDRAKubeletPluginName && workload == consts.RBLNWorkloadConfigVMPassthrough {
+		if waitsForPartition && workload == consts.RBLNWorkloadConfigVMPassthrough {
+			if rt.checkBindingDriver != nil {
+				if err := rt.checkBindingDriver(ctx); err != nil {
+					slog.Info("waiting for current driver installation", "err", err)
+					rt.sleep(interval)
+					continue
+				}
+			}
+			if missing := statusfile.Missing(cfg.outputDir, []string{consts.PartitionReadyFileName}); len(missing) > 0 {
+				slog.Info("waiting for partition manager", "node", cfg.nodeName)
+				rt.sleep(interval)
+				continue
+			}
 			result, err := rt.validateVFIO(vfiovalidator.Config{
 				OutputDir:            cfg.outputDir,
 				SleepIntervalSeconds: cfg.sleepIntervalSeconds,
@@ -158,7 +228,9 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 		}
 
 		readyFiles := []string{toolkitReadyFile}
-		if waitsForPartition && partitioned {
+		managerLabel := labels["rebellions.ai/npu.deploy.partition-manager"]
+		managerEnabled := managerLabel == "true" || managerLabel == consts.RBLNDeployPausedForDriverUpgrade
+		if waitsForPartition && (partitioned || managerEnabled) {
 			readyFiles = append(readyFiles, consts.PartitionReadyFileName)
 		}
 

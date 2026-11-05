@@ -445,43 +445,6 @@ sandboxDevicePlugin:
   # e.g. rebellions.ai/RBLN-CA22_PF. KubeVirt permittedHostDevices must
   # whitelist each name in use.
 
-# VFIO Manager for VM workloads
-vfioManager:
-  # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
-  # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
-  # Replace updateStrategy: {} with one of the examples below to configure it.
-  # Automatic rolling updates:
-  # updateStrategy:
-  #   type: RollingUpdate
-  #   rollingUpdate:
-  #     maxUnavailable: 1  # Positive integer or a quoted percentage, e.g. "10%".
-  # Manual pod replacement:
-  # updateStrategy:
-  #   type: OnDelete
-  # When switching to OnDelete with merged values or --reuse-values, also set
-  # updateStrategy.rollingUpdate=null to clear any previous rollingUpdate block.
-  updateStrategy: {}
-  enabled: false
-  image:
-    registry: docker.io
-    repository: rebellions/rbln-vfio-manager
-    tag: v1.0.1
-    pullPolicy: IfNotPresent
-  driverManager:
-    image:
-      registry: docker.io
-      repository: rebellions/rbln-k8s-driver-manager
-      tag: v0.3.0
-      pullPolicy: IfNotPresent
-    # Appended after the env the operator renders, so a duplicate name set here
-    # wins. Before binding vfio-pci, k8s-driver-manager evicts the node's
-    # container-mode NPU pods under driver.upgradePolicy.npuPodDeletion. To keep
-    # that switch from evicting anything (an NPU pod left running then blocks it
-    # until moved by hand), add:
-    #   - name: ENABLE_NPU_POD_EVICTION
-    #     value: "false"
-    env: []
-
 # Validator configuration
 validator:
   # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use

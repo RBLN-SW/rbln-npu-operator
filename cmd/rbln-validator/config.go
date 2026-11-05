@@ -20,6 +20,7 @@ const (
 	envNodeName             = "NODE_NAME"
 	envOperatorNamespace    = "OPERATOR_NAMESPACE"
 	envDefaultWorkloadType  = "DEFAULT_WORKLOAD_TYPE"
+	envClusterPolicyName    = "CLUSTER_POLICY_NAME"
 )
 
 type rootConfig struct {
@@ -38,6 +39,7 @@ type gateConfig struct {
 	component            string
 	nodeName             string
 	defaultWorkload      string
+	policyName           string
 }
 
 func newRootConfig() *rootConfig {
@@ -81,6 +83,7 @@ func (o *rootConfig) gateConfig(component string) *gateConfig {
 		component:            component,
 		nodeName:             os.Getenv(envNodeName),
 		defaultWorkload:      envString(envDefaultWorkloadType, consts.RBLNWorkloadConfigContainer),
+		policyName:           os.Getenv(envClusterPolicyName),
 	}
 }
 
