@@ -6,6 +6,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/RBLN-SW/rbln-npu-operator/internal/npuusage"
+
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -359,5 +361,24 @@ func TestNPUClaimMatcherTreatsUnreadableClaimAsAbsent(t *testing.T) {
 	matcher := newNPUClaimMatcher(clientset, []string{npuDeviceClass})
 	if matcher.holdsNPUClaim(context.Background(), claimingPod("ns", "vllm", "npu-claim")) {
 		t.Fatal("holdsNPUClaim() = true, want false for a claim that cannot be read")
+	}
+}
+
+func TestSchedulerClaimsAreDetectedBeforeApplyingUpgradePolicy(t *testing.T) {
+	for _, class := range []string{npuDeviceClass, vfioDeviceClass} {
+		t.Run(class, func(t *testing.T) {
+			claim := claimForClass("ns", "scheduled", class)
+			claim.Status.Allocation = &resourcev1.AllocationResult{Devices: resourcev1.DeviceAllocationResult{Results: []resourcev1.DeviceRequestAllocationResult{{Request: "npu", Driver: npuDeviceClass}}}}
+			if !npuusage.InspectClaim(claim).Rebellions {
+				t.Fatal("both container and passthrough allocations must be detected")
+			}
+			pod := claimingPod("ns", "workload", "scheduled")
+			pod.Spec.ResourceClaims = nil
+			pod.Status.ExtendedResourceClaimStatus = &corev1.PodExtendedResourceClaimStatus{ResourceClaimName: "scheduled"}
+			matcher := newNPUClaimMatcher(k8sfake.NewClientset(claim), []string{npuDeviceClass})
+			if got := matcher.holdsNPUClaim(context.Background(), pod); got != (class == npuDeviceClass) {
+				t.Fatalf("eviction policy changed for %s: eligible=%v", class, got)
+			}
+		})
 	}
 }

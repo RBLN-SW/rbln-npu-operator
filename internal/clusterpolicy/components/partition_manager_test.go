@@ -48,6 +48,7 @@ func TestPartitionManagerPatch(t *testing.T) {
 	assertClusterRoleHasRule(t, cr, "", "pods")
 	assertClusterRoleHasRule(t, cr, "", "pods/eviction")
 	assertClusterRoleHasRule(t, cr, "apps", "daemonsets")
+	assertClusterRoleHasRule(t, cr, "resource.k8s.io", "resourceclaims")
 
 	crb := &rbacv1.ClusterRoleBinding{}
 	assertObjectExists(t, c, types.NamespacedName{Name: name}, crb)
@@ -73,8 +74,39 @@ func TestPartitionManagerPatch(t *testing.T) {
 		t.Fatalf("container args = %v, want [reconcile-partition-state]", mainContainer.Args)
 	}
 
-	if mainContainer.SecurityContext != nil && mainContainer.SecurityContext.Privileged != nil && *mainContainer.SecurityContext.Privileged {
-		t.Fatal("partition manager container must not be privileged: hardware access is delegated to rbln-smd")
+	assertPrivileged(t, mainContainer)
+	if mainContainer.SecurityContext.RunAsUser == nil || *mainContainer.SecurityContext.RunAsUser != 0 {
+		t.Fatal("partition manager must run as root for PCI binding and chroot modprobe")
+	}
+	if mainContainer.SecurityContext.SELinuxOptions == nil || mainContainer.SecurityContext.SELinuxOptions.Level != "s0" {
+		t.Fatal("expected SELinuxOptions.Level=s0 for host PCI access")
+	}
+	for _, want := range []struct {
+		name, hostPath, mountPath string
+		readOnly                  bool
+	}{
+		{name: "host-sys", hostPath: "/sys", mountPath: "/sys"},
+		{name: "host-root", hostPath: "/", mountPath: "/host", readOnly: true},
+	} {
+		volumeIndex := slices.IndexFunc(ds.Spec.Template.Spec.Volumes, func(v corev1.Volume) bool { return v.Name == want.name })
+		if volumeIndex < 0 {
+			t.Fatalf("missing host volume %s", want.name)
+		}
+		host := ds.Spec.Template.Spec.Volumes[volumeIndex].HostPath
+		if host == nil || host.Path != want.hostPath || host.Type == nil || *host.Type != corev1.HostPathDirectory {
+			t.Fatalf("volume %s must use host directory %s: %+v", want.name, want.hostPath, host)
+		}
+		mountIndex := slices.IndexFunc(mainContainer.VolumeMounts, func(m corev1.VolumeMount) bool { return m.Name == want.name })
+		if mountIndex < 0 {
+			t.Fatalf("manager does not mount %s", want.name)
+		}
+		mount := mainContainer.VolumeMounts[mountIndex]
+		if mount.MountPath != want.mountPath || mount.ReadOnly != want.readOnly {
+			t.Fatalf("incorrect %s mount: %+v", want.name, mount)
+		}
+		if want.name == "host-root" && (mount.MountPropagation == nil || *mount.MountPropagation != corev1.MountPropagationHostToContainer) {
+			t.Fatal("host root mount must receive host submounts for chroot modprobe")
+		}
 	}
 
 	if ref := envFieldRef(mainContainer.Env, "NODE_NAME"); ref == nil || ref.FieldPath != testNodeNameFieldPath {
@@ -86,6 +118,32 @@ func TestPartitionManagerPatch(t *testing.T) {
 
 	assertContainerHasVolumeMount(t, mainContainer, consts.ValidationsVolumeName)
 	assertPodHasVolume(t, ds.Spec.Template.Spec, consts.ValidationsVolumeName)
+}
+
+func TestPartitionManagerPatchOpenShift(t *testing.T) {
+	scheme := newTestScheme(t)
+	c := newFakeClient(t, scheme)
+	owner := newPartitionManagerOwner()
+	name := consts.RBLNBaseName + "-" + consts.RBLNPartitionManagerName
+	p := NewPartitionManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "4.15")
+	if err := p.Patch(context.Background(), owner); err != nil {
+		t.Fatal(err)
+	}
+	key := types.NamespacedName{Name: name, Namespace: testNamespace}
+	role := &rbacv1.Role{}
+	assertObjectExists(t, c, key, role)
+	if len(role.Rules) != 1 || !slices.Equal(role.Rules[0].APIGroups, []string{"security.openshift.io"}) ||
+		!slices.Equal(role.Rules[0].Resources, []string{"securitycontextconstraints"}) ||
+		!slices.Equal(role.Rules[0].ResourceNames, []string{"privileged"}) ||
+		!slices.Equal(role.Rules[0].Verbs, []string{"use"}) {
+		t.Fatalf("missing privileged SCC use permission: %+v", role.Rules)
+	}
+	binding := &rbacv1.RoleBinding{}
+	assertObjectExists(t, c, key, binding)
+	if binding.RoleRef.Kind != "Role" || binding.RoleRef.Name != name || len(binding.Subjects) != 1 ||
+		binding.Subjects[0].Kind != "ServiceAccount" || binding.Subjects[0].Name != name || binding.Subjects[0].Namespace != testNamespace {
+		t.Fatalf("SCC permission not bound to partition-manager: %+v", binding)
+	}
 }
 
 func TestPartitionManagerEnvOverride(t *testing.T) {

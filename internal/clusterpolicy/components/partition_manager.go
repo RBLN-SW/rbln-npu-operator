@@ -113,6 +113,11 @@ func (h *partitionManagerPatcher) handleClusterRole(ctx context.Context, owner *
 				Resources: []string{"daemonsets"},
 				Verbs:     []string{"get", "list", "watch"},
 			},
+			{
+				APIGroups: []string{"resource.k8s.io"},
+				Resources: []string{"resourceclaims"},
+				Verbs:     []string{"get"},
+			},
 		}
 		return ctrl.SetControllerReference(owner, clusterRole, h.scheme)
 	})
@@ -177,8 +182,22 @@ func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithArgs([]string{partitionManagerCommand}).
 		WithEnvs(env).
 		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
+		// VF provisioning uses SMD, but PCI bind/unbind and host module
+		// loading are performed directly by partition-manager.
+		WithSecurityContext(&corev1.SecurityContext{
+			Privileged:     ptr(true),
+			RunAsUser:      ptr(int64(0)),
+			SELinuxOptions: &corev1.SELinuxOptions{Level: "s0"},
+		}).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
+			{Name: "host-sys", MountPath: "/sys"},
+			{
+				Name:             "host-root",
+				MountPath:        "/host",
+				ReadOnly:         true,
+				MountPropagation: ptr(corev1.MountPropagationHostToContainer),
+			},
 		}).
 		Build()
 
@@ -192,6 +211,8 @@ func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithPriorityClassName(podDefaultsPriorityClassName(h.podDefaults)).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
+			hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
+			hostPathVolume("host-root", "/", corev1.HostPathDirectory),
 		}).
 		WithInitContainers([]*corev1.Container{initContainer}).
 		WithContainers([]*corev1.Container{managerContainer}).

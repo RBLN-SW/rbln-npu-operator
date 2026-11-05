@@ -147,6 +147,11 @@ node-locally at `127.0.0.1:50051`; use it with a driver-managed or host-installe
 rbln-smd. With `partitionManager` disabled, device-plugin and dra-kubelet-plugin
 intentionally stay blocked on partitioned nodes (fail-closed).
 
+The partition-manager container runs as privileged root. VF creation and deletion
+use rbln-smd, while PCI driver binding is performed directly through a writable
+host `/sys` mount. Host `/` is mounted read-only at `/host` for
+`chroot /host modprobe` when a required driver module is not loaded.
+
 The gate is **fail-closed**: on API errors or an invalid node-wide partition value
 it retries instead of assuming an unpartitioned node. This validation applies to
 both workloads, including before VM VFIO readiness checks. Fix the node default

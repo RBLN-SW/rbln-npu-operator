@@ -2,13 +2,16 @@ package components
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
@@ -102,20 +105,17 @@ func TestVFIOManagerPatch(t *testing.T) {
 		}
 	}
 
-	role := &rbacv1.Role{}
-	assertObjectExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, role)
-	assertHasOwnerRef(t, role, owner.Name)
-	assertRoleHasRule(t, role, "apps", "daemonsets")
-	// The eviction lists every pod on the node and creates evictions in the
-	// workloads' namespaces, so pods and pods/eviction are cluster-scoped
-	// grants now; a namespaced copy left behind would only mislead.
-	assertRoleLacksResource(t, role, "pods", "pods/eviction")
+	// Drain permissions span workload namespaces; namespaced RBAC is only
+	// needed for OpenShift SCC use.
+	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &rbacv1.Role{})
+	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &rbacv1.RoleBinding{})
 
 	cr := &rbacv1.ClusterRole{}
 	assertObjectExists(t, c, types.NamespacedName{Name: name}, cr)
 	assertClusterRoleHasRule(t, cr, "", "nodes")
 	assertClusterRoleHasRule(t, cr, "", "pods")
 	assertClusterRoleHasRule(t, cr, "", "pods/eviction")
+	assertVFIOManagerDaemonSetAccess(t, cr)
 	// A pod holding its NPU through a DRA ResourceClaim has no rebellions.ai/*
 	// request to match on; the binary reads the claim to find it.
 	assertClusterRoleHasRule(t, cr, "resource.k8s.io", "resourceclaims")
@@ -125,14 +125,6 @@ func TestVFIOManagerPatch(t *testing.T) {
 	if crb.RoleRef.Name != name || crb.Subjects[0].Name != name {
 		t.Fatalf("ClusterRoleBinding misconfigured: roleRef=%q subject=%q want %q",
 			crb.RoleRef.Name, crb.Subjects[0].Name, name)
-	}
-
-	rb := &rbacv1.RoleBinding{}
-	assertObjectExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, rb)
-	assertHasOwnerRef(t, rb, owner.Name)
-	if rb.RoleRef.Name != name || rb.Subjects[0].Name != name {
-		t.Fatalf("RoleBinding misconfigured: roleRef=%q subject=%q want %q",
-			rb.RoleRef.Name, rb.Subjects[0].Name, name)
 	}
 
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
@@ -170,6 +162,91 @@ func TestVFIOManagerPatch(t *testing.T) {
 		if strings.Contains(script, unwanted) {
 			t.Errorf("vfio-manage.sh should not contain %q (bind-only design)", unwanted)
 		}
+	}
+}
+
+func assertVFIOManagerDaemonSetAccess(t *testing.T, role *rbacv1.ClusterRole) {
+	t.Helper()
+	assertClusterRoleHasRule(t, role, "apps", "daemonsets")
+	for _, rule := range role.Rules {
+		if slices.Contains(rule.APIGroups, "apps") && slices.Contains(rule.Resources, "daemonsets") {
+			if !slices.Equal(rule.Verbs, []string{"get"}) || len(rule.ResourceNames) != 0 {
+				t.Fatalf("drain needs get for any workload DaemonSet, without list/watch/write: %+v", rule)
+			}
+		}
+	}
+}
+
+func TestVFIOManagerMigratesNamespacedRBAC(t *testing.T) {
+	for _, openshiftVersion := range []string{"", "4.15"} {
+		t.Run("openshift="+openshiftVersion, func(t *testing.T) {
+			scheme := newTestScheme(t)
+			ctx := context.Background()
+			owner := newTestOwner()
+			owner.Spec.VFIOManager.Enabled = true
+			name := consts.RBLNBaseName + "-" + consts.RBLNVFIOManagerName
+			key := types.NamespacedName{Name: name, Namespace: testNamespace}
+			legacyRole := &rbacv1.Role{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
+				Rules:      []rbacv1.PolicyRule{{APIGroups: []string{"apps"}, Resources: []string{"daemonsets"}, Verbs: []string{"get", "list", "watch"}}},
+			}
+			legacyBinding := &rbacv1.RoleBinding{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
+				RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: name},
+				Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: name, Namespace: testNamespace}},
+			}
+			if err := ctrl.SetControllerReference(owner, legacyRole, scheme); err != nil {
+				t.Fatal(err)
+			}
+			if err := ctrl.SetControllerReference(owner, legacyBinding, scheme); err != nil {
+				t.Fatal(err)
+			}
+			c := newFakeClient(t, scheme, legacyRole, legacyBinding)
+			p := NewVFIOManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, openshiftVersion)
+			var roleVersion string
+			for pass := range 2 {
+				if err := p.Patch(ctx, owner); err != nil {
+					t.Fatal(err)
+				}
+				role := &rbacv1.ClusterRole{}
+				assertObjectExists(t, c, types.NamespacedName{Name: name}, role)
+				assertVFIOManagerDaemonSetAccess(t, role)
+				binding := &rbacv1.ClusterRoleBinding{}
+				assertObjectExists(t, c, types.NamespacedName{Name: name}, binding)
+				if binding.RoleRef.Kind != "ClusterRole" || binding.RoleRef.Name != name || len(binding.Subjects) != 1 ||
+					binding.Subjects[0].Kind != "ServiceAccount" || binding.Subjects[0].Name != name || binding.Subjects[0].Namespace != testNamespace {
+					t.Fatalf("DaemonSet access must be bound cluster-wide: %+v", binding)
+				}
+				if openshiftVersion == "" {
+					assertObjectNotExists(t, c, key, &rbacv1.Role{})
+					assertObjectNotExists(t, c, key, &rbacv1.RoleBinding{})
+					continue
+				}
+				sccRole := &rbacv1.Role{}
+				assertObjectExists(t, c, key, sccRole)
+				assertRoleLacksResource(t, sccRole, "daemonsets", "pods", "pods/eviction")
+				if len(sccRole.Rules) != 1 || !slices.Equal(sccRole.Rules[0].APIGroups, []string{"security.openshift.io"}) ||
+					!slices.Equal(sccRole.Rules[0].Resources, []string{"securitycontextconstraints"}) ||
+					!slices.Equal(sccRole.Rules[0].ResourceNames, []string{"privileged"}) ||
+					!slices.Equal(sccRole.Rules[0].Verbs, []string{"use"}) {
+					t.Fatalf("namespaced role must retain only privileged SCC use: %+v", sccRole.Rules)
+				}
+				if pass > 0 && sccRole.ResourceVersion != roleVersion {
+					t.Fatal("repeated reconcile must not alternate SCC and DaemonSet rules")
+				}
+				roleVersion = sccRole.ResourceVersion
+				sccBinding := &rbacv1.RoleBinding{}
+				assertObjectExists(t, c, key, sccBinding)
+				if sccBinding.RoleRef.Name != name || len(sccBinding.Subjects) != 1 || sccBinding.Subjects[0].Name != name {
+					t.Fatalf("SCC binding lost during migration: %+v", sccBinding)
+				}
+			}
+			if err := p.CleanUp(ctx, owner); err != nil {
+				t.Fatal(err)
+			}
+			assertObjectNotExists(t, c, key, &rbacv1.Role{})
+			assertObjectNotExists(t, c, key, &rbacv1.RoleBinding{})
+		})
 	}
 }
 
