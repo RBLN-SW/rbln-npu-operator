@@ -65,7 +65,7 @@ func TestComponentUpdateStrategies(t *testing.T) {
 			owner.Spec.MetricsExporter = rblnv1beta1.RBLNMetricsExporterSpec{Enabled: true, Image: "metrics-exporter", Version: "v1"}
 			owner.Spec.NPUFeatureDiscovery = rblnv1beta1.RBLNNPUFeatureDiscoverySpec{Enabled: true, Image: "feature-discovery", Version: "v1"}
 			owner.Spec.PartitionManager = rblnv1beta1.RBLNPartitionManagerSpec{Enabled: true, Image: "partition-manager", Version: "v1"}
-			owner.Spec.DRAKubeletPlugin = rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: true, Image: "dra-plugin", Version: "v1", DriverName: "npu.rebellions.ai"}
+			owner.Spec.DRAKubeletPlugin = rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: true, Image: "dra-plugin", Version: "v1"}
 
 			patch := func() *appsv1.DaemonSet {
 				t.Helper()

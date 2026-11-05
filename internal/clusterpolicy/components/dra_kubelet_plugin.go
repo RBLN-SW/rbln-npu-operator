@@ -122,23 +122,16 @@ func (h *draKubeletPluginPatcher) clusterRoleBindingName() string {
 	return h.name + draClusterBindSuffix
 }
 
-func (h *draKubeletPluginPatcher) className() string {
-	if h.desiredSpec != nil && h.desiredSpec.DriverName != "" {
-		return h.desiredSpec.DriverName
-	}
-	return consts.DefaultDRADeviceClass
-}
-
 func (h *draKubeletPluginPatcher) handleDRAClass(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	npuCEL := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q",
-		h.className(), h.className(), "npu")
-	if err := h.handleDeviceClass(ctx, owner, h.className(), npuCEL, ptr(draExtendedResource)); err != nil {
+		consts.DRADriverName, consts.DRADriverName, "npu")
+	if err := h.handleDeviceClass(ctx, owner, consts.DRADeviceClass, npuCEL, ptr(draExtendedResource)); err != nil {
 		return err
 	}
 	for _, count := range []int{1, 4} {
 		selector := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q && has(device.attributes[%q].partitionMode) && device.attributes[%q].partitionMode == %q",
-			h.className(), h.className(), "npu-vf", h.className(), h.className(), fmt.Sprintf("vf%d", count))
-		if err := h.handleDeviceClass(ctx, owner, h.vfClassName(count), selector, ptr(fmt.Sprintf("rebellions.ai/npu-vf%d", count))); err != nil {
+			consts.DRADriverName, consts.DRADriverName, "npu-vf", consts.DRADriverName, consts.DRADriverName, fmt.Sprintf("vf%d", count))
+		if err := h.handleDeviceClass(ctx, owner, draclass.VFName(consts.DRADeviceClass, count), selector, ptr(fmt.Sprintf("rebellions.ai/npu-vf%d", count))); err != nil {
 			return err
 		}
 	}
@@ -146,30 +139,18 @@ func (h *draKubeletPluginPatcher) handleDRAClass(ctx context.Context, owner *rbl
 	// requested explicitly through a ResourceClaim.
 	// Keep whole-device requests separate from VFs, as in the standalone DRA chart.
 	vfioCEL := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q && has(device.attributes[%q].vf) && !device.attributes[%q].vf",
-		h.className(), h.className(), "vfio", h.className(), h.className())
-	if err := h.handleDeviceClass(ctx, owner, h.vfioClassName(), vfioCEL, nil); err != nil {
+		consts.DRADriverName, consts.DRADriverName, "vfio", consts.DRADriverName, consts.DRADriverName)
+	if err := h.handleDeviceClass(ctx, owner, consts.DRAVFIODeviceClass, vfioCEL, nil); err != nil {
 		return err
 	}
 	for _, count := range []int{1, 4} {
 		selector := fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q && has(device.attributes[%q].vf) && device.attributes[%q].vf && has(device.attributes[%q].partitionMode) && device.attributes[%q].partitionMode == %q",
-			h.className(), h.className(), "vfio", h.className(), h.className(), h.className(), h.className(), fmt.Sprintf("vf%d", count))
-		if err := h.handleDeviceClass(ctx, owner, h.vfioVFClassName(count), selector, nil); err != nil {
+			consts.DRADriverName, consts.DRADriverName, "vfio", consts.DRADriverName, consts.DRADriverName, consts.DRADriverName, consts.DRADriverName, fmt.Sprintf("vf%d", count))
+		if err := h.handleDeviceClass(ctx, owner, draclass.VFIOName(draclass.VFName(consts.DRADeviceClass, count)), selector, nil); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func (h *draKubeletPluginPatcher) vfioClassName() string {
-	return draclass.VFIOName(h.className())
-}
-
-func (h *draKubeletPluginPatcher) vfioVFClassName(count int) string {
-	return draclass.VFIOName(h.vfClassName(count))
-}
-
-func (h *draKubeletPluginPatcher) vfClassName(count int) string {
-	return draclass.VFName(h.className(), count)
 }
 
 func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy, name, celExpression string, extendedResourceName *string) error {
@@ -198,7 +179,7 @@ func (h *draKubeletPluginPatcher) handleDeviceClass(ctx context.Context, owner *
 }
 
 func (h *draKubeletPluginPatcher) deleteDeviceClass(ctx context.Context) error {
-	for _, name := range draclass.Names(h.className()) {
+	for _, name := range draclass.Names(consts.DRADeviceClass) {
 		if err := h.client.Delete(ctx, &resourcev1.DeviceClass{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
 		}); err != nil && !kapierrors.IsNotFound(err) && !isNoMatchError(err) {
@@ -280,7 +261,6 @@ func (h *draKubeletPluginPatcher) handleClusterRoleBinding(ctx context.Context, 
 
 func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 	env := []corev1.EnvVar{
-		{Name: "DRIVER_NAME", Value: h.desiredSpec.DriverName},
 		{Name: "CDI_ROOT", Value: draCDIRootPath},
 		{Name: "KUBELET_REGISTRAR_DIRECTORY_PATH", Value: h.desiredSpec.KubeletRegistrarDirectoryPath},
 		{Name: "KUBELET_PLUGINS_DIRECTORY_PATH", Value: h.desiredSpec.KubeletPluginsDirectoryPath},

@@ -21,7 +21,7 @@ import (
 
 // npuDeviceClassNames returns the DRA DeviceClasses whose claims mark a pod as
 // an NPU pod this upgrade has to free. The container-mode class is known by
-// name: npuDeviceClass is draKubeletPlugin.driverName, the value the operator
+// name: npuDeviceClass is the fixed npu.rebellions.ai class the operator
 // hands k8s-driver-manager as NPU_POD_EVICTION_DEVICE_CLASS, so both eviction
 // paths judge a claim by one criterion.
 //

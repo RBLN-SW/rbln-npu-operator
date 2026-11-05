@@ -74,7 +74,7 @@ func TestLoggingSpecRendersOperandEnv(t *testing.T) {
 			apply: func(s *rblnv1beta1.RBLNClusterPolicySpec, l *rblnv1beta1.LoggingSpec) {
 				s.DRAKubeletPlugin = rblnv1beta1.RBLNDRAKubeletPluginSpec{
 					Enabled: true, Registry: "docker.io", Image: "rebellions/k8s-dra-driver-npu",
-					Version: "latest", DriverName: "npu.rebellions.ai",
+					Version:                       "latest",
 					KubeletRegistrarDirectoryPath: "/var/lib/kubelet/plugins_registry",
 					KubeletPluginsDirectoryPath:   "/var/lib/kubelet/plugins",
 					HealthcheckPort:               51515, Logging: l,

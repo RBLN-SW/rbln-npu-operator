@@ -27,7 +27,6 @@ import (
 	rblnv1alpha1 "github.com/RBLN-SW/rbln-npu-operator/api/v1alpha1"
 	rblnv1beta1 "github.com/RBLN-SW/rbln-npu-operator/api/v1beta1"
 	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
-	"github.com/RBLN-SW/rbln-npu-operator/internal/drivermanager"
 	"github.com/RBLN-SW/rbln-npu-operator/internal/metrics"
 	"github.com/RBLN-SW/rbln-npu-operator/internal/upgrade"
 )
@@ -145,7 +144,7 @@ func (r *UpgradeReconciler) advanceRollout(ctx context.Context, policy *rblnv1be
 
 	var failures []error
 	if err := r.StateManager.ApplyState(ctx, state, policy.Spec.Driver.UpgradePolicy,
-		drivermanager.NPUDeviceClass(&policy.Spec), upgrade.ValidationOptions{
+		consts.DRADeviceClass, upgrade.ValidationOptions{
 			Namespace: r.Namespace, DefaultWorkload: policy.Spec.WorkloadType,
 			DRAEnabled: policy.Spec.DRAKubeletPlugin.Enabled, SandboxEnabled: policy.Spec.SandboxDevicePlugin.Enabled,
 			PartitionManagerEnabled: policy.Spec.PartitionManager.Enabled,

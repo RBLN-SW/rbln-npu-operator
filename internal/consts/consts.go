@@ -257,10 +257,13 @@ const (
 	ValidationsMountPath  = "/run/rbln/validations"
 )
 
-// DefaultDRADeviceClass is the container-mode DRA DeviceClass name used when
-// draKubeletPlugin.driverName is unset. It is also the name k8s-driver-manager
-// falls back to, so the two must agree.
-const DefaultDRADeviceClass = "npu.rebellions.ai"
+// DRADriverName must match the fixed identity in rbln-k8s-dra-driver.
+// DRADeviceClass is also the class k8s-driver-manager uses for NPU pod eviction.
+const (
+	DRADriverName      = "npu.rebellions.ai"
+	DRADeviceClass     = DRADriverName
+	DRAVFIODeviceClass = "vfio-" + DRADeviceClass
+)
 
 // RBLNResourceNamePrefix is the domain every NPU resource name carries: the
 // device plugin's advertised names, and the extended resource the DRA

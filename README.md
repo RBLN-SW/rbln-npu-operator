@@ -184,9 +184,8 @@ These classes require `type=vfio`, `vf=true`, and a matching `partitionMode`;
 `count: 1` allocates one VF. VFIO classes have no explicit extended-resource
 mapping. The selectors match the standalone DRA Helm chart. Existing claims
 that use the base VFIO class to request VFs must switch to a VF-specific class
-for new allocations. With a custom `draKubeletPlugin.driverName`, class names
-follow that name, for example `vfio-custom-vf4.example.com` for
-`custom.example.com`.
+for new allocations. The DRA driver identity is fixed to `npu.rebellions.ai`,
+and these DeviceClass names are fixed as well.
 
 When a node has no driver owner or active driver Pod, binding gates check for
 matching `RBLNDriver` configurations before waiting. The deploy label alone is

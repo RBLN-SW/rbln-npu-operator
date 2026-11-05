@@ -309,7 +309,6 @@ draKubeletPlugin:
     repository: rebellions/k8s-dra-driver-npu
     tag: v0.2.1
     pullPolicy: IfNotPresent
-  driverName: npu.rebellions.ai
   kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
   kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
   healthcheckPort: 51515

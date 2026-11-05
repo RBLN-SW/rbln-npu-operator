@@ -1,6 +1,6 @@
 # NPU Driver Auto Upgrade
 
-Driver replacement also includes VM workloads using the `vfio-<driverName>`
+Driver replacement also includes VM workloads using the `vfio-npu.rebellions.ai`
 DRA DeviceClass. Unresolved claim references or reads keep eviction pending;
 they are not evidence that the node is free of device users. The DRA plugin
 remains available until workload eviction and claim cleanup finish.
@@ -190,7 +190,7 @@ There is no limit on skipped nodes; a rollout that ends with skipped nodes repor
 
 Only NPU pods are evicted. A pod counts as an NPU consumer when a regular or init container (including a native sidecar) requests or limits a positive quantity of a `rebellions.ai/*` resource, or when it holds a matching DRA `ResourceClaim`. Only Running and Pending pods are considered. Direct, template-generated and scheduler-generated claim references are supported.
 
-Allocated claims match their actual DRA driver or selected DeviceClass; an unselected `FirstAvailable` alternative does not make an allocated claim eligible. Pending claims match their requested classes, including `FirstAvailable` candidates. The configured class is `draKubeletPlugin.driverName` (`npu.rebellions.ai` by default), the same value passed to `k8s-driver-manager` as `NPU_POD_EVICTION_DEVICE_CLASS`. Native and VFIO consumers are included because driver replacement releases VFIO bindings too. DeviceClasses bridged to a `rebellions.ai/*` resource are additional hints; the configured class remains usable when the API server does not persist the extended-resource bridge.
+Allocated claims match their actual DRA driver or selected DeviceClass; an unselected `FirstAvailable` alternative does not make an allocated claim eligible. Pending claims match their requested classes, including `FirstAvailable` candidates. The fixed container-mode class is `npu.rebellions.ai`, the same value passed to `k8s-driver-manager` as `NPU_POD_EVICTION_DEVICE_CLASS`. Native and VFIO consumers are included because driver replacement releases VFIO bindings too. DeviceClasses bridged to a `rebellions.ai/*` resource are additional hints; the fixed class remains usable when the API server does not persist the extended-resource bridge.
 
 Unresolved claim references or failed reads keep the operation pending instead of allowing driver replacement. Multiple references to the same claim are resolved once. The skip reason names the NPU pods that blocked eviction and how to clear them.
 
