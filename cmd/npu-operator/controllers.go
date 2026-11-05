@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -12,8 +11,8 @@ import (
 
 	"github.com/RBLN-SW/rbln-npu-operator/internal/clusterinfo"
 	"github.com/RBLN-SW/rbln-npu-operator/internal/conditions"
-	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 	"github.com/RBLN-SW/rbln-npu-operator/internal/controller"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/npuusage"
 	"github.com/RBLN-SW/rbln-npu-operator/internal/upgrade"
 )
 
@@ -105,29 +104,11 @@ func registerDriverController(mgr ctrl.Manager, clusterInfo *clusterinfo.Info, r
 	return nil
 }
 
-// npuPodSpecFilter reports whether the pod holds an NPU through a resource
-// request. It is only half the criterion: a pod that holds one through a DRA
-// ResourceClaim has no such request at all, and the upgrade package matches it
-// by DeviceClass instead (internal/upgrade/npu_claims.go).
+// npuPodSpecFilter applies the upgrade's phase policy to the shared resource
+// detector. DRA consumers are inspected separately by the upgrade package.
 func npuPodSpecFilter(pod corev1.Pod) bool {
-	npuInResourceList := func(rl corev1.ResourceList) bool {
-		for resourceName := range rl {
-			str := string(resourceName)
-			if strings.HasPrefix(str, consts.RBLNResourceNamePrefix) {
-				return true
-			}
-		}
-		return false
-	}
-
 	if pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodPending {
 		return false
 	}
-
-	for _, c := range pod.Spec.Containers {
-		if npuInResourceList(c.Resources.Limits) || npuInResourceList(c.Resources.Requests) {
-			return true
-		}
-	}
-	return false
+	return len(npuusage.ResourceNames(&pod)) > 0
 }

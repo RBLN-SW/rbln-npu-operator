@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
@@ -15,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
+	"github.com/RBLN-SW/rbln-npu-operator/internal/npuusage"
 )
 
 // npuDeviceClassNames returns the DRA DeviceClasses whose claims mark a pod as
@@ -51,7 +51,7 @@ func npuDeviceClassNames(ctx context.Context, k8sInterface kubernetes.Interface,
 			continue
 		}
 		extendedResource := class.Spec.ExtendedResourceName
-		if extendedResource != nil && strings.HasPrefix(*extendedResource, consts.RBLNResourceNamePrefix) {
+		if extendedResource != nil && npuusage.IsResourceName(*extendedResource) {
 			names = append(names, class.Name)
 		}
 	}
@@ -121,7 +121,7 @@ func newNPUClaimMatcher(k8sInterface kubernetes.Interface, deviceClasses []strin
 }
 
 func (m *npuClaimMatcher) holdsNPUClaim(ctx context.Context, pod *corev1.Pod) bool {
-	if len(m.deviceClasses) == 0 || len(pod.Spec.ResourceClaims) == 0 || !podRunningOrPending(pod) {
+	if len(m.deviceClasses) == 0 || !podRunningOrPending(pod) {
 		return false
 	}
 	for _, claimName := range podResourceClaimNames(pod) {
@@ -147,21 +147,9 @@ func (m *npuClaimMatcher) holdsNPUClaim(ctx context.Context, pod *corev1.Pod) bo
 // NPU pod that survives the eviction still holding /dev/rbln*. A status entry
 // with no name means that entry needed no claim.
 func podResourceClaimNames(pod *corev1.Pod) []string {
-	names := make([]string, 0, len(pod.Spec.ResourceClaims))
-	for _, claim := range pod.Spec.ResourceClaims {
-		name := claim.ResourceClaimName
-		if name == nil {
-			for _, status := range pod.Status.ResourceClaimStatuses {
-				if status.Name == claim.Name {
-					name = status.ResourceClaimName
-					break
-				}
-			}
-		}
-		if name != nil && *name != "" {
-			names = append(names, *name)
-		}
-	}
+	// Preserve the upgrade's existing best-effort lookup policy: unresolved
+	// references do not prevent inspecting the remaining names.
+	names, _ := npuusage.ClaimNames(pod)
 	return names
 }
 
@@ -182,18 +170,26 @@ func claimUsesNPUDeviceClass(
 			"namespace", namespace, "name", name)
 		return false
 	}
-	return claimRequestsDeviceClass(claim, deviceClasses)
+	usage := npuusage.InspectClaim(claim)
+	eligible := upgradeClaimEligible(usage, deviceClasses)
+	if usage.Rebellions {
+		log.FromContext(ctx).V(consts.VDebug).Info("Detected Rebellions DRA consumer",
+			"namespace", namespace, "claim", name, "allocated", usage.Allocated, "eligibleForEviction", eligible)
+	}
+	return eligible
 }
 
 func claimRequestsDeviceClass(claim *resourcev1.ResourceClaim, deviceClasses []string) bool {
-	for _, request := range claim.Spec.Devices.Requests {
-		if request.Exactly != nil && slices.Contains(deviceClasses, request.Exactly.DeviceClassName) {
+	return upgradeClaimEligible(npuusage.InspectClaim(claim), deviceClasses)
+}
+
+// Keep the upgrade's existing class policy, including its treatment of every
+// requested alternative. Detection also sees VFIO allocations; their presence
+// alone does not authorize eviction or change the rollout state machine.
+func upgradeClaimEligible(usage npuusage.ClaimUsage, deviceClasses []string) bool {
+	for _, class := range usage.RequestedClasses {
+		if slices.Contains(deviceClasses, class) {
 			return true
-		}
-		for _, alternative := range request.FirstAvailable {
-			if slices.Contains(deviceClasses, alternative.DeviceClassName) {
-				return true
-			}
 		}
 	}
 	return false

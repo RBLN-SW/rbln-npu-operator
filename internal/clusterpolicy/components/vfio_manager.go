@@ -53,16 +53,15 @@ func (h *vfioManagerPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNC
 	if err := h.reconcileServiceAccount(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.reconcileVFIOManagerRBAC(ctx, owner); err != nil {
-		return err
-	}
 	if err := h.handleClusterRole(ctx, owner); err != nil {
 		return err
 	}
 	if err := h.handleClusterRoleBinding(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
+	// Install cluster-scoped drain permissions before retiring the old
+	// namespaced grants. On OpenShift the namespaced role serves only SCC use.
+	if err := h.reconcileVFIOManagerRBAC(ctx, owner); err != nil {
 		return err
 	}
 	if err := h.handleConfigMap(ctx, owner); err != nil {
@@ -81,14 +80,7 @@ func (h *vfioManagerPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBL
 	}); err != nil {
 		return err
 	}
-	if err := h.deleteIfExists(ctx, &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
-	}); err != nil {
-		return err
-	}
-	if err := h.deleteIfExists(ctx, &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
-	}); err != nil {
+	if err := h.deleteVFIOManagerNamespacedRBAC(ctx); err != nil {
 		return err
 	}
 	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRoleBinding{
@@ -99,9 +91,6 @@ func (h *vfioManagerPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBL
 	if err := h.deleteIfExists(ctx, &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: h.name},
 	}); err != nil {
-		return err
-	}
-	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
 		return err
 	}
 	return h.deleteServiceAccount(ctx)
@@ -129,6 +118,13 @@ func (h *vfioManagerPatcher) handleClusterRole(ctx context.Context, owner *rblnv
 				APIGroups: []string{""},
 				Resources: []string{"pods/eviction"},
 				Verbs:     []string{"create"},
+			},
+			{
+				// The drain helper resolves a Pod's DaemonSet in that Pod's
+				// namespace, including workloads outside the operator namespace.
+				APIGroups: []string{"apps"},
+				Resources: []string{"daemonsets"},
+				Verbs:     []string{"get"},
 			},
 			{
 				// A pod holding its NPU through a DRA ResourceClaim has no
@@ -171,39 +167,22 @@ func (h *vfioManagerPatcher) handleClusterRoleBinding(ctx context.Context, owner
 }
 
 func (h *vfioManagerPatcher) reconcileVFIOManagerRBAC(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	role := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace}}
-	if _, err := controllerutil.CreateOrPatch(ctx, h.client, role, func() error {
-		role.Rules = []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{"apps"},
-				Resources: []string{"daemonsets"},
-				Verbs:     []string{"get", "list", "watch"},
-			},
-		}
-		return ctrl.SetControllerReference(owner, role, h.scheme)
-	}); err != nil {
-		h.log.Error(err, "Failed to reconcile VFIOManager Role", "name", h.name)
-		return err
+	if h.openshiftVersion != "" {
+		// Replace any legacy DaemonSet grant with the SCC rule in one patch.
+		return h.reconcileOpenShiftRBAC(ctx, owner)
 	}
+	return h.deleteVFIOManagerNamespacedRBAC(ctx)
+}
 
-	rb := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace}}
-	if _, err := controllerutil.CreateOrPatch(ctx, h.client, rb, func() error {
-		rb.RoleRef = rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "Role",
-			Name:     h.name,
-		}
-		rb.Subjects = []rbacv1.Subject{{
-			Kind:      "ServiceAccount",
-			Name:      h.name,
-			Namespace: h.namespace,
-		}}
-		return ctrl.SetControllerReference(owner, rb, h.scheme)
+func (h *vfioManagerPatcher) deleteVFIOManagerNamespacedRBAC(ctx context.Context) error {
+	if err := h.deleteIfExists(ctx, &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
 	}); err != nil {
-		h.log.Error(err, "Failed to reconcile VFIOManager RoleBinding", "name", h.name)
 		return err
 	}
-	return nil
+	return h.deleteIfExists(ctx, &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: h.name, Namespace: h.namespace},
+	})
 }
 
 func (h *vfioManagerPatcher) handleConfigMap(ctx context.Context, cp *rblnv1beta1.RBLNClusterPolicy) error {
