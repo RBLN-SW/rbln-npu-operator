@@ -85,10 +85,38 @@ Admin label contract (values are lowercase; `vf2` is not supported):
 
 | Label | Values | Meaning |
 |---|---|---|
-| `rebellions.ai/npu.partition` | `vf1` \| `vf4` \| `none` | Node-wide default partition mode |
-| `rebellions.ai/npu.partition.<idx>` | `vf1` \| `vf4` \| `none` | Per-NPU override (e.g. `...partition.6: vf1` applies to rbln6 only) |
+| `rebellions.ai/npu.partition` | `pf` \| `vf1` \| `vf4` | Node-wide default and PF/VF family; absent means `pf` (0 VFs). Any other explicit value is an error. |
+| `rebellions.ai/npu.partition.<idx>` | `pf` \| `vf1` \| `vf4` | Per-NPU override for `rbln<idx>`; only VF count changes within a VF node take effect. |
 
-No partition labels means the node is not partitioned.
+The same override policy applies to `container` and `vm-passthrough`:
+
+| Node default | Per-NPU override | Effective partition |
+|---|---|---|
+| `pf` or absent | Any value or absent | `pf` |
+| `vf1` / `vf4` | `vf1` / `vf4` | Requested VF count |
+| `vf1` / `vf4` | `pf`, unsupported value (including `none`), or absent | Node default |
+
+Invalid override values or indexes are ignored without failing reconciliation.
+Fallback leaves the original override labels unchanged. Readiness uses the effective
+PF/VF family selected by the node default, so an override alone cannot enable VFs.
+
+The partition token `none` is no longer supported as a compatibility alias. Before
+upgrading, migrate existing node-wide `none` labels to `pf` and update any label
+producers, profiles, or configuration templates:
+
+```bash
+kubectl label node <node> rebellions.ai/npu.partition=pf --overwrite
+```
+
+A node-wide `none` is an error; a per-NPU `none` falls back to the node default.
+For example, to request four VFs per NPU and one VF on `rbln6`:
+
+```bash
+kubectl label node <node> rebellions.ai/npu.partition=vf4 rebellions.ai/npu.partition.6=vf1 --overwrite
+```
+
+Setting the node default back to `pf` keeps every NPU in PF mode even if that
+`partition.6=vf1` label remains.
 
 Every gated operand (device-plugin, dra-kubelet-plugin, partition-manager, metrics-exporter,
 npu-feature-discovery) starts with a single `component-gate` init container
@@ -99,7 +127,7 @@ already grants it) and waits for the component's readiness
 files — so one DaemonSet per component serves both partitioned and non-partitioned nodes,
 and a label change is honored at the next pod (re)start without any intermediate state:
 
-| Component (container workload) | Non-partitioned node | Partitioned node (any `vf1`/`vf4`) |
+| Component (container workload) | PF node (`pf` or absent default) | VF node (`vf1`/`vf4` default) |
 |---|---|---|
 | device-plugin, dra-kubelet-plugin | `toolkit-ready` | `toolkit-ready` + `partition-ready` |
 | partition-manager, metrics-exporter, npu-feature-discovery | `toolkit-ready` | `toolkit-ready` |
@@ -112,24 +140,26 @@ to the policy's `spec.workloadType`, matching the operator's node selection.
 
 `partition-ready` is written by the partition-manager operand (`partitionManager` in the
 policy spec, disabled by default): a per-node agent that converges every Rebellions PF to
-its labeled VF count — cordon, drain NPU pods, switch VFs through rbln-smd, rewrite the
+its effective VF count — cordon, drain NPU pods, switch VFs through rbln-smd, rewrite the
 marker, uncordon — and reports the result on the node's `NPUPartitionReady` condition.
 The manager owns `partition-ready`, so its own gate never waits for it. It dials rbln-smd
 node-locally at `127.0.0.1:50051`; use it with a driver-managed or host-installed
 rbln-smd. With `partitionManager` disabled, device-plugin and dra-kubelet-plugin
 intentionally stay blocked on partitioned nodes (fail-closed).
 
-The gate is **fail-closed**: on API errors or invalid label values it retries forever instead
-of assuming an unpartitioned node — misreading a `vf4` node would let components advertise
-full PFs that are about to be carved into VFs. Fix the label to unblock the node.
+The gate is **fail-closed**: on API errors or an invalid node-wide partition value
+it retries instead of assuming an unpartitioned node. This validation applies to
+both workloads, including before VM VFIO readiness checks. Fix the node default
+to unblock the gate; invalid per-NPU overrides use the default and do not block it.
 
 Current limitations:
 
 - The gate only runs at pod start. Already-running pods do not react to label changes;
   restarting the affected operand pods after a partition transition is the
   partition-manager's responsibility.
-- Partitioning is out of scope for `vm-passthrough` nodes; the sandbox-device-plugin keeps its
-  `vfio-pci-validation` init container.
+- The operator currently deploys its partition-manager operand on `container` nodes.
+  The partition label contract also applies to `vm-passthrough`; the
+  sandbox-device-plugin keeps its `vfio-pci-validation` init container.
 
 ## Quick Start
 

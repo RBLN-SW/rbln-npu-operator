@@ -82,9 +82,9 @@ const (
 	RBLNPartitionLabelKey         = "rebellions.ai/npu.partition"
 	RBLNPartitionIndexLabelPrefix = "rebellions.ai/npu.partition."
 
-	RBLNPartitionModeVF1  = "vf1"
-	RBLNPartitionModeVF4  = "vf4"
-	RBLNPartitionModeNone = "none"
+	RBLNPartitionModePF  = "pf"
+	RBLNPartitionModeVF1 = "vf1"
+	RBLNPartitionModeVF4 = "vf4"
 )
 
 // Container runtimes
