@@ -101,7 +101,7 @@ type mockValidationManager struct {
 	errOn string
 }
 
-func (m *mockValidationManager) Validate(_ context.Context, node *corev1.Node) (bool, error) {
+func (m *mockValidationManager) Validate(_ context.Context, node *corev1.Node, _ ValidationOptions) (bool, error) {
 	if m.errOn != "" && node.Name == m.errOn {
 		return false, fmt.Errorf("validation rejected for %s by test", node.Name)
 	}

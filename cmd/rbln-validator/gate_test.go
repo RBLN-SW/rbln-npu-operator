@@ -117,7 +117,7 @@ func TestRunGate(t *testing.T) {
 			want: want{sleepCallCount: 0},
 		},
 		"PartitionManagerNeverWaitsForPartitionReady": {
-			reason: "the partition-manager owns partition-ready, so waiting for it on a partitioned node would deadlock",
+			reason: "the partition-manager waits only for the driver, never toolkit or its own partition-ready",
 			fields: fields{
 				getter: &fakeNodeLabelsGetter{results: []nodeLabelsResult{
 					{labels: map[string]string{consts.RBLNPartitionLabelKey: consts.RBLNPartitionModeVF4}},
@@ -126,7 +126,7 @@ func TestRunGate(t *testing.T) {
 			args: args{
 				component:     consts.RBLNPartitionManagerName,
 				nodeName:      "node-1",
-				existingFiles: []string{toolkitReadyFile},
+				existingFiles: nil,
 			},
 			want: want{sleepCallCount: 0},
 		},
@@ -228,8 +228,9 @@ func TestRunGate(t *testing.T) {
 
 			sleepCalls := 0
 			rt := gateRuntime{
-				checkDriver:   func(context.Context) error { return nil },
-				getNodeLabels: tc.fields.getter.get,
+				checkDriver:        func(context.Context) error { return nil },
+				checkBindingDriver: func(context.Context) error { return nil },
+				getNodeLabels:      tc.fields.getter.get,
 				sleep: func(time.Duration) {
 					sleepCalls++
 					for _, f := range tc.args.createOnSleeps[sleepCalls] {
@@ -470,5 +471,105 @@ func TestContainerPFConsumerWaitsForBindingReconcile(t *testing.T) {
 	}
 	if sleeps != 1 {
 		t.Fatal("PF-only node bypassed manager binding readiness")
+	}
+}
+
+func TestPartitionManagerInitWaitsOnlyForDriver(t *testing.T) {
+	for _, workload := range []string{consts.RBLNWorkloadConfigContainer, consts.RBLNWorkloadConfigVMPassthrough} {
+		t.Run(workload, func(t *testing.T) {
+			checks, sleeps := 0, 0
+			cfg := &gateConfig{
+				nodeName:        "node",
+				component:       consts.RBLNPartitionManagerName,
+				defaultWorkload: workload,
+				outputDir:       t.TempDir(),
+			}
+			rt := gateRuntime{
+				checkBindingDriver: func(context.Context) error {
+					checks++
+					if checks < 3 {
+						return errors.New("driver installing")
+					}
+					return nil
+				},
+				getNodeLabels: func(context.Context, string) (map[string]string, error) {
+					t.Fatal("driver gate must not wait on partition labels")
+					return nil, nil
+				},
+				checkDriver: func(context.Context) error { t.Fatal("must use host-aware driver check"); return nil },
+				validateVFIO: func(vfiovalidator.Config) (vfiovalidator.Result, error) {
+					t.Fatal("driver gate cannot wait for VFIO binding")
+					return vfiovalidator.Result{}, nil
+				},
+				sleep: func(time.Duration) { sleeps++ },
+			}
+			if err := runGate(context.Background(), cfg, rt); err != nil {
+				t.Fatal(err)
+			}
+			if checks != 3 || sleeps != 2 {
+				t.Fatalf("checks=%d sleeps=%d", checks, sleeps)
+			}
+		})
+	}
+}
+
+func TestPolicyBackedGateRetriesAndReadsCurrentDefault(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, consts.PartitionReadyFileName), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	calls, sleeps := 0, 0
+	rt := gateRuntime{
+		getNodeLabels: func(context.Context, string) (map[string]string, error) { return map[string]string{}, nil },
+		getDefaultWorkload: func(context.Context, string) (string, error) {
+			calls++
+			if calls == 1 {
+				return "", errors.New("API unavailable")
+			}
+			if calls == 2 {
+				return "container", nil
+			}
+			return "vm-passthrough", nil
+		},
+		checkDriver:        func(context.Context) error { return nil },
+		checkBindingDriver: func(context.Context) error { return nil },
+		validateVFIO:       func(vfiovalidator.Config) (vfiovalidator.Result, error) { return vfiovalidator.Result{}, nil },
+		sleep: func(time.Duration) {
+			sleeps++
+			if sleeps > 3 {
+				t.Fatal("gate did not observe updated policy")
+			}
+		},
+	}
+	cfg := &gateConfig{
+		component: consts.RBLNDRAKubeletPluginName, nodeName: "node", policyName: "policy", outputDir: dir,
+	}
+	err := runGate(context.Background(), cfg, rt)
+	if err != nil || calls != 3 || sleeps != 2 {
+		t.Fatalf("calls=%d sleeps=%d error=%v", calls, sleeps, err)
+	}
+}
+
+func TestExplicitWorkloadLabelDoesNotRequirePolicyDefault(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, consts.PartitionReadyFileName), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	rt := gateRuntime{
+		getNodeLabels: func(context.Context, string) (map[string]string, error) {
+			return map[string]string{consts.RBLNWorkloadConfigLabelKey: "vm-passthrough"}, nil
+		},
+		getDefaultWorkload: func(context.Context, string) (string, error) {
+			t.Fatal("explicit label must take precedence")
+			return "", nil
+		},
+		checkBindingDriver: func(context.Context) error { return nil },
+		validateVFIO:       func(vfiovalidator.Config) (vfiovalidator.Result, error) { return vfiovalidator.Result{}, nil },
+	}
+	cfg := &gateConfig{
+		component: consts.RBLNDRAKubeletPluginName, nodeName: "node", policyName: "policy", outputDir: dir,
+	}
+	if err := runGate(context.Background(), cfg, rt); err != nil {
+		t.Fatal(err)
 	}
 }

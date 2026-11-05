@@ -36,7 +36,7 @@ type observedNode struct {
 }
 type ClusterUpgradeStateManager interface {
 	BuildState(context.Context, string, map[string]string) (*ClusterUpgradeState, error)
-	ApplyState(context.Context, *ClusterUpgradeState, *v1beta1.DriverUpgradePolicySpec, string) error
+	ApplyState(context.Context, *ClusterUpgradeState, *v1beta1.DriverUpgradePolicySpec, string, ValidationOptions) error
 }
 type ClusterUpgradeStateManagerImpl struct {
 	log                                             logr.Logger

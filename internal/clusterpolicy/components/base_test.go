@@ -2,9 +2,11 @@ package components
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -16,6 +18,37 @@ func TestComponentGateCanReadRootOwnedDriverStatus(t *testing.T) {
 	gate := buildGateInitContainer(consts.RBLNDevicePluginName, rblnv1beta1.ValidatorSpec{})
 	if gate.SecurityContext == nil || gate.SecurityContext.RunAsUser == nil || *gate.SecurityContext.RunAsUser != 0 {
 		t.Fatal("component gate must run as root to read the validator's 0600 driver-ready record")
+	}
+}
+
+func TestNodeViewerDriverReadScope(t *testing.T) {
+	for _, component := range []string{
+		consts.RBLNDRAKubeletPluginName, consts.RBLNSandboxDevicePluginName,
+		consts.RBLNDevicePluginName, consts.RBLNMetricExporterName,
+		consts.RBLNFeatureDiscoveryName, "container-toolkit",
+	} {
+		t.Run(component, func(t *testing.T) {
+			scheme := newTestScheme(t)
+			c := newFakeClient(t, scheme)
+			b := basePatcher{client: c, scheme: scheme, namespace: testNamespace, name: consts.RBLNBaseName + "-" + component}
+			if err := b.reconcileNodeViewerClusterRBAC(context.Background(), newTestOwner()); err != nil {
+				t.Fatal(err)
+			}
+			role := &rbacv1.ClusterRole{}
+			if err := c.Get(context.Background(), client.ObjectKey{Name: b.name + nodeViewerSuffix}, role); err != nil {
+				t.Fatal(err)
+			}
+			readsDrivers := false
+			for _, rule := range role.Rules {
+				if slices.Contains(rule.Resources, "rblndrivers") && slices.Contains(rule.Verbs, "list") {
+					readsDrivers = true
+				}
+			}
+			want := component == consts.RBLNDRAKubeletPluginName || component == consts.RBLNSandboxDevicePluginName
+			if readsDrivers != want {
+				t.Fatalf("driver configuration read permission=%v, want %v", readsDrivers, want)
+			}
+		})
 	}
 }
 

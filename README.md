@@ -72,8 +72,9 @@ other's allocations.
 #### DRA path (Kubernetes v1.34+, KubeVirt v1.9+)
 
 1. Set `spec.draKubeletPlugin.enabled: true`
-2. The **DRA Kubelet Plugin** publishes vfio-bound NPUs in ResourceSlices and
-   creates the `vfio-npu.rebellions.ai` DeviceClass.
+2. The **operator** creates the `vfio-npu.rebellions.ai` DeviceClass for PFs
+   and `vfio-npu-vf1.rebellions.ai` / `vfio-npu-vf4.rebellions.ai` for VFs.
+   The **DRA Kubelet Plugin** publishes vfio-bound NPUs in ResourceSlices.
 3. KubeVirt integration:
    - Enable the `HostDevicesWithDRA` feature gate
    - Request devices through a ResourceClaim — see the
@@ -90,7 +91,7 @@ Admin label contract (values are lowercase; `vf2` is not supported):
 
 No partition labels means the node is not partitioned.
 
-Partition-manager starts without an init gate and retries unavailable modules or
+Partition-manager waits for driver installation in its init gate and retries unavailable modules or
 SMD through reconciliation. It runs on both container and VM nodes, with host
 networking for SMD, writable `/sys` for PCI binding, and read-only `/host` for
 host module loading. The policy workload default is passed as
@@ -110,7 +111,8 @@ native to discover that name, then validates before changing VF counts.
 
 The reconcile sequence is cordon, drain NPU workloads, release affected
 bindings, restore native PFs, resize VFs through SMD, bind final functions,
-restart device advertisers, verify, write `partition-ready`, and uncordon.
+restart device advertisers, verify, write `partition-ready`, wait for kubelet
+registration and published device inventory to match, then uncordon.
 The node's `NPUPartitionReady` condition reports progress or failure.
 
 Consumer `component-gate` init containers read node labels on every poll:
@@ -120,9 +122,39 @@ Consumer `component-gate` init containers read node labels on every poll:
 | Device plugin or DRA / container | Current driver and `toolkit-ready`; also `partition-ready` when manager is enabled or partitioning is requested |
 | DRA or sandbox plugin / VM | `partition-ready` and a complete PF-only or VF-only VFIO layout |
 | Metrics exporter or feature discovery / container | Current driver and `toolkit-ready` |
-| Partition-manager / either workload | No init gate |
+| Partition-manager / either workload | Current driver installation only; no toolkit, partition, or VFIO wait |
 
 SMD retains its driver-ready gate. VM consumers do not require toolkit-ready.
+
+The DRA init gate reads the current ClusterPolicy default using
+`CLUSTER_POLICY_NAME`; an explicit node workload label takes precedence. Changing
+the policy default does not roll the DRA Pod before existing claims can be
+unprepared. Its service account has `get` access to that policy. DRA readiness
+requires a matching plugin image with the registration-aware gRPC `readiness`
+service; deploy the operator and DRA readiness changes together.
+
+The operator also creates `npu-vf1.rebellions.ai` and `npu-vf4.rebellions.ai`
+DeviceClasses for native SR-IOV claims (`type=npu-vf` and the selected partition
+mode). For example, `deviceClassName: npu-vf4.rebellions.ai` with `count: 1`
+allocates one VF from a VF4 partition. Explicit claims work without the
+DRA extended-resource bridge.
+
+For VM passthrough, `vfio-npu.rebellions.ai` selects only PFs (`type=vfio`
+and `vf=false`). Use `vfio-npu-vf1.rebellions.ai` or
+`vfio-npu-vf4.rebellions.ai` to request VFs of the corresponding profile.
+These classes require `type=vfio`, `vf=true`, and a matching `partitionMode`;
+`count: 1` allocates one VF. VFIO classes have no explicit extended-resource
+mapping. The selectors match the standalone DRA Helm chart. Existing claims
+that use the base VFIO class to request VFs must switch to a VF-specific class
+for new allocations. With a custom `draKubeletPlugin.driverName`, class names
+follow that name, for example `vfio-custom-vf4.example.com` for
+`custom.example.com`.
+
+When a node has no driver owner or active driver Pod, binding gates check for
+matching `RBLNDriver` configurations before waiting. The deploy label alone is
+only eligibility: a VM node without a matching driver configuration can proceed,
+while one awaiting owner assignment stays gated. These gates need read-only
+`list` access to `rblndrivers`; configuration lookup failures keep them closed.
 Malformed labels, incomplete topology, or incorrect bindings keep consumers
 blocked. Existing consumers are refreshed by partition-manager after a transition.
 VM policies require `partitionManager.enabled=true`; the controller also rejects

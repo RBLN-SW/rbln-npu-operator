@@ -451,12 +451,12 @@ func (m *ClusterUpgradeStateManagerImpl) processUpgradeSkippedNode(ctx context.C
 	return nil
 }
 
-func (m *ClusterUpgradeStateManagerImpl) ProcessValidationRequiredNodes(ctx context.Context, s *ClusterUpgradeState) error {
+func (m *ClusterUpgradeStateManagerImpl) ProcessValidationRequiredNodes(ctx context.Context, s *ClusterUpgradeState, validation ValidationOptions) error {
 	return visitNodes(ctx, s, UpgradeStateValidationRequired, func(ctx context.Context, n *NodeUpgradeState) error {
 		if err := m.unblockDriverLoad(ctx, n.Node); err != nil {
 			return err
 		}
-		done, err := m.validationManager.Validate(ctx, n.Node)
+		done, err := m.validationManager.Validate(ctx, n.Node, validation)
 		if err != nil || !done {
 			return err
 		}

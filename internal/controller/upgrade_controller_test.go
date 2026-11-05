@@ -43,8 +43,9 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockStateManager struct {
-	buildStateFunc func(ctx context.Context, namespace string, driverLabels map[string]string) (*upgrade.ClusterUpgradeState, error)
-	applyStateFunc func(ctx context.Context, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec, npuDeviceClass string) error
+	buildStateFunc    func(ctx context.Context, namespace string, driverLabels map[string]string) (*upgrade.ClusterUpgradeState, error)
+	applyStateFunc    func(ctx context.Context, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec, npuDeviceClass string) error
+	validationOptions upgrade.ValidationOptions
 }
 
 func (m *mockStateManager) BuildState(ctx context.Context, namespace string, driverLabels map[string]string) (*upgrade.ClusterUpgradeState, error) {
@@ -54,7 +55,8 @@ func (m *mockStateManager) BuildState(ctx context.Context, namespace string, dri
 	return &upgrade.ClusterUpgradeState{}, nil
 }
 
-func (m *mockStateManager) ApplyState(ctx context.Context, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec, npuDeviceClass string) error {
+func (m *mockStateManager) ApplyState(ctx context.Context, currentState *upgrade.ClusterUpgradeState, upgradePolicy *rblnv1beta1.DriverUpgradePolicySpec, npuDeviceClass string, validation upgrade.ValidationOptions) error {
+	m.validationOptions = validation
 	if m.applyStateFunc != nil {
 		return m.applyStateFunc(ctx, currentState, upgradePolicy, npuDeviceClass)
 	}
@@ -438,6 +440,24 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
+		})
+
+		It("passes the current VM policy and operator namespace to validation", func() {
+			policy := &rblnv1beta1.RBLNClusterPolicy{}
+			Expect(k8sClient.Get(ctx, nn, policy)).To(Succeed())
+			policy.Spec.WorkloadType = consts.RBLNWorkloadConfigVMPassthrough
+			policy.Spec.PartitionManager.Enabled = true
+			policy.Spec.DRAKubeletPlugin.Enabled = true
+			Expect(k8sClient.Update(ctx, policy)).To(Succeed())
+			markClusterPolicyState(ctx, nn, consts.RBLNStateReady)
+			mock := &mockStateManager{}
+			reconciler.StateManager = mock
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mock.validationOptions).To(Equal(upgrade.ValidationOptions{
+				Namespace: reconciler.Namespace, DefaultWorkload: consts.RBLNWorkloadConfigVMPassthrough,
+				DRAEnabled: true, PartitionManagerEnabled: true,
+			}))
 		})
 
 		It("publishes the driver upgrade status block and conditions", func() {

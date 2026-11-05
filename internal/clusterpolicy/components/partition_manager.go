@@ -2,6 +2,8 @@ package components
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -88,6 +90,8 @@ func (h *partitionManagerPatcher) handleClusterRole(ctx context.Context, owner *
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, clusterRole, func() error {
 		clusterRole.Rules = []rbacv1.PolicyRule{
+			{APIGroups: []string{"resource.k8s.io"}, Resources: []string{"resourceslices"}, Verbs: []string{"list"}},
+			{APIGroups: []string{"rebellions.ai"}, Resources: []string{"rblndrivers"}, Verbs: []string{"list"}},
 			{APIGroups: []string{"resource.k8s.io"}, Resources: []string{"resourceclaims"}, Verbs: []string{"get"}},
 			{
 				APIGroups: []string{""},
@@ -152,14 +156,38 @@ func (h *partitionManagerPatcher) handleClusterRoleBinding(ctx context.Context, 
 }
 
 func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
+	// Only driver readiness: toolkit and partition readiness depend on work
+	// this manager performs and would create a circular startup dependency.
+	initContainer := buildGateInitContainer(consts.RBLNPartitionManagerName, owner.Spec.Validator)
+	pullSecrets := slices.Clone(h.desiredSpec.ImagePullSecrets)
+	for _, secret := range owner.Spec.Validator.ImagePullSecrets {
+		if !slices.Contains(pullSecrets, secret) {
+			pullSecrets = append(pullSecrets, secret)
+		}
+	}
 	defaultWorkload := owner.Spec.WorkloadType
 	if defaultWorkload == "" {
 		defaultWorkload = consts.RBLNWorkloadConfigContainer
+	}
+	var advertisers []string
+	if owner.Spec.DevicePlugin.Enabled {
+		advertisers = append(advertisers, consts.RBLNDevicePluginName)
+	}
+	if owner.Spec.DRAKubeletPlugin.Enabled {
+		advertisers = append(advertisers, consts.RBLNDRAKubeletPluginName)
+	}
+	if owner.Spec.SandboxDevicePlugin.Enabled {
+		advertisers = append(advertisers, consts.RBLNSandboxDevicePluginName)
+	}
+	expectedAdvertisers := strings.Join(advertisers, ",")
+	if expectedAdvertisers == "" {
+		expectedAdvertisers = "none"
 	}
 
 	env := mergeEnvVars(
 		[]corev1.EnvVar{
 			{Name: "DEFAULT_WORKLOAD_TYPE", Value: defaultWorkload},
+			{Name: "EXPECTED_DEVICE_PLUGINS", Value: expectedAdvertisers},
 			{
 				Name: "NODE_NAME",
 				ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
@@ -196,13 +224,14 @@ func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.partition-manager": "true"}).
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
-		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithImagePullSecrets(pullSecrets).
 		WithPriorityClassName(podDefaultsPriorityClassName(h.podDefaults)).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume("host-sys", "/sys", corev1.HostPathDirectory),
 			hostPathVolume("host-root", "/", corev1.HostPathDirectory),
 			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 		}).
+		WithInitContainers([]*corev1.Container{initContainer}).
 		WithContainers([]*corev1.Container{managerContainer}).
 		Build()
 }

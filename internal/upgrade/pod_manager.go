@@ -220,6 +220,9 @@ func (m *PodManager) evictNodePods(ctx context.Context, n *corev1.Node, spec *v1
 				held = append(held, p)
 			}
 		}
+		if matcher.err != nil {
+			return nil, matcher.err
+		}
 		return held, nil
 	}
 	initial, err := selectHeld()
@@ -240,6 +243,9 @@ func (m *PodManager) evictNodePods(ctx context.Context, n *corev1.Node, spec *v1
 		}},
 	}
 	list, issues := helper.GetPodsForDeletion(n.Name)
+	if matcher.err != nil {
+		return matcher.err
+	}
 	if list == nil {
 		return fmt.Errorf("pod list failed: %w", errors.Join(issues...))
 	}
