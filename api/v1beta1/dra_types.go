@@ -30,12 +30,6 @@ type RBLNDRAKubeletPluginSpec struct {
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
 
-	// DriverName is the DRA driver name used by kubelet plugin registration
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:=npu.rebellions.ai
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Driver Name",xDescriptors="urn:alm:descriptor:com.tectonic.ui:text"
-	DriverName string `json:"driverName,omitempty"`
-
 	// KubeletRegistrarDirectoryPath is the host path for kubelet plugin registration
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=/var/lib/kubelet/plugins_registry

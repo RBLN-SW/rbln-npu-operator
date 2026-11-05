@@ -3329,11 +3329,6 @@ spec:
                     description: Annotations specifies the annotations for the DaemonSet
                       pods
                     type: object
-                  driverName:
-                    default: npu.rebellions.ai
-                    description: DriverName is the DRA driver name used by kubelet
-                      plugin registration
-                    type: string
                   enabled:
                     default: false
                     description: Enabled indicates if deployment of RBLN DRA kubelet

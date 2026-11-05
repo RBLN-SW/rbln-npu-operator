@@ -230,11 +230,6 @@ spec:
         path: draKubeletPlugin.annotations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: DriverName is the DRA driver name used by kubelet plugin registration
-        displayName: Driver Name
-        path: draKubeletPlugin.driverName
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
       - description: Enabled indicates if deployment of RBLN DRA kubelet plugin is
           enabled
         displayName: Enable RBLN DRA Kubelet Plugin deployment

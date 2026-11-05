@@ -82,7 +82,6 @@ spec:
     image: {{ .Values.draKubeletPlugin.image.repository | quote }}
     version: {{ .Values.draKubeletPlugin.image.tag | quote }}
     imagePullPolicy: {{ .Values.draKubeletPlugin.image.pullPolicy | quote }}
-    driverName: {{ .Values.draKubeletPlugin.driverName | quote }}
     kubeletRegistrarDirectoryPath: {{ .Values.draKubeletPlugin.kubeletRegistrarDirectoryPath | quote }}
     kubeletPluginsDirectoryPath: {{ .Values.draKubeletPlugin.kubeletPluginsDirectoryPath | quote }}
     healthcheckPort: {{ .Values.draKubeletPlugin.healthcheckPort }}

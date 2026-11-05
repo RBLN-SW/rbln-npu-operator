@@ -61,7 +61,7 @@ func claimingPod(namespace, name, claimName string) *corev1.Pod {
 	}
 }
 
-// The container-mode class is matched by name — draKubeletPlugin.driverName,
+// The container-mode class is matched by name — npu.rebellions.ai,
 // the value k8s-driver-manager is handed as NPU_POD_EVICTION_DEVICE_CLASS —
 // because the name is the one discriminator every API server persists. An API
 // server without the DRAExtendedResource feature gate drops the
@@ -90,7 +90,7 @@ func TestNPUDeviceClassNames(t *testing.T) {
 			},
 			want: operatorDeviceClasses,
 		},
-		"customized driverName replaces the default class": {
+		"explicit class matches independently of the driver identity": {
 			npuDeviceClass: "npu.example.com",
 			classes: []runtime.Object{
 				deviceClass("npu.example.com", nil),

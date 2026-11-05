@@ -73,7 +73,6 @@ spec:
     image: rebellions/k8s-dra-driver-npu
     version: v0.2.1
     imagePullPolicy: IfNotPresent
-    driverName: npu.rebellions.ai
     kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
     kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
     healthcheckPort: 51515

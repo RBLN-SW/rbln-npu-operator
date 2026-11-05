@@ -30,7 +30,6 @@ func TestDRAKubeletPluginPatch(t *testing.T) {
 		Registry:                      "docker.io",
 		Image:                         "rebellions/k8s-dra-driver-npu",
 		Version:                       "latest",
-		DriverName:                    "npu.rebellions.ai",
 		KubeletRegistrarDirectoryPath: "/var/lib/kubelet/plugins_registry",
 		KubeletPluginsDirectoryPath:   "/var/lib/kubelet/plugins",
 		HealthcheckPort:               51515,
@@ -55,6 +54,11 @@ func TestDRAKubeletPluginPatch(t *testing.T) {
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
 	assertContainerImage(t, mainContainer, "rebellions/k8s-dra-driver-npu", "latest")
 	assertPrivileged(t, mainContainer)
+	for _, env := range mainContainer.Env {
+		if env.Name == "DRIVER_NAME" {
+			t.Fatal("driver identity is fixed by the plugin; the operator must not pass an override")
+		}
+	}
 
 	if mainContainer.LivenessProbe == nil {
 		t.Fatal("expected liveness probe when HealthcheckPort > 0")
@@ -147,11 +151,10 @@ func TestDRAKubeletPluginPatch_ContainerToolkitDisabled(t *testing.T) {
 	owner := newTestOwner()
 	owner.Spec.ContainerToolkit.Enabled = false
 	owner.Spec.DRAKubeletPlugin = rblnv1beta1.RBLNDRAKubeletPluginSpec{
-		Enabled:    true,
-		Registry:   "docker.io",
-		Image:      "rebellions/k8s-dra-driver-npu",
-		Version:    "latest",
-		DriverName: "npu.rebellions.ai",
+		Enabled:  true,
+		Registry: "docker.io",
+		Image:    "rebellions/k8s-dra-driver-npu",
+		Version:  "latest",
 	}
 
 	p := NewDRAKubeletPluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
@@ -174,7 +177,6 @@ func TestDRAKubeletPluginCleanUp(t *testing.T) {
 		Registry:                      "docker.io",
 		Image:                         "rebellions/k8s-dra-driver-npu",
 		Version:                       "latest",
-		DriverName:                    "npu.rebellions.ai",
 		KubeletRegistrarDirectoryPath: "/var/lib/kubelet/plugins_registry",
 		KubeletPluginsDirectoryPath:   "/var/lib/kubelet/plugins",
 		HealthcheckPort:               51515,
@@ -223,35 +225,31 @@ func TestDRAKubeletPluginGatePolicyDefault(t *testing.T) {
 }
 
 func TestNativeVFDeviceClassesAreCreatedAndCleaned(t *testing.T) {
-	for _, driver := range []string{"npu.rebellions.ai", "custom.example.com"} {
-		t.Run(driver, func(t *testing.T) {
-			scheme := newTestScheme(t)
-			c := newFakeClient(t, scheme)
-			owner := newTestOwner()
-			owner.Spec.DRAKubeletPlugin.Enabled = true
-			owner.Spec.DRAKubeletPlugin.DriverName = driver
-			p := NewDRAKubeletPluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "").(*draKubeletPluginPatcher)
-			if err := p.handleDRAClass(context.Background(), owner); err != nil {
-				t.Fatal(err)
-			}
-			for _, count := range []int{1, 4} {
-				dc := &resourcev1.DeviceClass{}
-				assertObjectExists(t, c, types.NamespacedName{Name: p.vfClassName(count)}, dc)
-				expression := dc.Spec.Selectors[0].CEL.Expression
-				if !strings.Contains(expression, `type == "npu-vf"`) || !strings.Contains(expression, fmt.Sprintf(`partitionMode == "vf%d"`, count)) || !strings.Contains(expression, fmt.Sprintf(`device.driver == %q`, driver)) {
-					t.Fatalf("incorrect VF selector: %s", expression)
-				}
-				if dc.Spec.ExtendedResourceName == nil || *dc.Spec.ExtendedResourceName != fmt.Sprintf("rebellions.ai/npu-vf%d", count) {
-					t.Fatal("missing VF extended resource mapping")
-				}
-			}
-			if err := p.deleteDeviceClass(context.Background()); err != nil {
-				t.Fatal(err)
-			}
-			for _, name := range []string{p.className(), p.vfioClassName(), p.vfClassName(1), p.vfClassName(4)} {
-				assertObjectNotExists(t, c, types.NamespacedName{Name: name}, &resourcev1.DeviceClass{})
-			}
-		})
+	const driver = "npu.rebellions.ai"
+	scheme := newTestScheme(t)
+	c := newFakeClient(t, scheme)
+	owner := newTestOwner()
+	owner.Spec.DRAKubeletPlugin.Enabled = true
+	p := NewDRAKubeletPluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "").(*draKubeletPluginPatcher)
+	if err := p.handleDRAClass(context.Background(), owner); err != nil {
+		t.Fatal(err)
+	}
+	for _, count := range []int{1, 4} {
+		dc := &resourcev1.DeviceClass{}
+		assertObjectExists(t, c, types.NamespacedName{Name: fmt.Sprintf("npu-vf%d.rebellions.ai", count)}, dc)
+		expression := dc.Spec.Selectors[0].CEL.Expression
+		if !strings.Contains(expression, `type == "npu-vf"`) || !strings.Contains(expression, fmt.Sprintf(`partitionMode == "vf%d"`, count)) || !strings.Contains(expression, fmt.Sprintf(`device.driver == %q`, driver)) {
+			t.Fatalf("incorrect VF selector: %s", expression)
+		}
+		if dc.Spec.ExtendedResourceName == nil || *dc.Spec.ExtendedResourceName != fmt.Sprintf("rebellions.ai/npu-vf%d", count) {
+			t.Fatal("missing VF extended resource mapping")
+		}
+	}
+	if err := p.deleteDeviceClass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"npu.rebellions.ai", "vfio-npu.rebellions.ai", "npu-vf1.rebellions.ai", "npu-vf4.rebellions.ai"} {
+		assertObjectNotExists(t, c, types.NamespacedName{Name: name}, &resourcev1.DeviceClass{})
 	}
 }
 
@@ -262,109 +260,102 @@ func TestVFIODeviceClassesSelectTheirProfileAndAreCleaned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, names := range []struct {
+	names := struct {
 		driver, pf, vf1, vf4 string
-	}{
-		{"npu.rebellions.ai", "vfio-npu.rebellions.ai", "vfio-npu-vf1.rebellions.ai", "vfio-npu-vf4.rebellions.ai"},
-		{"custom.example.com", "vfio-custom.example.com", "vfio-custom-vf1.example.com", "vfio-custom-vf4.example.com"},
-	} {
-		t.Run(names.driver, func(t *testing.T) {
-			ctx := context.Background()
-			scheme := newTestScheme(t)
-			c := newFakeClient(t, scheme)
-			owner := newTestOwner()
-			owner.Spec.DRAKubeletPlugin.Enabled = true
-			owner.Spec.DRAKubeletPlugin.DriverName = names.driver
-			p := NewDRAKubeletPluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "").(*draKubeletPluginPatcher)
-			// An existing installation must also replace its broad VFIO selector.
-			legacyClass := &resourcev1.DeviceClass{}
-			legacyClass.Name = names.pf
-			legacyClass.Spec.Selectors = []resourcev1.DeviceSelector{{CEL: &resourcev1.CELDeviceSelector{
-				Expression: fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q", names.driver, names.driver, "vfio"),
-			}}}
-			if err := c.Create(ctx, legacyClass); err != nil {
+	}{"npu.rebellions.ai", "vfio-npu.rebellions.ai", "vfio-npu-vf1.rebellions.ai", "vfio-npu-vf4.rebellions.ai"}
+	ctx := context.Background()
+	scheme := newTestScheme(t)
+	c := newFakeClient(t, scheme)
+	owner := newTestOwner()
+	owner.Spec.DRAKubeletPlugin.Enabled = true
+	p := NewDRAKubeletPluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "").(*draKubeletPluginPatcher)
+	// An existing installation must also replace its broad VFIO selector.
+	legacyClass := &resourcev1.DeviceClass{}
+	legacyClass.Name = names.pf
+	legacyClass.Spec.Selectors = []resourcev1.DeviceSelector{{CEL: &resourcev1.CELDeviceSelector{
+		Expression: fmt.Sprintf("device.driver == %q && device.attributes[%q].type == %q", names.driver, names.driver, "vfio"),
+	}}}
+	if err := c.Create(ctx, legacyClass); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Patch(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
+	classes := &resourcev1.DeviceClassList{}
+	if err := c.List(ctx, classes); err != nil {
+		t.Fatal(err)
+	}
+	if len(classes.Items) != 6 {
+		t.Fatalf("created %d classes, want 6", len(classes.Items))
+	}
+	for _, className := range []string{names.pf, names.vf1, names.vf4} {
+		t.Run(className, func(t *testing.T) {
+			dc := &resourcev1.DeviceClass{}
+			assertObjectExists(t, c, types.NamespacedName{Name: className}, dc)
+			if dc.Spec.ExtendedResourceName != nil {
+				t.Fatal("VFIO classes must not expose an extended resource name")
+			}
+			if len(dc.Spec.Selectors) != 1 || dc.Spec.Selectors[0].CEL == nil {
+				t.Fatal("expected one CEL selector")
+			}
+			ast, issues := env.Compile(dc.Spec.Selectors[0].CEL.Expression)
+			if issues.Err() != nil {
+				t.Fatal(issues.Err())
+			}
+			program, err := env.Program(ast)
+			if err != nil {
 				t.Fatal(err)
 			}
-			if err := p.Patch(ctx, owner); err != nil {
-				t.Fatal(err)
-			}
-			classes := &resourcev1.DeviceClassList{}
-			if err := c.List(ctx, classes); err != nil {
-				t.Fatal(err)
-			}
-			if len(classes.Items) != 6 {
-				t.Fatalf("created %d classes, want 6", len(classes.Items))
-			}
-			for _, className := range []string{names.pf, names.vf1, names.vf4} {
-				t.Run(className, func(t *testing.T) {
-					dc := &resourcev1.DeviceClass{}
-					assertObjectExists(t, c, types.NamespacedName{Name: className}, dc)
-					if dc.Spec.ExtendedResourceName != nil {
-						t.Fatal("VFIO classes must not expose an extended resource name")
+			for _, candidate := range []struct {
+				name, kind, mode, wantClass string
+				vf                          *bool
+				otherDriver                 bool
+			}{
+				{name: "PF", kind: "vfio", mode: "none", vf: ptr(false), wantClass: names.pf},
+				{name: "VF1", kind: "vfio", mode: "vf1", vf: ptr(true), wantClass: names.vf1},
+				{name: "VF4", kind: "vfio", mode: "vf4", vf: ptr(true), wantClass: names.vf4},
+				{name: "legacy PF", kind: "vfio", vf: ptr(false), wantClass: names.pf},
+				{name: "legacy VF without profile", kind: "vfio", vf: ptr(true)},
+				{name: "missing VF attribute", kind: "vfio", mode: "vf4"},
+				{name: "unsupported VF profile", kind: "vfio", mode: "vf2", vf: ptr(true)},
+				{name: "native PF", kind: "npu", mode: "none", vf: ptr(false)},
+				{name: "native VF", kind: "npu-vf", mode: "vf4", vf: ptr(true)},
+				{name: "other driver PF", kind: "vfio", mode: "none", vf: ptr(false), otherDriver: true},
+				{name: "other driver VF", kind: "vfio", mode: "vf4", vf: ptr(true), otherDriver: true},
+			} {
+				t.Run(candidate.name, func(t *testing.T) {
+					attrs := map[string]any{"type": candidate.kind}
+					if candidate.mode != "" {
+						attrs["partitionMode"] = candidate.mode
 					}
-					if len(dc.Spec.Selectors) != 1 || dc.Spec.Selectors[0].CEL == nil {
-						t.Fatal("expected one CEL selector")
+					if candidate.vf != nil {
+						attrs["vf"] = *candidate.vf
 					}
-					ast, issues := env.Compile(dc.Spec.Selectors[0].CEL.Expression)
-					if issues.Err() != nil {
-						t.Fatal(issues.Err())
+					driver := names.driver
+					if candidate.otherDriver {
+						driver = "other.example.com"
 					}
-					program, err := env.Program(ast)
+					result, _, err := program.Eval(map[string]any{"device": map[string]any{
+						"driver": driver, "attributes": map[string]any{names.driver: attrs},
+					}})
 					if err != nil {
 						t.Fatal(err)
 					}
-					for _, candidate := range []struct {
-						name, kind, mode, wantClass string
-						vf                          *bool
-						otherDriver                 bool
-					}{
-						{name: "PF", kind: "vfio", mode: "none", vf: ptr(false), wantClass: names.pf},
-						{name: "VF1", kind: "vfio", mode: "vf1", vf: ptr(true), wantClass: names.vf1},
-						{name: "VF4", kind: "vfio", mode: "vf4", vf: ptr(true), wantClass: names.vf4},
-						{name: "legacy PF", kind: "vfio", vf: ptr(false), wantClass: names.pf},
-						{name: "legacy VF without profile", kind: "vfio", vf: ptr(true)},
-						{name: "missing VF attribute", kind: "vfio", mode: "vf4"},
-						{name: "unsupported VF profile", kind: "vfio", mode: "vf2", vf: ptr(true)},
-						{name: "native PF", kind: "npu", mode: "none", vf: ptr(false)},
-						{name: "native VF", kind: "npu-vf", mode: "vf4", vf: ptr(true)},
-						{name: "other driver PF", kind: "vfio", mode: "none", vf: ptr(false), otherDriver: true},
-						{name: "other driver VF", kind: "vfio", mode: "vf4", vf: ptr(true), otherDriver: true},
-					} {
-						t.Run(candidate.name, func(t *testing.T) {
-							attrs := map[string]any{"type": candidate.kind}
-							if candidate.mode != "" {
-								attrs["partitionMode"] = candidate.mode
-							}
-							if candidate.vf != nil {
-								attrs["vf"] = *candidate.vf
-							}
-							driver := names.driver
-							if candidate.otherDriver {
-								driver = "other.example.com"
-							}
-							result, _, err := program.Eval(map[string]any{"device": map[string]any{
-								"driver": driver, "attributes": map[string]any{names.driver: attrs},
-							}})
-							if err != nil {
-								t.Fatal(err)
-							}
-							if want := candidate.wantClass == className; result.Value() != want {
-								t.Fatalf("matched=%v, want %v", result.Value(), want)
-							}
-						})
+					if want := candidate.wantClass == className; result.Value() != want {
+						t.Fatalf("matched=%v, want %v", result.Value(), want)
 					}
 				})
 			}
-			if err := p.CleanUp(ctx, owner); err != nil {
-				t.Fatal(err)
-			}
-			remaining := &resourcev1.DeviceClassList{}
-			if err := c.List(ctx, remaining); err != nil {
-				t.Fatal(err)
-			}
-			if len(remaining.Items) != 0 {
-				t.Fatalf("cleanup left %d classes", len(remaining.Items))
-			}
 		})
+	}
+	if err := p.CleanUp(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
+	remaining := &resourcev1.DeviceClassList{}
+	if err := c.List(ctx, remaining); err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining.Items) != 0 {
+		t.Fatalf("cleanup left %d classes", len(remaining.Items))
 	}
 }

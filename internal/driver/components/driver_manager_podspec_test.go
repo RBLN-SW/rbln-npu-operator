@@ -686,11 +686,11 @@ func TestBuildDriverManagerInitContainerRendersEvictionPolicy(t *testing.T) {
 		want   map[string]string
 	}{
 		"defaults": {
-			policy: drivermanager.NPUPodEvictionPolicy{DeviceClass: consts.DefaultDRADeviceClass},
+			policy: drivermanager.NPUPodEvictionPolicy{DeviceClass: consts.DRADeviceClass},
 			want: map[string]string{
 				"NPU_POD_EVICTION_FORCE":                "false",
 				"NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA": "false",
-				"NPU_POD_EVICTION_DEVICE_CLASS":         consts.DefaultDRADeviceClass,
+				"NPU_POD_EVICTION_DEVICE_CLASS":         consts.DRADeviceClass,
 			},
 		},
 		"relaxed policy with a custom device class": {

@@ -70,7 +70,6 @@ metadata:
               "version": "v0.5.0"
             },
             "draKubeletPlugin": {
-              "driverName": "npu.rebellions.ai",
               "enabled": false,
               "healthcheckPort": 51515,
               "image": "rebellions/k8s-dra-driver-npu",
@@ -354,11 +353,6 @@ spec:
       - description: Annotations specifies the annotations for the DaemonSet pods
         displayName: Annotations
         path: draKubeletPlugin.annotations
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: DriverName is the DRA driver name used by kubelet plugin registration
-        displayName: Driver Name
-        path: draKubeletPlugin.driverName
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Enabled indicates if deployment of RBLN DRA kubelet plugin is

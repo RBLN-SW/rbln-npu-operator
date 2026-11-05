@@ -16,11 +16,11 @@ func TestResolveNPUPodEvictionPolicy(t *testing.T) {
 		// no emptyDir contents are discarded without the user asking.
 		"no cluster policy": {
 			spec: nil,
-			want: NPUPodEvictionPolicy{DeviceClass: consts.DefaultDRADeviceClass},
+			want: NPUPodEvictionPolicy{DeviceClass: consts.DRADeviceClass},
 		},
 		"no upgrade policy block": {
 			spec: &rblnv1beta1.RBLNClusterPolicySpec{},
-			want: NPUPodEvictionPolicy{DeviceClass: consts.DefaultDRADeviceClass},
+			want: NPUPodEvictionPolicy{DeviceClass: consts.DRADeviceClass},
 		},
 		"podDeletion is mirrored": {
 			spec: &rblnv1beta1.RBLNClusterPolicySpec{
@@ -29,7 +29,7 @@ func TestResolveNPUPodEvictionPolicy(t *testing.T) {
 				}},
 			},
 			want: NPUPodEvictionPolicy{
-				Force: true, DeleteEmptyDirData: true, DeviceClass: consts.DefaultDRADeviceClass,
+				Force: true, DeleteEmptyDirData: true, DeviceClass: consts.DRADeviceClass,
 			},
 		},
 		// autoUpgrade is deliberately not consulted: k8s-driver-manager evicts
@@ -43,14 +43,8 @@ func TestResolveNPUPodEvictionPolicy(t *testing.T) {
 				}},
 			},
 			want: NPUPodEvictionPolicy{
-				DeleteEmptyDirData: true, DeviceClass: consts.DefaultDRADeviceClass,
+				DeleteEmptyDirData: true, DeviceClass: consts.DRADeviceClass,
 			},
-		},
-		"driverName overrides the device class": {
-			spec: &rblnv1beta1.RBLNClusterPolicySpec{
-				DRAKubeletPlugin: rblnv1beta1.RBLNDRAKubeletPluginSpec{DriverName: "npu.example.com"},
-			},
-			want: NPUPodEvictionPolicy{DeviceClass: "npu.example.com"},
 		},
 	}
 
@@ -63,32 +57,6 @@ func TestResolveNPUPodEvictionPolicy(t *testing.T) {
 	}
 }
 
-// The upgrade controller matches DRA claims by this name and k8s-driver-manager
-// binds it as NPU_POD_EVICTION_DEVICE_CLASS, so both must resolve it the same way.
-func TestNPUDeviceClass(t *testing.T) {
-	tests := map[string]struct {
-		spec *rblnv1beta1.RBLNClusterPolicySpec
-		want string
-	}{
-		"no cluster policy": {spec: nil, want: consts.DefaultDRADeviceClass},
-		"driverName unset":  {spec: &rblnv1beta1.RBLNClusterPolicySpec{}, want: consts.DefaultDRADeviceClass},
-		"driverName is used": {
-			spec: &rblnv1beta1.RBLNClusterPolicySpec{
-				DRAKubeletPlugin: rblnv1beta1.RBLNDRAKubeletPluginSpec{DriverName: "npu.example.com"},
-			},
-			want: "npu.example.com",
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			if got := NPUDeviceClass(tc.spec); got != tc.want {
-				t.Fatalf("NPUDeviceClass() = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
 // The driver pod renders this list as its contract with k8s-driver-manager.
 func TestNPUPodEvictionEnv(t *testing.T) {
 	tests := map[string]struct {
@@ -96,12 +64,12 @@ func TestNPUPodEvictionEnv(t *testing.T) {
 		want   map[string]string
 	}{
 		"defaults": {
-			policy: NPUPodEvictionPolicy{DeviceClass: consts.DefaultDRADeviceClass},
+			policy: NPUPodEvictionPolicy{DeviceClass: consts.DRADeviceClass},
 			want: map[string]string{
 				"ENABLE_NPU_POD_EVICTION":               "true",
 				"NPU_POD_EVICTION_FORCE":                "false",
 				"NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA": "false",
-				"NPU_POD_EVICTION_DEVICE_CLASS":         consts.DefaultDRADeviceClass,
+				"NPU_POD_EVICTION_DEVICE_CLASS":         consts.DRADeviceClass,
 			},
 		},
 		"relaxed policy with a custom device class": {
