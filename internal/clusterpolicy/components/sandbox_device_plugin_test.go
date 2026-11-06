@@ -6,7 +6,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -60,15 +59,9 @@ func TestSandboxDevicePluginPatch(t *testing.T) {
 	assertContainerHasVolumeMount(t, initContainer, "host-sys")
 	assertPodHasVolume(t, ds.Spec.Template.Spec, consts.ValidationsVolumeName)
 
-	// alias-only contract: no ConfigMap is created (the binary is env-only).
-	cmName := types.NamespacedName{Name: name + "-config", Namespace: testNamespace}
-	assertObjectNotExists(t, c, cmName, &corev1.ConfigMap{})
-
-	// Volume contract: alias-only binary needs three host paths
+	// Volume contract: the binary needs three host paths
 	// + run-rbln-validations (shared with init container)
 	// + host-sys (init container reads sysfs driver symlinks).
-	// No config-volume — assertion stays strict so a future
-	// re-introduction of the ConfigMap is caught here.
 	wantVolumeNames := map[string]bool{
 		"devicesock":                 false,
 		"host-vfio":                  false,
@@ -90,73 +83,19 @@ func TestSandboxDevicePluginPatch(t *testing.T) {
 		t.Errorf("unexpected extra volumes: %+v", ds.Spec.Template.Spec.Volumes)
 	}
 
-	// Env contract: alias is RBLN_PT_ALIAS, plus two path hints. The
-	// old RBLN_RESOURCE_CONFIG_PATH must be gone.
+	// Env contract: retain the path hints, without resource-name overrides.
 	envByName := map[string]string{}
 	for _, e := range mainContainer.Env {
 		envByName[e.Name] = e.Value
 	}
-	// Empty value selects per-model mode (see sandboxResourceAlias doc).
-	if got, ok := envByName["RBLN_PT_ALIAS"]; !ok || got != "" {
-		t.Errorf("RBLN_PT_ALIAS = %q (present=%v), want present-but-empty", got, ok)
+	if len(mainContainer.Env) != 2 {
+		t.Fatalf("expected only the two path hints in the default environment, got %v", mainContainer.Env)
 	}
 	if got := envByName["RBLN_SYSFS_PCI_PATH"]; got != "/sys/bus/pci/devices" {
 		t.Errorf("RBLN_SYSFS_PCI_PATH = %q, want /sys/bus/pci/devices", got)
 	}
 	if got := envByName["RBLN_KUBELET_DEVICE_PLUGIN_PATH"]; got != "/var/lib/kubelet/device-plugins" {
 		t.Errorf("RBLN_KUBELET_DEVICE_PLUGIN_PATH = %q, want /var/lib/kubelet/device-plugins", got)
-	}
-	if _, present := envByName["RBLN_RESOURCE_CONFIG_PATH"]; present {
-		t.Errorf("RBLN_RESOURCE_CONFIG_PATH should be gone (alias-only), but is present")
-	}
-}
-
-func TestSandboxDevicePluginPatchRemovesLegacyConfigMap(t *testing.T) {
-	scheme := newTestScheme(t)
-	c := newFakeClient(t, scheme)
-	ctx := context.Background()
-
-	owner := newTestOwner()
-	owner.Spec.SandboxDevicePlugin = rblnv1beta1.RBLNSandboxDevicePluginSpec{
-		Enabled:  true,
-		Registry: "docker.io",
-		Image:    "rebellions/sandbox-device-plugin",
-		Version:  "dev",
-	}
-
-	name := consts.RBLNBaseName + "-" + consts.RBLNSandboxDevicePluginName
-	legacyCMName := types.NamespacedName{Name: name + "-config", Namespace: testNamespace}
-
-	legacyCM := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      legacyCMName.Name,
-			Namespace: legacyCMName.Namespace,
-		},
-		Data: map[string]string{
-			"config.json": `{"resourceList":[{"resourceName":"ATOM","resourcePrefix":"rebellions.ai"}]}`,
-		},
-	}
-	if err := c.Create(ctx, legacyCM); err != nil {
-		t.Fatalf("failed to create legacy ConfigMap: %v", err)
-	}
-
-	p := NewSandboxDevicePluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
-	if err := p.Patch(ctx, owner); err != nil {
-		t.Fatalf("Patch() error: %v", err)
-	}
-
-	assertObjectNotExists(t, c, legacyCMName, &corev1.ConfigMap{})
-
-	// Sanity check: the new alias-only DaemonSet is still created.
-	ds := assertDaemonSetBasics(t, c, name, owner.Name)
-	mainContainer := ds.Spec.Template.Spec.Containers[0]
-
-	envByName := map[string]string{}
-	for _, e := range mainContainer.Env {
-		envByName[e.Name] = e.Value
-	}
-	if got, ok := envByName["RBLN_PT_ALIAS"]; !ok || got != "" {
-		t.Errorf("RBLN_PT_ALIAS = %q (present=%v), want present-but-empty (per-model)", got, ok)
 	}
 }
 

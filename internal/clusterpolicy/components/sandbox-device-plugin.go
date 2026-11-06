@@ -5,7 +5,6 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -15,11 +14,6 @@ import (
 	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 	k8sutil "github.com/RBLN-SW/rbln-npu-operator/internal/utils/k8s"
 )
-
-// sandboxResourceAlias is injected as RBLN_PT_ALIAS into the plugin binary.
-// Empty (default) → per-model mode (rebellions.ai/RBLN-<MODEL>_<PF|VF>),
-// non-empty → single-alias mode (rebellions.ai/<alias>).
-const sandboxResourceAlias = ""
 
 const (
 	sandboxDevicePluginLogLevelEnv  = "RBLN_SANDBOX_DEVICE_PLUGIN_LOG_LEVEL"
@@ -48,16 +42,6 @@ func NewSandboxDevicePluginPatcher(client client.Client, log logr.Logger, namesp
 	}
 }
 
-// Idempotent — backward-compat cleanup
-func (h *sandboxDevicePluginPatcher) deleteLegacyConfigMap(ctx context.Context) error {
-	return h.deleteIfExists(ctx, &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      h.name + "-config",
-			Namespace: h.namespace,
-		},
-	})
-}
-
 func (h *sandboxDevicePluginPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	if !h.IsEnabled() {
 		return h.CleanUp(ctx, owner)
@@ -71,18 +55,12 @@ func (h *sandboxDevicePluginPatcher) Patch(ctx context.Context, owner *rblnv1bet
 	if err := h.reconcileOpenShiftRBAC(ctx, owner); err != nil {
 		return err
 	}
-	if err := h.deleteLegacyConfigMap(ctx); err != nil {
-		return err
-	}
 	return h.handleDaemonSet(ctx, owner)
 }
 
 func (h *sandboxDevicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "Sandbox Device Plugin")
 	if err := h.deleteDaemonSet(ctx); err != nil {
-		return err
-	}
-	if err := h.deleteLegacyConfigMap(ctx); err != nil {
 		return err
 	}
 	if err := h.deleteOpenShiftRBAC(ctx); err != nil {
@@ -94,7 +72,7 @@ func (h *sandboxDevicePluginPatcher) CleanUp(ctx context.Context, owner *rblnv1b
 	return h.deleteServiceAccount(ctx)
 }
 
-// buildVolumes returns the mounts the alias-only plugin pod needs:
+// buildVolumes returns the mounts the sandbox device plugin pod needs:
 //   - validations shared dir (init container output handoff)
 //   - kubelet socket dir (register/serve)
 //   - /dev/vfio (hand VFIO char devices to virt-launcher)
@@ -130,8 +108,6 @@ func (h *sandboxDevicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 				WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 				WithEnvs(mergeEnvVars(
 					[]corev1.EnvVar{
-						// RBLN_PT_ALIAS empty → per-model; non-empty → single-alias.
-						{Name: "RBLN_PT_ALIAS", Value: sandboxResourceAlias},
 						// Next two match binary defaults; spelled out for review visibility.
 						{Name: "RBLN_SYSFS_PCI_PATH", Value: "/sys/bus/pci/devices"},
 						{Name: "RBLN_KUBELET_DEVICE_PLUGIN_PATH", Value: "/var/lib/kubelet/device-plugins"},

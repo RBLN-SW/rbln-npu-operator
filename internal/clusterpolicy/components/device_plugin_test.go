@@ -44,6 +44,9 @@ func TestDevicePluginPatch(t *testing.T) {
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
 	assertContainerImage(t, mainContainer, "rebellions/k8s-device-plugin", "latest")
 	assertPrivileged(t, mainContainer)
+	if len(mainContainer.Env) != 1 {
+		t.Fatalf("expected only NODE_NAME in the default environment, got %v", mainContainer.Env)
+	}
 	if len(mainContainer.Args) != 0 {
 		t.Fatalf("container-mode device-plugin must not override args, got %v", mainContainer.Args)
 	}
@@ -112,48 +115,6 @@ func TestDevicePluginCleanUp(t *testing.T) {
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &appsv1.DaemonSet{})
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
 	assertNoNodeViewerRBAC(t, c, name)
-}
-
-func TestDevicePluginPatch_UseGenericResourceName(t *testing.T) {
-	tests := map[string]struct {
-		field bool
-		want  string
-	}{
-		"true":  {field: true, want: "true"},
-		"false": {field: false, want: "false"},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			scheme := newTestScheme(t)
-			c := newFakeClient(t, scheme)
-			ctx := context.Background()
-
-			owner := newTestOwner()
-			owner.Spec.DevicePlugin = rblnv1beta1.RBLNDevicePluginSpec{
-				Enabled:                true,
-				Registry:               "docker.io",
-				Image:                  "rebellions/k8s-device-plugin",
-				Version:                "latest",
-				UseGenericResourceName: tc.field,
-			}
-
-			p := NewDevicePluginPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
-			if err := p.Patch(ctx, owner); err != nil {
-				t.Fatalf("Patch() error: %v", err)
-			}
-
-			dsName := consts.RBLNBaseName + "-" + consts.RBLNDevicePluginName
-			ds := assertDaemonSetBasics(t, c, dsName, owner.Name)
-			got, ok := envVarValue(ds.Spec.Template.Spec.Containers[0].Env, "USE_GENERIC_RESOURCE_NAME")
-			if !ok {
-				t.Fatalf("USE_GENERIC_RESOURCE_NAME env var not found")
-			}
-			if got != tc.want {
-				t.Fatalf("USE_GENERIC_RESOURCE_NAME = %q, want %q", got, tc.want)
-			}
-		})
-	}
 }
 
 func TestDevicePluginPatch_OtlpEndpoint(t *testing.T) {

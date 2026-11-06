@@ -2460,13 +2460,6 @@ spec:
                     x-kubernetes-validations:
                     - message: rollingUpdate must be omitted when type is OnDelete
                       rule: '!has(self.type) || self.type != ''OnDelete'' || !has(self.rollingUpdate)'
-                  useGenericResourceName:
-                    default: true
-                    description: |-
-                      UseGenericResourceName advertises the generic resource name (rebellions.ai/npu) in
-                      addition to product-specific ones. Forwarded to the device plugin container as the
-                      USE_GENERIC_RESOURCE_NAME environment variable.
-                    type: boolean
                   version:
                     default: latest
                     description: RBLN Device Plugin image tag
