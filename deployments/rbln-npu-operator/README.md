@@ -237,9 +237,9 @@ devicePlugin:
   enabled: true
 ```
 
-The plugin advertises `rebellions.ai/npu` (generic) and one product-specific
-resource per detected NPU model. Set `devicePlugin.useGenericResourceName: false`
-to disable the generic alias.
+The plugin always advertises non-partitioned NPUs as `rebellions.ai/npu`.
+SR-IOV VFs use `rebellions.ai/npu-vf1` or `rebellions.ai/npu-vf4` according to
+their partition mode. These names are fixed and have no configuration option.
 
 ### VM Passthrough Deployment
 

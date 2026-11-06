@@ -2,7 +2,6 @@ package components
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -84,7 +83,6 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 	initContainer := buildGateInitContainer(consts.RBLNDevicePluginName, owner.Spec.Validator)
 
 	envs := []corev1.EnvVar{
-		{Name: "USE_GENERIC_RESOURCE_NAME", Value: strconv.FormatBool(h.desiredSpec.UseGenericResourceName)},
 		{
 			Name: "NODE_NAME",
 			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
