@@ -446,74 +446,74 @@ spec:
         path: npuFeatureDiscovery.version
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: PartitionManager component spec
-        displayName: Partition Manager
-        path: partitionManager
+      - description: DeviceConfigManager component spec
+        displayName: Device Config Manager
+        path: deviceConfigManager
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced
       - description: Affinity specifies the affinity for the DaemonSet pods
         displayName: Affinity
-        path: partitionManager.affinity
+        path: deviceConfigManager.affinity
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Affinity
       - description: Annotations specifies the annotations for the DaemonSet pods
         displayName: Annotations
-        path: partitionManager.annotations
+        path: deviceConfigManager.annotations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Enabled indicates if deployment of RBLN partition manager is
+      - description: Enabled indicates if deployment of RBLN device config manager is
           enabled
-        displayName: Enable RBLN Partition Manager deployment
-        path: partitionManager.enabled
+        displayName: Enable RBLN Device Config Manager deployment
+        path: deviceConfigManager.enabled
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
-      - description: Env specifies additional environment variables for the partition
+      - description: Env specifies additional environment variables for the device config
           manager container
         displayName: Environment Variables
-        path: partitionManager.env
+        path: deviceConfigManager.env
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced
-      - description: RBLN Partition Manager image name
+      - description: RBLN Device Config Manager image name
         displayName: Image
-        path: partitionManager.image
+        path: deviceConfigManager.image
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: ImagePullPolicy specifies the image pull policy for the DaemonSet
           pods
         displayName: Image Pull Policy
-        path: partitionManager.imagePullPolicy
+        path: deviceConfigManager.imagePullPolicy
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:imagePullPolicy
       - description: ImagePullSecrets specifies the image pull secrets for the DaemonSet
           pods
         displayName: Image pull secrets
-        path: partitionManager.imagePullSecrets
+        path: deviceConfigManager.imagePullSecrets
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Labels specifies the labels for the DaemonSet pods
         displayName: Labels
-        path: partitionManager.labels
+        path: deviceConfigManager.labels
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
-      - description: Registry override for the RBLN Partition Manager image
+      - description: Registry override for the RBLN Device Config Manager image
         displayName: Registry
-        path: partitionManager.registry
+        path: deviceConfigManager.registry
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Resources specifies the resource requirements for the DaemonSet
           pods
         displayName: Resource Requirements
-        path: partitionManager.resources
+        path: deviceConfigManager.resources
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:com.tectonic.ui:resourceRequirements
       - description: Tolerations specifies the tolerations for the DaemonSet pods
         displayName: Tolerations
-        path: partitionManager.tolerations
+        path: deviceConfigManager.tolerations
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced,urn:alm:descriptor:io.kubernetes:Tolerations
-      - description: RBLN Partition Manager image tag
+      - description: RBLN Device Config Manager image tag
         displayName: Version
-        path: partitionManager.version
+        path: deviceConfigManager.version
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: PodDefaults defines common configuration applied to all DaemonSet

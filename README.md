@@ -26,7 +26,7 @@ RBLNClusterPolicy (Cluster-scoped CR)
     ├─ Device Plugin DaemonSet + ConfigMap
     ├─ DRA Kubelet Plugin DaemonSet
     ├─ Sandbox Device Plugin + VFIO Checker
-    ├─ Partition Manager DaemonSet (PCI binding and SR-IOV)
+    ├─ Device Config Manager DaemonSet (PCI binding and SR-IOV)
     ├─ Metrics Exporter DaemonSet
     └─ NPU Feature Discovery DaemonSet
 ```
@@ -48,8 +48,8 @@ RBLNClusterPolicy (Cluster-scoped CR)
 
 ### Sandbox / VM Passthrough
 
-Enable `partitionManager.enabled` and set `spec.workloadType: vm-passthrough`
-(or the node's `rebellions.ai/npu.workload.config` label). Partition-manager
+Enable `deviceConfigManager.enabled` and set `spec.workloadType: vm-passthrough`
+(or the node's `rebellions.ai/npu.workload.config` label). Device-config-manager
 reconciles PCI bindings and SR-IOV counts continuously. The native PF driver
 and SMD remain available to create and resize VFs. VMs consume the devices through two
 allocation paths. The paths are mutually exclusive — both advertise the same
@@ -119,7 +119,7 @@ kubectl label node <node> rebellions.ai/npu.partition=vf4 rebellions.ai/npu.part
 Setting the node default back to `pf` keeps every NPU in PF mode even if that
 `partition.6=vf1` label remains.
 
-Partition-manager waits for driver installation in its init gate and retries unavailable modules or
+Device-config-manager waits for driver installation in its init gate and retries unavailable modules or
 SMD through reconciliation. It runs on both container and VM nodes, with host
 networking for SMD, writable `/sys` for PCI binding, and read-only `/host` for
 host module loading. The policy workload default is passed as
@@ -155,14 +155,14 @@ Consumer `component-gate` init containers read node labels on every poll:
 | Device plugin or DRA / container | Current driver and `toolkit-ready`; also `partition-ready` when manager is enabled or partitioning is requested |
 | DRA or sandbox plugin / VM | `partition-ready` and a complete PF-only or VF-only VFIO layout |
 | Metrics exporter or feature discovery / container | Current driver and `toolkit-ready` |
-| Partition-manager / either workload | Current driver installation only; no toolkit, partition, or VFIO wait |
+| Device-config-manager / either workload | Current driver installation only; no toolkit, partition, or VFIO wait |
 
 SMD retains its driver-ready gate. VM consumers do not require toolkit-ready.
 
 Consumer gates retry API errors and invalid node-wide partition values before
 checking readiness, including on VM nodes. Invalid per-NPU overrides fall back
 to the node default and do not block startup. The gate runs only at Pod start;
-partition-manager refreshes running advertisers after a transition.
+device-config-manager refreshes running advertisers after a transition.
 
 The DRA init gate reads the current ClusterPolicy default using
 `CLUSTER_POLICY_NAME`; an explicit node workload label takes precedence. Changing
@@ -193,8 +193,8 @@ only eligibility: a VM node without a matching driver configuration can proceed,
 while one awaiting owner assignment stays gated. These gates need read-only
 `list` access to `rblndrivers`; configuration lookup failures keep them closed.
 Invalid node defaults, incomplete topology, or incorrect bindings keep consumers
-blocked. Existing consumers are refreshed by partition-manager after a transition.
-VM policies require `partitionManager.enabled=true`; the controller also rejects
+blocked. Existing consumers are refreshed by device-config-manager after a transition.
+VM policies require `deviceConfigManager.enabled=true`; the controller also rejects
 VM node overrides when it is disabled. Container-only installations may leave it
 disabled, but partitioned container nodes then remain blocked.
 
@@ -501,7 +501,7 @@ Ordering and updates are tied to the driver lifecycle:
 Node selection follows the driver's owner-label routing (plus the
 `npu.deploy.rbln-smd` gate), so pre-installed-driver nodes — which run
 their own host `rbln-smd` — do not receive an SMD Pod. VM nodes keep the
-native driver and SMD so partition-manager can provision VFs.
+native driver and SMD so device-config-manager can provision VFs.
 That gate is flipped by k8s-driver-manager, and a driver-manager predating
 the `rbln-daemon` → `rbln-smd` rename never flips it — smd pods then sit on
 a stale image across driver upgrades with nothing reporting it. The two
@@ -513,7 +513,7 @@ NPU pod eviction policy as `NPU_POD_EVICTION_*` env vars and no longer
 renders `ENABLE_AUTO_DRAIN=false`. A driver-manager that predates the
 NPU-only eviction contract, every release up to v0.2.2, binds none of the new
 names and defaults the retired flag to true, so on every driver change it
-drains the whole node instead of evicting only NPU pods. PCI binding and workload changes are handled by partition-manager reconciliation.
+drains the whole node instead of evicting only NPU pods. PCI binding and workload changes are handled by device-config-manager reconciliation.
 Readiness is reported in `status.smd` (`desired`/`ready`/`state`) and gates
 the CR's `Ready` condition (`SmdNotReady` while catching up, no event —
 ordinary rollout progress); `status.desiredNodes`/`readyNodes` stay

@@ -446,7 +446,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			policy := &rblnv1beta1.RBLNClusterPolicy{}
 			Expect(k8sClient.Get(ctx, nn, policy)).To(Succeed())
 			policy.Spec.WorkloadType = consts.RBLNWorkloadConfigVMPassthrough
-			policy.Spec.PartitionManager.Enabled = true
+			policy.Spec.DeviceConfigManager.Enabled = true
 			policy.Spec.DRAKubeletPlugin.Enabled = true
 			Expect(k8sClient.Update(ctx, policy)).To(Succeed())
 			markClusterPolicyState(ctx, nn, consts.RBLNStateReady)
@@ -456,7 +456,7 @@ var _ = Describe("Upgrade Controller", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(mock.validationOptions).To(Equal(upgrade.ValidationOptions{
 				Namespace: reconciler.Namespace, DefaultWorkload: consts.RBLNWorkloadConfigVMPassthrough,
-				DRAEnabled: true, PartitionManagerEnabled: true,
+				DRAEnabled: true, DeviceConfigManagerEnabled: true,
 			}))
 		})
 

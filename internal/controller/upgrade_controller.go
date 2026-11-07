@@ -147,7 +147,7 @@ func (r *UpgradeReconciler) advanceRollout(ctx context.Context, policy *rblnv1be
 		consts.DRADeviceClass, upgrade.ValidationOptions{
 			Namespace: r.Namespace, DefaultWorkload: policy.Spec.WorkloadType,
 			DRAEnabled: policy.Spec.DRAKubeletPlugin.Enabled, SandboxEnabled: policy.Spec.SandboxDevicePlugin.Enabled,
-			PartitionManagerEnabled: policy.Spec.PartitionManager.Enabled,
+			DeviceConfigManagerEnabled: policy.Spec.DeviceConfigManager.Enabled,
 		}); err != nil {
 		failures = append(failures, err)
 	}
