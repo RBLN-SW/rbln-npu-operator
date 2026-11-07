@@ -116,7 +116,7 @@ migration notes.
 ### Component update strategies
 
 Each of `devicePlugin`, `draKubeletPlugin`, `sandboxDevicePlugin`,
-`metricsExporter`, `npuFeatureDiscovery`, `containerToolkit`, `partitionManager`,
+`metricsExporter`, `npuFeatureDiscovery`, `containerToolkit`, `deviceConfigManager`,
 and `validator` accepts an optional `updateStrategy` in Helm values. The same
 field is available under `spec.<component>.updateStrategy` in an
 `RBLNClusterPolicy`.
@@ -213,7 +213,7 @@ The operator supports two main workload configurations:
 - **Resource Types**: `rebellions.ai/npu`
 
 #### VM Passthrough Workloads (`vm-passthrough`)
-- **Components**: Sandbox Device Plugin (or DRA), Partition Manager, native PF driver and SMD
+- **Components**: Sandbox Device Plugin (or DRA), Device Config Manager, native PF driver and SMD
 - **Use Case**: Virtualized environments with NPU passthrough using KubeVirt
 - **Resource Types**: One per (model, function) auto-discovered from `sysfs` + `pci.ids` — e.g. `rebellions.ai/RBLN-CA22_PF`, `rebellions.ai/RBLN-CA25_VF`
 - **Requirements**: KubeVirt must be installed and VFIO-PCI driver configuration required
@@ -248,11 +248,11 @@ their partition mode. These names are fixed and have no configuration option.
 workloadType: vm-passthrough
 sandboxDevicePlugin:
   enabled: true
-partitionManager:
+deviceConfigManager:
   enabled: true
 ```
 
-Use a partition-manager image containing continuous PCI/SR-IOV reconciliation.
+Use a device-config-manager image containing continuous PCI/SR-IOV reconciliation.
 VM nodes require the native PF driver and SMD for VF creation; choose PF-only or VF-only per node. VF1 and
 VF4 may coexist. Container nodes may mix PFs and VFs.
 

@@ -75,10 +75,10 @@ spec:
     kubeletRegistrarDirectoryPath: /var/lib/kubelet/plugins_registry
     kubeletPluginsDirectoryPath: /var/lib/kubelet/plugins
     healthcheckPort: 51515
-  partitionManager:
+  deviceConfigManager:
     enabled: false
     registry: docker.io
-    image: rebellions/k8s-partition-manager
+    image: rebellions/k8s-device-config-manager
     version: v0.1.0
     imagePullPolicy: IfNotPresent
   metricsExporter:
