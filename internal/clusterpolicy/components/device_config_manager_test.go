@@ -15,25 +15,25 @@ import (
 	"github.com/RBLN-SW/rbln-npu-operator/internal/consts"
 )
 
-func newPartitionManagerOwner() *rblnv1beta1.RBLNClusterPolicy {
+func newDeviceConfigManagerOwner() *rblnv1beta1.RBLNClusterPolicy {
 	owner := newTestOwner()
-	owner.Spec.PartitionManager = rblnv1beta1.RBLNPartitionManagerSpec{
+	owner.Spec.DeviceConfigManager = rblnv1beta1.RBLNDeviceConfigManagerSpec{
 		Enabled:  true,
 		Registry: "docker.io",
-		Image:    "rebellions/k8s-partition-manager",
+		Image:    "rebellions/k8s-device-config-manager",
 		Version:  "v0.1.0",
 	}
 	return owner
 }
 
-func TestPartitionManagerPatch(t *testing.T) {
+func TestDeviceConfigManagerPatch(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
 	ctx := context.Background()
 
-	owner := newPartitionManagerOwner()
-	name := consts.RBLNBaseName + "-" + consts.RBLNPartitionManagerName
-	p := NewPartitionManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
+	owner := newDeviceConfigManagerOwner()
+	name := consts.RBLNBaseName + "-" + consts.RBLNDeviceConfigManagerName
+	p := NewDeviceConfigManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
 		t.Fatalf("Patch() error: %v", err)
@@ -60,17 +60,17 @@ func TestPartitionManagerPatch(t *testing.T) {
 	}
 
 	ds := assertDaemonSetBasics(t, c, name, owner.Name)
-	assertNodeSelector(t, ds, "rebellions.ai/npu.deploy.partition-manager")
+	assertNodeSelector(t, ds, "rebellions.ai/npu.deploy.device-config-manager")
 
 	if !ds.Spec.Template.Spec.HostNetwork {
 		t.Fatal("expected pod HostNetwork=true (dials rbln-smd node-locally at 127.0.0.1:50051)")
 	}
 
 	if len(ds.Spec.Template.Spec.InitContainers) != 1 {
-		t.Fatal("partition-manager requires a driver readiness init container")
+		t.Fatal("device-config-manager requires a driver readiness init container")
 	}
 	gate := ds.Spec.Template.Spec.InitContainers[0]
-	if gate.Name != "component-gate" || !slices.Equal(gate.Command, []string{"rbln-validator"}) || !slices.Equal(gate.Args, []string{"gate", "--component", "partition-manager"}) {
+	if gate.Name != "component-gate" || !slices.Equal(gate.Command, []string{"rbln-validator"}) || !slices.Equal(gate.Args, []string{"gate", "--component", "device-config-manager"}) {
 		t.Fatalf("wrong driver gate: %+v", gate)
 	}
 	assertContainerHasVolumeMount(t, gate, consts.ValidationsVolumeName)
@@ -81,11 +81,11 @@ func TestPartitionManagerPatch(t *testing.T) {
 		t.Fatal("driver gate must read root-owned readiness files")
 	}
 	if p.WorkloadType() != consts.RBLNWorkloadConfigAll {
-		t.Fatal("partition-manager must serve both workloads")
+		t.Fatal("device-config-manager must serve both workloads")
 	}
 
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
-	assertContainerImage(t, mainContainer, "rebellions/k8s-partition-manager", "v0.1.0")
+	assertContainerImage(t, mainContainer, "rebellions/k8s-device-config-manager", "v0.1.0")
 	if !slices.Equal(mainContainer.Args, []string{"reconcile-partition-state"}) {
 		t.Fatalf("container args = %v, want [reconcile-partition-state]", mainContainer.Args)
 	}
@@ -105,15 +105,15 @@ func TestPartitionManagerPatch(t *testing.T) {
 	assertPodHasVolume(t, ds.Spec.Template.Spec, consts.ValidationsVolumeName)
 }
 
-func TestPartitionManagerHostAccess(t *testing.T) {
+func TestDeviceConfigManagerHostAccess(t *testing.T) {
 	scheme := newTestScheme(t)
-	owner := newPartitionManagerOwner()
-	p := NewPartitionManagerPatcher(newFakeClient(t, scheme), logf.Log, testNamespace, &owner.Spec, scheme, "").(*partitionManagerPatcher)
+	owner := newDeviceConfigManagerOwner()
+	p := NewDeviceConfigManagerPatcher(newFakeClient(t, scheme), logf.Log, testNamespace, &owner.Spec, scheme, "").(*deviceConfigManagerPatcher)
 	spec := p.buildPodSpec(owner)
 	mainContainer := spec.Containers[0]
 	assertPrivileged(t, mainContainer)
 	if mainContainer.SecurityContext.RunAsUser == nil || *mainContainer.SecurityContext.RunAsUser != 0 {
-		t.Fatal("partition manager must run as root for PCI binding and chroot modprobe")
+		t.Fatal("device config manager must run as root for PCI binding and chroot modprobe")
 	}
 	if mainContainer.SecurityContext.SELinuxOptions == nil || mainContainer.SecurityContext.SELinuxOptions.Level != "s0" {
 		t.Fatal("expected SELinuxOptions.Level=s0 for host PCI access")
@@ -147,12 +147,12 @@ func TestPartitionManagerHostAccess(t *testing.T) {
 	}
 }
 
-func TestPartitionManagerPatchOpenShift(t *testing.T) {
+func TestDeviceConfigManagerPatchOpenShift(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
-	owner := newPartitionManagerOwner()
-	name := consts.RBLNBaseName + "-" + consts.RBLNPartitionManagerName
-	p := NewPartitionManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "4.15")
+	owner := newDeviceConfigManagerOwner()
+	name := consts.RBLNBaseName + "-" + consts.RBLNDeviceConfigManagerName
+	p := NewDeviceConfigManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "4.15")
 	if err := p.Patch(context.Background(), owner); err != nil {
 		t.Fatal(err)
 	}
@@ -169,23 +169,23 @@ func TestPartitionManagerPatchOpenShift(t *testing.T) {
 	assertObjectExists(t, c, key, binding)
 	if binding.RoleRef.Kind != "Role" || binding.RoleRef.Name != name || len(binding.Subjects) != 1 ||
 		binding.Subjects[0].Kind != "ServiceAccount" || binding.Subjects[0].Name != name || binding.Subjects[0].Namespace != testNamespace {
-		t.Fatalf("SCC permission not bound to partition-manager: %+v", binding)
+		t.Fatalf("SCC permission not bound to device-config-manager: %+v", binding)
 	}
 }
 
-func TestPartitionManagerEnvOverride(t *testing.T) {
+func TestDeviceConfigManagerEnvOverride(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
 	ctx := context.Background()
 
-	owner := newPartitionManagerOwner()
-	owner.Spec.PartitionManager.Env = []corev1.EnvVar{
+	owner := newDeviceConfigManagerOwner()
+	owner.Spec.DeviceConfigManager.Env = []corev1.EnvVar{
 		{Name: "SMD_ADDRESS", Value: "127.0.0.1:50052"},
 		{Name: "DRAIN_TIMEOUT_SECONDS", Value: "300"},
 	}
 
-	name := consts.RBLNBaseName + "-" + consts.RBLNPartitionManagerName
-	p := NewPartitionManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
+	name := consts.RBLNBaseName + "-" + consts.RBLNDeviceConfigManagerName
+	p := NewDeviceConfigManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
 		t.Fatalf("Patch() error: %v", err)
@@ -206,14 +206,14 @@ func TestPartitionManagerEnvOverride(t *testing.T) {
 	}
 }
 
-func TestPartitionManagerCleanUp(t *testing.T) {
+func TestDeviceConfigManagerCleanUp(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
 	ctx := context.Background()
 
-	owner := newPartitionManagerOwner()
-	name := consts.RBLNBaseName + "-" + consts.RBLNPartitionManagerName
-	p := NewPartitionManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
+	owner := newDeviceConfigManagerOwner()
+	name := consts.RBLNBaseName + "-" + consts.RBLNDeviceConfigManagerName
+	p := NewDeviceConfigManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if err := p.Patch(ctx, owner); err != nil {
 		t.Fatalf("Patch() error: %v", err)
@@ -229,16 +229,16 @@ func TestPartitionManagerCleanUp(t *testing.T) {
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &corev1.ServiceAccount{})
 }
 
-func TestPartitionManagerDisabled(t *testing.T) {
+func TestDeviceConfigManagerDisabled(t *testing.T) {
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
 	ctx := context.Background()
 
 	owner := newTestOwner()
-	owner.Spec.PartitionManager = rblnv1beta1.RBLNPartitionManagerSpec{Enabled: false}
+	owner.Spec.DeviceConfigManager = rblnv1beta1.RBLNDeviceConfigManagerSpec{Enabled: false}
 
-	name := consts.RBLNBaseName + "-" + consts.RBLNPartitionManagerName
-	p := NewPartitionManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
+	name := consts.RBLNBaseName + "-" + consts.RBLNDeviceConfigManagerName
+	p := NewDeviceConfigManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
 
 	if p.IsEnabled() {
 		t.Fatal("IsEnabled() = true, want false")
@@ -249,15 +249,15 @@ func TestPartitionManagerDisabled(t *testing.T) {
 	assertObjectNotExists(t, c, types.NamespacedName{Name: name, Namespace: testNamespace}, &appsv1.DaemonSet{})
 }
 
-func TestPartitionManagerVMDeployment(t *testing.T) {
-	owner := newPartitionManagerOwner()
+func TestDeviceConfigManagerVMDeployment(t *testing.T) {
+	owner := newDeviceConfigManagerOwner()
 	owner.Spec.WorkloadType = consts.RBLNWorkloadConfigVMPassthrough
 	owner.Spec.Validator.Registry = "private.example.com"
 	owner.Spec.Validator.Image = "validator"
 	owner.Spec.Validator.Version = "gate-test"
 	owner.Spec.Validator.ImagePullSecrets = []string{"shared", "validator-secret"}
-	owner.Spec.PartitionManager.ImagePullSecrets = []string{"shared", "partition-secret"}
-	p := NewPartitionManagerPatcher(newFakeClient(t, newTestScheme(t)), logf.Log, testNamespace, &owner.Spec, newTestScheme(t), "").(*partitionManagerPatcher)
+	owner.Spec.DeviceConfigManager.ImagePullSecrets = []string{"shared", "partition-secret"}
+	p := NewDeviceConfigManagerPatcher(newFakeClient(t, newTestScheme(t)), logf.Log, testNamespace, &owner.Spec, newTestScheme(t), "").(*deviceConfigManagerPatcher)
 	pod := p.buildPodSpec(owner)
 	if pod.InitContainers[0].Image != "private.example.com/validator:gate-test" {
 		t.Fatalf("wrong validator image: %s", pod.InitContainers[0].Image)
@@ -266,7 +266,7 @@ func TestPartitionManagerVMDeployment(t *testing.T) {
 	if !slices.Equal(pod.ImagePullSecrets, wantSecrets) {
 		t.Fatalf("image pull secrets = %v", pod.ImagePullSecrets)
 	}
-	if len(pod.InitContainers) != 1 || !slices.Equal(pod.InitContainers[0].Args, []string{"gate", "--component", "partition-manager"}) {
+	if len(pod.InitContainers) != 1 || !slices.Equal(pod.InitContainers[0].Args, []string{"gate", "--component", "device-config-manager"}) {
 		t.Fatal("VM manager must wait only for driver installation")
 	}
 	if envValue(pod.Containers[0].Env, "DEFAULT_WORKLOAD_TYPE") != consts.RBLNWorkloadConfigVMPassthrough {

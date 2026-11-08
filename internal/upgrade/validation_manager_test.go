@@ -179,10 +179,10 @@ func TestUpgradeWaitsForPartitionRegistrationEvenWithReadyConsumer(t *testing.T)
 		name                              string
 		enabled, condition, pending, want bool
 	}{
-		{name: "PM disabled", want: true},
-		{name: "PM has not finished", enabled: true},
+		{name: "DCM disabled", want: true},
+		{name: "DCM has not finished", enabled: true},
 		{name: "stale success while transition recorded", enabled: true, condition: true, pending: true},
-		{name: "PM registration complete", enabled: true, condition: true, want: true},
+		{name: "DCM registration complete", enabled: true, condition: true, want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			provider := newTestNodeUpgradeStateProvider(t)
@@ -198,7 +198,7 @@ func TestUpgradeWaitsForPartitionRegistrationEvenWithReadyConsumer(t *testing.T)
 			}
 			p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "validator", Namespace: "operator", Labels: map[string]string{"app": "validator"}}, Spec: corev1.PodSpec{NodeName: n.Name}, Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Ready: true}}}}
 			m := NewValidationManager(k8sfake.NewClientset(p), provider, "app=validator")
-			done, err := m.Validate(context.Background(), n, ValidationOptions{Namespace: "operator", PartitionManagerEnabled: tc.enabled})
+			done, err := m.Validate(context.Background(), n, ValidationOptions{Namespace: "operator", DeviceConfigManagerEnabled: tc.enabled})
 			if err != nil || done != tc.want {
 				t.Fatalf("done=%v err=%v want=%v", done, err, tc.want)
 			}

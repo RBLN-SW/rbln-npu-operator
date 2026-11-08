@@ -115,15 +115,15 @@ func TestRunGate(t *testing.T) {
 			},
 			want: want{sleepCallCount: 0},
 		},
-		"PartitionManagerNeverWaitsForPartitionReady": {
-			reason: "the partition-manager waits only for the driver, never toolkit or its own partition-ready",
+		"DeviceConfigManagerNeverWaitsForPartitionReady": {
+			reason: "the device-config-manager waits only for the driver, never toolkit or its own partition-ready",
 			fields: fields{
 				getter: &fakeNodeLabelsGetter{results: []nodeLabelsResult{
 					{labels: map[string]string{consts.RBLNPartitionLabelKey: consts.RBLNPartitionModeVF4}},
 				}},
 			},
 			args: args{
-				component:     consts.RBLNPartitionManagerName,
+				component:     consts.RBLNDeviceConfigManagerName,
 				nodeName:      "node-1",
 				existingFiles: nil,
 			},
@@ -299,7 +299,7 @@ func TestComponentGateTableCoversAllGatedOperands(t *testing.T) {
 		consts.RBLNDRAKubeletPluginName,
 		consts.RBLNMetricExporterName,
 		consts.RBLNFeatureDiscoveryName,
-		consts.RBLNPartitionManagerName,
+		consts.RBLNDeviceConfigManagerName,
 	}
 	if len(componentWaitsForPartition) != len(wantComponents) {
 		t.Fatalf("gate table has %d entries, want %d", len(componentWaitsForPartition), len(wantComponents))
@@ -462,7 +462,7 @@ func TestContainerPFConsumerWaitsForBindingReconcile(t *testing.T) {
 	sleeps := 0
 	rt := gateRuntime{
 		getNodeLabels: func(context.Context, string) (map[string]string, error) {
-			return map[string]string{"rebellions.ai/npu.deploy.partition-manager": "true"}, nil
+			return map[string]string{"rebellions.ai/npu.deploy.device-config-manager": "true"}, nil
 		},
 		checkDriver: func(context.Context) error { return nil },
 		sleep: func(time.Duration) {
@@ -484,13 +484,13 @@ func TestContainerPFConsumerWaitsForBindingReconcile(t *testing.T) {
 	}
 }
 
-func TestPartitionManagerInitWaitsOnlyForDriver(t *testing.T) {
+func TestDeviceConfigManagerInitWaitsOnlyForDriver(t *testing.T) {
 	for _, workload := range []string{consts.RBLNWorkloadConfigContainer, consts.RBLNWorkloadConfigVMPassthrough} {
 		t.Run(workload, func(t *testing.T) {
 			checks, sleeps := 0, 0
 			cfg := &gateConfig{
 				nodeName:        "node",
-				component:       consts.RBLNPartitionManagerName,
+				component:       consts.RBLNDeviceConfigManagerName,
 				defaultWorkload: workload,
 				outputDir:       t.TempDir(),
 			}

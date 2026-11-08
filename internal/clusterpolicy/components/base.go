@@ -114,7 +114,7 @@ func (b *basePatcher) IsReady(ctx context.Context, nodeCountForType int32) Readi
 // buildGateInitContainer blocks an operand pod until `rbln-validator gate`
 // confirms this node's readiness files for the component (see the gate table
 // in cmd/rbln-validator/gate.go). Device advertisers resolve partition
-// labels on every poll; partition-manager waits only for the driver. Changes
+// labels on every poll; device-config-manager waits only for the driver. Changes
 // are honored at the next pod
 // (re)start without any intermediate state; that read is why gated
 // components carry node-viewer RBAC (reconcileNodeViewerClusterRBAC).

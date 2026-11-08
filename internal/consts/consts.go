@@ -202,9 +202,9 @@ const (
 	RBLNMetricExporterName = "metrics-exporter"
 )
 
-// Partition manager constants
+// Device config manager constants
 const (
-	RBLNPartitionManagerName = "partition-manager"
+	RBLNDeviceConfigManagerName = "device-config-manager"
 )
 
 // NPU feature discovery constants
@@ -316,6 +316,6 @@ const OperatorCordonClaimValue = "operator"
 // the same write that adopts or lifts the cordon.
 const DriverManagerEvictionBlockedAnnotation = "rebellions.ai/npu-pod-eviction-blocked"
 
-// PartitionReadyFileName is written by the partition-manager once VF
+// PartitionReadyFileName is written by the device-config-manager once VF
 // partitioning is applied on the node; operand gates wait for it.
 const PartitionReadyFileName = "partition-ready"

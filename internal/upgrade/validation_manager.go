@@ -15,11 +15,11 @@ import (
 // ValidationOptions is the current policy's workload context for this pass.
 // A deploy label alone cannot tell which of the two VM plugins is enabled.
 type ValidationOptions struct {
-	Namespace               string
-	DefaultWorkload         string
-	DRAEnabled              bool
-	SandboxEnabled          bool
-	PartitionManagerEnabled bool
+	Namespace                  string
+	DefaultWorkload            string
+	DRAEnabled                 bool
+	SandboxEnabled             bool
+	DeviceConfigManagerEnabled bool
 }
 
 type ValidationManagerInterface interface {
@@ -40,7 +40,7 @@ func (m *ValidationManager) isPodReady(_ context.Context, p corev1.Pod) bool {
 }
 
 func (m *ValidationManager) Validate(ctx context.Context, n *corev1.Node, options ValidationOptions) (bool, error) {
-	if options.PartitionManagerEnabled && !partitionRegistrationReady(n) {
+	if options.DeviceConfigManagerEnabled && !partitionRegistrationReady(n) {
 		return false, m.handleTimeout(ctx, n, DefaultValidationTimeoutSeconds)
 	}
 	if m.podSelector == "" {

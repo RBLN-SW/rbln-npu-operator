@@ -146,7 +146,7 @@ func TestRBLNClusterPolicy_CELRejection(t *testing.T) {
 		spec      rblnv1beta1.RBLNClusterPolicySpec
 		errSubstr string
 	}{
-		"vm-passthrough without partitionManager": {
+		"vm-passthrough without deviceConfigManager": {
 			spec: rblnv1beta1.RBLNClusterPolicySpec{
 				WorkloadType:        "vm-passthrough",
 				SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: true},
@@ -156,12 +156,12 @@ func TestRBLNClusterPolicy_CELRejection(t *testing.T) {
 				ContainerToolkit:    rblnv1beta1.RBLNContainerToolkitSpec{},
 				Driver:              rblnv1beta1.DriverSpec{},
 			},
-			errSubstr: "partitionManager.enabled must be true",
+			errSubstr: "deviceConfigManager.enabled must be true",
 		},
 		"vm-passthrough without any vfio consumer": {
 			spec: rblnv1beta1.RBLNClusterPolicySpec{
 				WorkloadType:        "vm-passthrough",
-				PartitionManager:    rblnv1beta1.RBLNPartitionManagerSpec{Enabled: true},
+				DeviceConfigManager: rblnv1beta1.RBLNDeviceConfigManagerSpec{Enabled: true},
 				SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
 				DRAKubeletPlugin:    rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: false},
 				DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{},
@@ -175,7 +175,7 @@ func TestRBLNClusterPolicy_CELRejection(t *testing.T) {
 		"sandboxDevicePlugin and draKubeletPlugin both enabled": {
 			spec: rblnv1beta1.RBLNClusterPolicySpec{
 				WorkloadType:        "vm-passthrough",
-				PartitionManager:    rblnv1beta1.RBLNPartitionManagerSpec{Enabled: true},
+				DeviceConfigManager: rblnv1beta1.RBLNDeviceConfigManagerSpec{Enabled: true},
 				SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: true},
 				DRAKubeletPlugin:    rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: true},
 				DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{},
@@ -241,7 +241,7 @@ func TestRBLNClusterPolicy_CELAcceptsDRAPassthrough(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "cel-dra-passthrough"},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
 			WorkloadType:        "vm-passthrough",
-			PartitionManager:    rblnv1beta1.RBLNPartitionManagerSpec{Enabled: true},
+			DeviceConfigManager: rblnv1beta1.RBLNDeviceConfigManagerSpec{Enabled: true},
 			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: false},
 			DRAKubeletPlugin:    rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: true},
 			DevicePlugin:        rblnv1beta1.RBLNDevicePluginSpec{},

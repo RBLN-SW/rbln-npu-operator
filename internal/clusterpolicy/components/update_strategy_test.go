@@ -38,8 +38,8 @@ func TestComponentUpdateStrategies(t *testing.T) {
 		"npu feature discovery": {NewNPUFeatureDiscoveryPatcher, func(s *rblnv1beta1.RBLNClusterPolicySpec) **rblnv1beta1.DaemonSetUpdateStrategySpec {
 			return &s.NPUFeatureDiscovery.UpdateStrategy
 		}},
-		"partition manager": {NewPartitionManagerPatcher, func(s *rblnv1beta1.RBLNClusterPolicySpec) **rblnv1beta1.DaemonSetUpdateStrategySpec {
-			return &s.PartitionManager.UpdateStrategy
+		"device config manager": {NewDeviceConfigManagerPatcher, func(s *rblnv1beta1.RBLNClusterPolicySpec) **rblnv1beta1.DaemonSetUpdateStrategySpec {
+			return &s.DeviceConfigManager.UpdateStrategy
 		}},
 		"validator": {NewValidatorPatcher, func(s *rblnv1beta1.RBLNClusterPolicySpec) **rblnv1beta1.DaemonSetUpdateStrategySpec {
 			return &s.Validator.UpdateStrategy
@@ -64,7 +64,7 @@ func TestComponentUpdateStrategies(t *testing.T) {
 			owner.Spec.SandboxDevicePlugin = rblnv1beta1.RBLNSandboxDevicePluginSpec{Enabled: true, Image: "sandbox-plugin", Version: "v1"}
 			owner.Spec.MetricsExporter = rblnv1beta1.RBLNMetricsExporterSpec{Enabled: true, Image: "metrics-exporter", Version: "v1"}
 			owner.Spec.NPUFeatureDiscovery = rblnv1beta1.RBLNNPUFeatureDiscoverySpec{Enabled: true, Image: "feature-discovery", Version: "v1"}
-			owner.Spec.PartitionManager = rblnv1beta1.RBLNPartitionManagerSpec{Enabled: true, Image: "partition-manager", Version: "v1"}
+			owner.Spec.DeviceConfigManager = rblnv1beta1.RBLNDeviceConfigManagerSpec{Enabled: true, Image: "device-config-manager", Version: "v1"}
 			owner.Spec.DRAKubeletPlugin = rblnv1beta1.RBLNDRAKubeletPluginSpec{Enabled: true, Image: "dra-plugin", Version: "v1"}
 
 			patch := func() *appsv1.DaemonSet {

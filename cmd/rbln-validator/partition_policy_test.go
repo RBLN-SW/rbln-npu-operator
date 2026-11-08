@@ -13,7 +13,7 @@ import (
 )
 
 // Exercise the label contract through both the family decision and the gate.
-// The gate only needs the effective PF/VF family; partition-manager applies
+// The gate only needs the effective PF/VF family; device-config-manager applies
 // the VF count. Neither VF count overrides nor fallbacks may change the family.
 func TestGatePartitionPolicy(t *testing.T) {
 	defaults := []struct {

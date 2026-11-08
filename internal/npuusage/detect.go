@@ -3,7 +3,7 @@
 // lookup failures and workload exclusions are handled by each caller.
 //
 // Keep this package and its tests identical in rbln-npu-operator,
-// k8s-partition-manager and rbln-k8s-driver-manager. The binaries are released
+// k8s-device-config-manager and rbln-k8s-driver-manager. The binaries are released
 // independently; the detector has no dependency on any component's policy.
 package npuusage
 

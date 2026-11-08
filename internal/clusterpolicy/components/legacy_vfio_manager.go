@@ -18,7 +18,7 @@ import (
 
 // Existing policies survive the removal of spec.vfioManager, so owner garbage
 // collection cannot retire its resources. Stop the old PCI binding controller
-// before reconciling its replacement, even if partition-manager is disabled.
+// before reconciling its replacement, even if device-config-manager is disabled.
 // TODO(remove after two releases): retire with the legacy VFIO deploy label.
 type legacyVFIOManagerPatcher struct{ basePatcher }
 

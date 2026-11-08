@@ -10,7 +10,7 @@ then stops NPU consumers and components before releasing VFIO bindings and
 unloading the native module. Its VFIO cleanup leaves SR-IOV and native bindings
 alone; it does not remove VFs or call SMD.
 
-Partition-manager starts through a driver-only `component-gate` init container.
+Device-config-manager starts through a driver-only `component-gate` init container.
 It never waits for toolkit, partition, or VFIO readiness in that gate. VM
 consumer gates also check the current managed driver installation. Existing
 cordon ownership and rollout phases are retained.
@@ -19,18 +19,18 @@ For an unowned node with no active driver Pod, the binding gate lists
 `RBLNDriver` configurations and checks their node selectors. A matching driver
 keeps the gate waiting for assignment; no matching configuration permits the
 unmanaged/host path even when `npu.deploy.driver=true`. The deploy label is an
-eligibility flag, not proof that a managed driver is configured. PM and VM
+eligibility flag, not proof that a managed driver is configured. DCM and VM
 consumer gate service accounts need read-only `list` access to `rblndrivers`,
-including standalone partition-manager deployments. Other component gates do
+including standalone device-config-manager deployments. Other component gates do
 not receive this permission. An API error never counts as an empty list.
 
 Automatic upgrade validation follows the effective node workload (a valid node
 label overrides the policy default). Container nodes wait for `operator-validator`;
 VM nodes wait for the enabled `dra-kubelet-plugin` or `sandbox-device-plugin`.
 Validation checks non-terminating, ready Pods in the operator namespace on the
-target node. With PM enabled it also waits for `NPUPartitionReady=True` and the
+target node. With DCM enabled it also waits for `NPUPartitionReady=True` and the
 transition annotations to be cleared, after registration and inventory checks.
-Missing/unready consumers or unfinished PM work retain the existing validation
+Missing/unready consumers or unfinished DCM work retain the existing validation
 timeout.
 
 This document covers the rollout the operator performs when `spec.driver.upgradePolicy.autoUpgrade` is `true`: how a node moves from the old driver to the new one, which policy options change that path, what happens when a step fails, and where to look while a rollout is running.
@@ -88,8 +88,8 @@ The keys above are chart values. In a `RBLNClusterPolicy` manifest the same bloc
 > [!NOTE]
 > `npuPodDeletion.force` and `npuPodDeletion.deleteEmptyDirData` apply even with `autoUpgrade: false`. With the workflow off, `k8s-driver-manager` empties the node itself whenever a driver pod restarts while the module is still loaded, and it obeys the same two settings. `timeoutSeconds` is the exception: it bounds only the operator's eviction, which has `upgrade-skipped` to fall back to. `k8s-driver-manager` has no such state and waits instead of giving up.
 >
-> PCI binding and container/VM transitions are managed by partition-manager.
-> Enable `partitionManager.enabled` for VM nodes. Its reconcile loop handles
+> PCI binding and container/VM transitions are managed by device-config-manager.
+> Enable `deviceConfigManager.enabled` for VM nodes. Its reconcile loop handles
 > NPU workload draining, SR-IOV changes and PCI rebinding.
 >
 > Driver installation still requires the chart's `driver.manager.image.tag` pin:
@@ -164,7 +164,7 @@ Each node advances through the states below one step at a time. The current stat
 | `wait-for-jobs-required` | Waits until no pod matching `waitForCompletion.podSelector` is Running or Pending. Skipped when the selector is empty | proceeds on timeout |
 | `pod-deletion-required` | Evicts the node's NPU pods, then moves to `pod-restart-required`. A pod the eviction cannot remove parks the node; see [Why a node is skipped](#why-a-node-is-skipped) | `upgrade-skipped` |
 | `pod-restart-required` | Deletes the driver pod and waits for the replacement to become Ready | `upgrade-failed` |
-| `validation-required` | Waits up to 600 seconds for PM registration completion (when enabled) and the workload's validator/consumer on the node: `operator-validator` for containers, the enabled DRA or sandbox device plugin for VMs | `upgrade-failed` |
+| `validation-required` | Waits up to 600 seconds for DCM registration completion (when enabled) and the workload's validator/consumer on the node: `operator-validator` for containers, the enabled DRA or sandbox device plugin for VMs | `upgrade-failed` |
 | `uncordon-required` | Uncordons the node. A node that was already cordoned before the upgrade stays cordoned, unless that cordon was `k8s-driver-manager`'s own (see below) | retried |
 | `upgrade-done` | Terminal until the next driver revision | N/A |
 

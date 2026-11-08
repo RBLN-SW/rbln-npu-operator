@@ -171,9 +171,9 @@ var _ = Describe("RBLNClusterPolicy Controller", Ordered, func() {
 		})
 
 		It("creates vm-passthrough resources and excludes container workload resources", func() {
-			By("creating the partition manager resources")
-			expectResource(ctx, &corev1.ServiceAccount{}, "rbln-partition-manager", vmNS, 5*time.Second)
-			expectResource(ctx, &appsv1.DaemonSet{}, "rbln-partition-manager", vmNS, 5*time.Second)
+			By("creating the device config manager resources")
+			expectResource(ctx, &corev1.ServiceAccount{}, "rbln-device-config-manager", vmNS, 5*time.Second)
+			expectResource(ctx, &appsv1.DaemonSet{}, "rbln-device-config-manager", vmNS, 5*time.Second)
 
 			By("creating the sandbox device plugin resources")
 			expectResource(ctx, &corev1.ServiceAccount{}, "rbln-sandbox-device-plugin", vmNS, 5*time.Second)
@@ -491,7 +491,7 @@ func newContainerClusterPolicyFixture(name string) *rblnv1beta1.RBLNClusterPolic
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
 			WorkloadType: consts.RBLNWorkloadConfigContainer,
-			PartitionManager: rblnv1beta1.RBLNPartitionManagerSpec{
+			DeviceConfigManager: rblnv1beta1.RBLNDeviceConfigManagerSpec{
 				Enabled: false,
 			},
 			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{
@@ -518,7 +518,7 @@ func newVMPassthroughClusterPolicyFixture(name string) *rblnv1beta1.RBLNClusterP
 		},
 		Spec: rblnv1beta1.RBLNClusterPolicySpec{
 			WorkloadType: consts.RBLNWorkloadConfigVMPassthrough,
-			PartitionManager: rblnv1beta1.RBLNPartitionManagerSpec{
+			DeviceConfigManager: rblnv1beta1.RBLNDeviceConfigManagerSpec{
 				Enabled: true,
 			},
 			SandboxDevicePlugin: rblnv1beta1.RBLNSandboxDevicePluginSpec{

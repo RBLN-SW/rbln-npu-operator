@@ -314,12 +314,12 @@ draKubeletPlugin:
   #   level: debug
   #   format: text
 
-# NPU Partition Manager configuration
-partitionManager:
+# NPU Device Config Manager configuration
+deviceConfigManager:
   enabled: true
   image:
     registry: docker.io
-    repository: rebellions/k8s-partition-manager
+    repository: rebellions/k8s-device-config-manager
     tag: v0.1.0
     pullPolicy: IfNotPresent
 

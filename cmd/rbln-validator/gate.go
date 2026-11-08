@@ -24,7 +24,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Device advertisers wait for the partition manager to finish driver binding
+// Device advertisers wait for the device config manager to finish driver binding
 // and VF topology changes. The manager itself owns the marker and must not wait
 // for it. VM gates also validate the resulting PF-only or VF-only PCI layout.
 var componentWaitsForPartition = map[string]bool{
@@ -33,7 +33,7 @@ var componentWaitsForPartition = map[string]bool{
 	consts.RBLNDRAKubeletPluginName:    true,
 	consts.RBLNMetricExporterName:      false,
 	consts.RBLNFeatureDiscoveryName:    false,
-	consts.RBLNPartitionManagerName:    false,
+	consts.RBLNDeviceConfigManagerName: false,
 }
 
 type gateRuntime struct {
@@ -127,7 +127,7 @@ func newGateCommand(config *rootConfig) *cobra.Command {
 	return cmd
 }
 
-// Except for the driver-only partition-manager gate, runGate re-reads the
+// Except for the driver-only device-config-manager gate, runGate re-reads the
 // node's partition labels on every poll, so a label
 // change during the wait (partitioning requested or aborted) is honored
 // without a pod restart. Fail-closed: on API errors or invalid node defaults
@@ -142,8 +142,8 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 	if cfg.nodeName == "" {
 		return errors.New("NODE_NAME environment variable is required")
 	}
-	if cfg.component == consts.RBLNPartitionManagerName && rt.checkBindingDriver == nil {
-		return errors.New("partition-manager gate requires a driver readiness checker")
+	if cfg.component == consts.RBLNDeviceConfigManagerName && rt.checkBindingDriver == nil {
+		return errors.New("device-config-manager gate requires a driver readiness checker")
 	}
 	if cfg.policyName != "" && rt.getDefaultWorkload == nil {
 		return errors.New("policy-backed gate requires a workload reader")
@@ -153,7 +153,7 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 	slog.Info("gate started", "component", cfg.component, "node", cfg.nodeName)
 
 	for {
-		if cfg.component == consts.RBLNPartitionManagerName {
+		if cfg.component == consts.RBLNDeviceConfigManagerName {
 			if err := rt.checkBindingDriver(ctx); err == nil {
 				slog.Info("driver readiness gate passed", "component", cfg.component)
 				return nil
@@ -203,7 +203,7 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 				}
 			}
 			if missing := statusfile.Missing(cfg.outputDir, []string{consts.PartitionReadyFileName}); len(missing) > 0 {
-				slog.Info("waiting for partition manager", "node", cfg.nodeName)
+				slog.Info("waiting for device config manager", "node", cfg.nodeName)
 				rt.sleep(interval)
 				continue
 			}
@@ -228,7 +228,7 @@ func runGate(ctx context.Context, cfg *gateConfig, rt gateRuntime) error {
 		}
 
 		readyFiles := []string{toolkitReadyFile}
-		managerLabel := labels["rebellions.ai/npu.deploy.partition-manager"]
+		managerLabel := labels["rebellions.ai/npu.deploy.device-config-manager"]
 		managerEnabled := managerLabel == "true" || managerLabel == consts.RBLNDeployPausedForDriverUpgrade
 		if waitsForPartition && (partitioned || managerEnabled) {
 			readyFiles = append(readyFiles, consts.PartitionReadyFileName)

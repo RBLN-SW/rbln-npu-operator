@@ -56,8 +56,8 @@ func newTestClusterPolicyService(k8sClient client.Client, workloadType string) *
 		log:       logr.Discard(),
 		policy: &rblnv1beta1.RBLNClusterPolicy{
 			Spec: rblnv1beta1.RBLNClusterPolicySpec{
-				WorkloadType:     workloadType,
-				PartitionManager: rblnv1beta1.RBLNPartitionManagerSpec{Enabled: true},
+				WorkloadType:        workloadType,
+				DeviceConfigManager: rblnv1beta1.RBLNDeviceConfigManagerSpec{Enabled: true},
 			},
 		},
 	}
@@ -592,17 +592,17 @@ func TestReconcileNodesCountsPausedNodes(t *testing.T) {
 	}
 }
 
-func TestPartitionManagerNodeDeployment(t *testing.T) {
+func TestDeviceConfigManagerNodeDeployment(t *testing.T) {
 	for _, workload := range []string{consts.RBLNWorkloadConfigContainer, consts.RBLNWorkloadConfigVMPassthrough} {
 		for _, enabled := range []bool{false, true} {
 			node := &corev1.Node{ObjectMeta: newObjectMeta("node", map[string]string{consts.NFDDevicePCILabelKey: labelValueTrue, consts.RBLNWorkloadConfigLabelKey: workload})}
 			c := newNodeLabelsFakeClient(t, node)
 			service := newTestClusterPolicyService(c, consts.RBLNWorkloadConfigContainer)
-			service.policy.Spec.PartitionManager.Enabled = enabled
+			service.policy.Spec.DeviceConfigManager.Enabled = enabled
 			_, err := service.ReconcileNodes(context.Background(), []corev1.Node{*node})
 			if workload == consts.RBLNWorkloadConfigVMPassthrough && !enabled {
 				if err == nil {
-					t.Fatal("VM node override accepted without partition-manager")
+					t.Fatal("VM node override accepted without device-config-manager")
 				}
 				continue
 			}
@@ -613,7 +613,7 @@ func TestPartitionManagerNodeDeployment(t *testing.T) {
 			if err := c.Get(context.Background(), client.ObjectKeyFromObject(node), got); err != nil {
 				t.Fatal(err)
 			}
-			if (got.Labels["rebellions.ai/npu.deploy.partition-manager"] == labelValueTrue) != enabled {
+			if (got.Labels["rebellions.ai/npu.deploy.device-config-manager"] == labelValueTrue) != enabled {
 				t.Fatalf("incorrect manager deployment labels: %v", got.Labels)
 			}
 			if workload == consts.RBLNWorkloadConfigVMPassthrough && (got.Labels[consts.RBLNDeployDriverLabelKey] != labelValueTrue || got.Labels[consts.RBLNDeploySmdLabelKey] != labelValueTrue) {

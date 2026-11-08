@@ -5832,8 +5832,8 @@ spec:
                       type: object
                     type: array
                 type: object
-              partitionManager:
-                description: PartitionManager component spec
+              deviceConfigManager:
+                description: DeviceConfigManager component spec
                 properties:
                   affinity:
                     description: Affinity specifies the affinity for the DaemonSet
@@ -6763,12 +6763,12 @@ spec:
                     type: object
                   enabled:
                     default: false
-                    description: Enabled indicates if deployment of RBLN partition
+                    description: Enabled indicates if deployment of RBLN device config
                       manager is enabled
                     type: boolean
                   env:
                     description: Env specifies additional environment variables for
-                      the partition manager container
+                      the device config manager container
                     items:
                       description: EnvVar represents an environment variable present
                         in a Container.
@@ -6926,8 +6926,8 @@ spec:
                       type: object
                     type: array
                   image:
-                    default: rebellions/k8s-partition-manager
-                    description: RBLN Partition Manager image name
+                    default: rebellions/k8s-device-config-manager
+                    description: RBLN Device Config Manager image name
                     pattern: '[a-zA-Z0-9\-]+'
                     type: string
                   imagePullPolicy:
@@ -6952,7 +6952,7 @@ spec:
                     type: object
                   registry:
                     default: docker.io
-                    description: Registry override for the RBLN Partition Manager
+                    description: Registry override for the RBLN Device Config Manager
                       image
                     type: string
                   resources:
@@ -7095,7 +7095,7 @@ spec:
                       rule: '!has(self.type) || self.type != ''OnDelete'' || !has(self.rollingUpdate)'
                   version:
                     default: latest
-                    description: RBLN Partition Manager image tag
+                    description: RBLN Device Config Manager image tag
                     type: string
                 required:
                 - enabled
@@ -8823,8 +8823,8 @@ spec:
             - sandboxDevicePlugin
             type: object
             x-kubernetes-validations:
-            - message: partitionManager.enabled must be true when workloadType is vm-passthrough
-              rule: self.workloadType != 'vm-passthrough' || (has(self.partitionManager) && self.partitionManager.enabled)
+            - message: deviceConfigManager.enabled must be true when workloadType is vm-passthrough
+              rule: self.workloadType != 'vm-passthrough' || (has(self.deviceConfigManager) && self.deviceConfigManager.enabled)
             - message: either sandboxDevicePlugin.enabled or draKubeletPlugin.enabled
                 must be true when workloadType is vm-passthrough
               rule: self.workloadType != 'vm-passthrough' || self.sandboxDevicePlugin.enabled

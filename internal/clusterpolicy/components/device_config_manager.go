@@ -19,22 +19,22 @@ import (
 	k8sutil "github.com/RBLN-SW/rbln-npu-operator/internal/utils/k8s"
 )
 
-const partitionManagerCommand = "reconcile-partition-state"
+const deviceConfigManagerCommand = "reconcile-partition-state"
 
-type partitionManagerPatcher struct {
+type deviceConfigManagerPatcher struct {
 	basePatcher
-	desiredSpec *rblnv1beta1.RBLNPartitionManagerSpec
+	desiredSpec *rblnv1beta1.RBLNDeviceConfigManagerSpec
 	podDefaults *rblnv1beta1.PodDefaultsSpec
 }
 
-func NewPartitionManagerPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
-	synced := syncSpec(cpSpec, cpSpec.PartitionManager)
-	return &partitionManagerPatcher{
+func NewDeviceConfigManagerPatcher(client client.Client, log logr.Logger, namespace string, cpSpec *rblnv1beta1.RBLNClusterPolicySpec, scheme *runtime.Scheme, openshiftVersion string) Patcher {
+	synced := syncSpec(cpSpec, cpSpec.DeviceConfigManager)
+	return &deviceConfigManagerPatcher{
 		basePatcher: basePatcher{
 			client:           client,
 			log:              log,
 			scheme:           scheme,
-			name:             consts.RBLNBaseName + "-" + consts.RBLNPartitionManagerName,
+			name:             consts.RBLNBaseName + "-" + consts.RBLNDeviceConfigManagerName,
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 			enabled:          synced.IsEnabled(),
@@ -45,7 +45,7 @@ func NewPartitionManagerPatcher(client client.Client, log logr.Logger, namespace
 	}
 }
 
-func (h *partitionManagerPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+func (h *deviceConfigManagerPatcher) Patch(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	if !h.IsEnabled() {
 		return nil
 	}
@@ -64,8 +64,8 @@ func (h *partitionManagerPatcher) Patch(ctx context.Context, owner *rblnv1beta1.
 	return h.handleDaemonSet(ctx, owner)
 }
 
-func (h *partitionManagerPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
-	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "Partition Manager")
+func (h *deviceConfigManagerPatcher) CleanUp(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+	h.log.V(consts.VDebug).Info("Cleaning up disabled component", "component", "Device Config Manager")
 	if err := h.deleteDaemonSet(ctx); err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func (h *partitionManagerPatcher) CleanUp(ctx context.Context, owner *rblnv1beta
 	return h.deleteServiceAccount(ctx)
 }
 
-func (h *partitionManagerPatcher) handleClusterRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+func (h *deviceConfigManagerPatcher) handleClusterRole(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	clusterRole := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: h.name}}
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, clusterRole, func() error {
@@ -122,14 +122,14 @@ func (h *partitionManagerPatcher) handleClusterRole(ctx context.Context, owner *
 		return ctrl.SetControllerReference(owner, clusterRole, h.scheme)
 	})
 	if err != nil {
-		h.log.Error(err, "Failed to reconcile Partition Manager ClusterRole")
+		h.log.Error(err, "Failed to reconcile Device Config Manager ClusterRole")
 		return err
 	}
-	k8sutil.LogReconcileResult(h.log, "Reconciled Partition Manager ClusterRole", res, "name", clusterRole.Name)
+	k8sutil.LogReconcileResult(h.log, "Reconciled Device Config Manager ClusterRole", res, "name", clusterRole.Name)
 	return nil
 }
 
-func (h *partitionManagerPatcher) handleClusterRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+func (h *deviceConfigManagerPatcher) handleClusterRoleBinding(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	binding := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: h.name}}
 
 	res, err := controllerutil.CreateOrPatch(ctx, h.client, binding, func() error {
@@ -148,17 +148,17 @@ func (h *partitionManagerPatcher) handleClusterRoleBinding(ctx context.Context, 
 		return ctrl.SetControllerReference(owner, binding, h.scheme)
 	})
 	if err != nil {
-		h.log.Error(err, "Failed to reconcile Partition Manager ClusterRoleBinding")
+		h.log.Error(err, "Failed to reconcile Device Config Manager ClusterRoleBinding")
 		return err
 	}
-	k8sutil.LogReconcileResult(h.log, "Reconciled Partition Manager ClusterRoleBinding", res, "name", binding.Name)
+	k8sutil.LogReconcileResult(h.log, "Reconciled Device Config Manager ClusterRoleBinding", res, "name", binding.Name)
 	return nil
 }
 
-func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
+func (h *deviceConfigManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy) *corev1.PodSpec {
 	// Only driver readiness: toolkit and partition readiness depend on work
 	// this manager performs and would create a circular startup dependency.
-	initContainer := buildGateInitContainer(consts.RBLNPartitionManagerName, owner.Spec.Validator)
+	initContainer := buildGateInitContainer(consts.RBLNDeviceConfigManagerName, owner.Spec.Validator)
 	pullSecrets := slices.Clone(h.desiredSpec.ImagePullSecrets)
 	for _, secret := range owner.Spec.Validator.ImagePullSecrets {
 		if !slices.Contains(pullSecrets, secret) {
@@ -207,11 +207,11 @@ func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 	managerContainer := k8sutil.NewContainerBuilder().
 		WithName(h.name).
 		WithImage(k8sutil.ComposeImageReference(h.desiredSpec.Registry, h.desiredSpec.Image), h.desiredSpec.Version, h.desiredSpec.ImagePullPolicy).
-		WithArgs([]string{partitionManagerCommand}).
+		WithArgs([]string{deviceConfigManagerCommand}).
 		WithEnvs(env).
 		WithResources(h.desiredSpec.Resources, "250m", "40Mi").
 		// VF provisioning uses SMD, but PCI bind/unbind and host module
-		// loading are performed directly by partition-manager.
+		// loading are performed directly by device-config-manager.
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged:     ptr(true),
 			RunAsUser:      ptr(int64(0)),
@@ -232,7 +232,7 @@ func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 	return k8sutil.NewPodSpecBuilder().
 		WithServiceAccountName(h.name).
 		WithHostNetwork(true).
-		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.partition-manager": "true"}).
+		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.device-config-manager": "true"}).
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
 		WithImagePullSecrets(pullSecrets).
@@ -247,10 +247,10 @@ func (h *partitionManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		Build()
 }
 
-func (h *partitionManagerPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
+func (h *deviceConfigManagerPatcher) handleDaemonSet(ctx context.Context, owner *rblnv1beta1.RBLNClusterPolicy) error {
 	podSpec := h.buildPodSpec(owner)
 
-	sel := selectorLabels(consts.RBLNPartitionManagerName)
+	sel := selectorLabels(consts.RBLNDeviceConfigManagerName)
 
 	builder := k8sutil.NewDaemonSetBuilder(h.name, h.namespace)
 	ds := builder.Build()
@@ -265,9 +265,9 @@ func (h *partitionManagerPatcher) handleDaemonSet(ctx context.Context, owner *rb
 		return ctrl.SetControllerReference(owner, ds, h.scheme)
 	})
 	if err != nil {
-		h.log.Error(err, "Failed to reconcile Partition Manager DaemonSet")
+		h.log.Error(err, "Failed to reconcile Device Config Manager DaemonSet")
 		return err
 	}
-	k8sutil.LogReconcileResult(h.log, "Reconciled Partition Manager DaemonSet", res, "namespace", ds.Namespace, "name", ds.Name)
+	k8sutil.LogReconcileResult(h.log, "Reconciled Device Config Manager DaemonSet", res, "namespace", ds.Namespace, "name", ds.Name)
 	return nil
 }

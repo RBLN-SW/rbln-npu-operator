@@ -23,7 +23,7 @@ import (
 
 var strategyComponents = []string{
 	"devicePlugin", "draKubeletPlugin", "sandboxDevicePlugin", "metricsExporter",
-	"npuFeatureDiscovery", "containerToolkit", "partitionManager", "validator",
+	"npuFeatureDiscovery", "containerToolkit", "deviceConfigManager", "validator",
 }
 
 func newUpdateStrategyCR(name string) *unstructured.Unstructured {
