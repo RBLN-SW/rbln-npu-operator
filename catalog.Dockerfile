@@ -2,6 +2,7 @@
 # Built from the rendered $(CATALOG_DIR)/ produced by `make catalog`.
 # Serves the catalog over gRPC for a CatalogSource (sourceType: grpc).
 FROM quay.io/operator-framework/opm:v1.46.0
+USER 1001
 
 ENTRYPOINT ["/bin/opm"]
 CMD ["serve", "/configs", "--cache-dir=/tmp/cache"]
