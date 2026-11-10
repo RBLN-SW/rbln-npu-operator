@@ -67,10 +67,13 @@ jobs:
           fi
       - name: Define build variables
         id: build_vars
+        env:
+          INPUT_TAG: ${{ inputs.image-tag }}
+          ARCH: ${{ inputs.platform }}
+          PUSH_ON_BUILD: ${{ inputs.push-on-build }}
+          REGISTRY: ${{ inputs.registry }}
         run: |
           COMMIT_SHORT_SHA=${GITHUB_SHA:0:8}
-          INPUT_TAG="${{ inputs.image-tag }}"
-          ARCH="${{ inputs.platform }}"
           ARCH_SUFFIX="${ARCH#linux/}"
 
           if [ -n "${INPUT_TAG}" ]; then
@@ -79,9 +82,8 @@ jobs:
             IMAGE_TAG="${COMMIT_SHORT_SHA}-${ARCH_SUFFIX}"
           fi
 
-          echo "PUSH_ON_BUILD=${{ inputs.push-on-build }}" >> $GITHUB_ENV
+          echo "PUSH_ON_BUILD=${PUSH_ON_BUILD}" >> $GITHUB_ENV
 
-          REGISTRY="${{ inputs.registry }}"
           echo "registry_host=${REGISTRY%%/*}" >> $GITHUB_OUTPUT
           {
             echo "commit_short_sha=${COMMIT_SHORT_SHA}"
@@ -115,4 +117,4 @@ jobs:
           REGISTRY: ${{ inputs.registry }}
           PUSH_ON_BUILD: ${{ env.PUSH_ON_BUILD }}
           PLATFORM: ${{ inputs.platform }}
-        run: make build-image IMAGE_NAME=${{ inputs.registry }}/rbln-npu-operator-validator
+        run: make build-image IMAGE_NAME="${REGISTRY}/rbln-npu-operator-validator"
