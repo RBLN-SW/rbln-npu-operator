@@ -33,6 +33,11 @@ type RBLNDeviceConfigManagerSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Environment Variables",xDescriptors="urn:alm:descriptor:com.tectonic.ui:advanced"
 	Env []corev1.EnvVar `json:"env,omitempty"`
 
+	// Logging configures the device config manager's own log stream, forwarded
+	// as RBLN_DEVICE_CONFIG_MANAGER_LOG_LEVEL / _LOG_FORMAT.
+	// +kubebuilder:validation:Optional
+	Logging *LoggingSpec `json:"logging,omitempty"`
+
 	// PodSpec defines common DaemonSet configurations
 	// +kubebuilder:validation:Optional
 	PodSpec `json:",inline"`
