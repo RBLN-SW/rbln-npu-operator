@@ -182,7 +182,7 @@ func TestUpgradeWaitsForPartitionRegistrationEvenWithReadyConsumer(t *testing.T)
 		{name: "DCM disabled", want: true},
 		{name: "DCM has not finished", enabled: true},
 		{name: "stale success while transition recorded", enabled: true, condition: true, pending: true},
-		{name: "DCM registration complete", enabled: true, condition: true, want: true},
+		{name: "DCM transition complete", enabled: true, condition: true, want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			provider := newTestNodeUpgradeStateProvider(t)

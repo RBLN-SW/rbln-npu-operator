@@ -279,7 +279,7 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 	}
 	env = mergeEnvVars(env, loggingEnvVars(h.desiredSpec.Logging, draLogLevelEnv, draLogFormatEnv))
 
-	var livenessProbe, readinessProbe *corev1.Probe
+	var livenessProbe *corev1.Probe
 	if h.desiredSpec.HealthcheckPort > 0 {
 		env = append(env, corev1.EnvVar{
 			Name:  "HEALTHCHECK_PORT",
@@ -295,10 +295,6 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 			FailureThreshold: 3,
 			PeriodSeconds:    10,
 		}
-		readinessProbe = livenessProbe.DeepCopy()
-		readinessProbe.GRPC.Service = ptr("readiness")
-		readinessProbe.PeriodSeconds = 2
-		readinessProbe.FailureThreshold = 1
 	}
 
 	return k8sutil.NewContainerBuilder().
@@ -309,7 +305,6 @@ func (h *draKubeletPluginPatcher) buildDRAContainer() *corev1.Container {
 		WithSecurityContext(&corev1.SecurityContext{Privileged: ptr(true)}).
 		WithEnvs(env).
 		WithLivenessProbe(livenessProbe).
-		WithReadinessProbe(readinessProbe).
 		WithVolumeMounts([]corev1.VolumeMount{
 			{Name: consts.ValidationsVolumeName, MountPath: consts.ValidationsMountPath},
 			{Name: "plugins-registry", MountPath: h.desiredSpec.KubeletRegistrarDirectoryPath},

@@ -144,8 +144,10 @@ native to discover that name, then validates before changing VF counts.
 
 The reconcile sequence is cordon, drain NPU workloads, release affected
 bindings, restore native PFs, resize VFs through SMD, bind final functions,
-restart device advertisers, verify, write `partition-ready`, wait for kubelet
-registration and published device inventory to match, then uncordon.
+stop device advertisers and wait for the inventory they published to
+disappear, verify, write `partition-ready`, then uncordon. Replacement
+advertisers start behind `partition-ready`, so the scheduler only ever sees
+devices enumerated after the transition; the manager does not wait for them.
 The node's `NPUPartitionReady` condition reports progress or failure.
 
 Consumer `component-gate` init containers read node labels on every poll:
@@ -167,9 +169,7 @@ device-config-manager refreshes running advertisers after a transition.
 The DRA init gate reads the current ClusterPolicy default using
 `CLUSTER_POLICY_NAME`; an explicit node workload label takes precedence. Changing
 the policy default does not roll the DRA Pod before existing claims can be
-unprepared. Its service account has `get` access to that policy. DRA readiness
-requires a matching plugin image with the registration-aware gRPC `readiness`
-service; deploy the operator and DRA readiness changes together.
+unprepared. Its service account has `get` access to that policy.
 
 The operator also creates `npu-vf1.rebellions.ai` and `npu-vf4.rebellions.ai`
 DeviceClasses for native SR-IOV claims (`type=npu-vf` and the selected partition

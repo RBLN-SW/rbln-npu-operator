@@ -215,10 +215,6 @@ func TestDRAKubeletPluginGatePolicyDefault(t *testing.T) {
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("policy default change rolls DRA before claim Unprepare")
 	}
-	probe := after.Containers[0].ReadinessProbe
-	if probe == nil || probe.GRPC == nil || probe.GRPC.Service == nil || *probe.GRPC.Service != "readiness" {
-		t.Fatal("DRA readiness must wait for kubelet registration acknowledgement")
-	}
 	if envValue(after.InitContainers[0].Env, "CLUSTER_POLICY_NAME") != owner.Name || envValue(after.InitContainers[0].Env, "DEFAULT_WORKLOAD_TYPE") != "" {
 		t.Fatal("DRA must look up policy default at init time")
 	}

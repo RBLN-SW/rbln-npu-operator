@@ -3,7 +3,6 @@ package components
 import (
 	"context"
 	"slices"
-	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -169,25 +168,9 @@ func (h *deviceConfigManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 	if defaultWorkload == "" {
 		defaultWorkload = consts.RBLNWorkloadConfigContainer
 	}
-	var advertisers []string
-	if owner.Spec.DevicePlugin.Enabled {
-		advertisers = append(advertisers, consts.RBLNDevicePluginName)
-	}
-	if owner.Spec.DRAKubeletPlugin.Enabled {
-		advertisers = append(advertisers, consts.RBLNDRAKubeletPluginName)
-	}
-	if owner.Spec.SandboxDevicePlugin.Enabled {
-		advertisers = append(advertisers, consts.RBLNSandboxDevicePluginName)
-	}
-	expectedAdvertisers := strings.Join(advertisers, ",")
-	if expectedAdvertisers == "" {
-		expectedAdvertisers = "none"
-	}
-
 	env := mergeEnvVars(
 		[]corev1.EnvVar{
 			{Name: "DEFAULT_WORKLOAD_TYPE", Value: defaultWorkload},
-			{Name: "EXPECTED_DEVICE_PLUGINS", Value: expectedAdvertisers},
 			{
 				Name: "NODE_NAME",
 				ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
