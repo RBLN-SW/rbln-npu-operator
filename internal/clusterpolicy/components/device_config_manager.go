@@ -18,7 +18,11 @@ import (
 	k8sutil "github.com/RBLN-SW/rbln-npu-operator/internal/utils/k8s"
 )
 
-const deviceConfigManagerCommand = "reconcile-partition-state"
+const (
+	deviceConfigManagerCommand      = "reconcile-partition-state"
+	deviceConfigManagerLogLevelEnv  = "RBLN_DEVICE_CONFIG_MANAGER_LOG_LEVEL"
+	deviceConfigManagerLogFormatEnv = "RBLN_DEVICE_CONFIG_MANAGER_LOG_FORMAT"
+)
 
 type deviceConfigManagerPatcher struct {
 	basePatcher
@@ -185,6 +189,7 @@ func (h *deviceConfigManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 			},
 		},
 		h.desiredSpec.Env,
+		loggingEnvVars(h.desiredSpec.Logging, deviceConfigManagerLogLevelEnv, deviceConfigManagerLogFormatEnv),
 	)
 
 	managerContainer := k8sutil.NewContainerBuilder().

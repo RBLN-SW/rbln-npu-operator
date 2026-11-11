@@ -24,6 +24,20 @@ func TestLoggingSpecRendersOperandEnv(t *testing.T) {
 		levelEnv  string
 		formatEnv string
 	}{
+		"device config manager": {
+			component: consts.RBLNDeviceConfigManagerName,
+			newPatch: func(c client.Client, s *rblnv1beta1.RBLNClusterPolicySpec, sc *runtime.Scheme) Patcher {
+				return NewDeviceConfigManagerPatcher(c, logf.Log, testNamespace, s, sc, "")
+			},
+			apply: func(s *rblnv1beta1.RBLNClusterPolicySpec, l *rblnv1beta1.LoggingSpec) {
+				s.DeviceConfigManager = rblnv1beta1.RBLNDeviceConfigManagerSpec{
+					Enabled: true, Registry: "docker.io", Image: "rebellions/k8s-device-config-manager",
+					Version: "latest", Logging: l,
+				}
+			},
+			levelEnv:  "RBLN_DEVICE_CONFIG_MANAGER_LOG_LEVEL",
+			formatEnv: "RBLN_DEVICE_CONFIG_MANAGER_LOG_FORMAT",
+		},
 		"device plugin": {
 			component: consts.RBLNDevicePluginName,
 			newPatch: func(c client.Client, s *rblnv1beta1.RBLNClusterPolicySpec, sc *runtime.Scheme) Patcher {
