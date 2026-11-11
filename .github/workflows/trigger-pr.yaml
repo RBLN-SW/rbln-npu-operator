@@ -69,5 +69,5 @@ jobs:
     with:
       fail-on-findings: true
   # E2E tests (container / vm-passthrough) and the PR image build moved to the
-  # RNPM PR bundle (.buildkite/pipeline.rnpm.pr.yml), which runs the
+  # piper PR bundle (.buildkite/pipeline.piper.pr.yml), which runs the
   # separate npu-operator-sentinel repository's scenarios through Obedients.
