@@ -222,10 +222,10 @@ jobs:
           name: preflight-${{ github.ref_name }}
           path: artifacts/
 
-  # RNPM runs the published RC chart and reports its normal OB build result
+  # piper runs the published RC chart and reports its normal OB build result
   # directly to the Operator RC commit as rc-validation.
   rc-validate:
-    name: RNPM RC matrix validation
+    name: piper RC matrix validation
     needs: [release, rc-olm-check]
     if: needs.release.outputs.kind == 'rc'
     runs-on: rbln-sw-k8s-general
@@ -237,21 +237,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.release.outputs.sha }}
-      - name: Trigger RNPM and wait for its RC verdict
+      - name: Trigger piper and wait for its RC verdict
         id: validate
         env:
-          RNPM_URL: ${{ vars.RNPM_URL || 'https://rnpm.k8s.rebellions.in' }}
-          RNPM_TOKEN: ${{ secrets.RNPM_TOKEN }}
-          RNPM_RC_BUNDLE_ID: ${{ vars.RNPM_RC_BUNDLE_ID }}
+          PIPER_URL: ${{ vars.PIPER_URL || 'https://piper.k8s.rebellions.in' }}
+          PIPER_TOKEN: ${{ secrets.PIPER_TOKEN }}
+          PIPER_RC_BUNDLE_ID: ${{ vars.PIPER_RC_BUNDLE_ID }}
           RC_TAG: ${{ github.ref_name }}
           RC_SHA: ${{ needs.release.outputs.sha }}
           RC_BRANCH: ${{ needs.release.outputs.branch }}
           HARBOR_REGISTRY: ${{ vars.CLOUD_COMPONENT_HARBOR_REGISTRY }}
           SENTINEL_REF: ${{ vars.RC_VALIDATION_SENTINEL_REF }}
           SENTINEL_CATALOG_IMAGE: ${{ needs.rc-olm-check.outputs.catalog_image }}
-          RNPM_VALIDATE_BRANCH: ${{ vars.RNPM_VALIDATE_BRANCH || vars.BUILDKITE_VALIDATE_BRANCH || 'dev' }}
-          RNPM_VALIDATE_COMMIT: ${{ vars.RNPM_VALIDATE_COMMIT || 'HEAD' }}
-        run: python3 .github/scripts/rnpm_rc.py
+          PIPER_VALIDATE_BRANCH: ${{ vars.PIPER_VALIDATE_BRANCH || vars.BUILDKITE_VALIDATE_BRANCH || 'dev' }}
+          PIPER_VALIDATE_COMMIT: ${{ vars.PIPER_VALIDATE_COMMIT || 'HEAD' }}
+        run: python3 .github/scripts/piper_rc.py
 
   # Gated on the tag name, not on the kit's outputs: a failure inside the kit
   # must still be reported here, and the outputs may be empty then.
@@ -289,8 +289,8 @@ jobs:
           $(mark "$R_OLM") OLM validation, upgrade graph, bundle/catalog images and test metadata
           $(mark "$R_DIG") Component digests pinned
           $pre
-          $(mark "$R_VAL") RNPM Matrix validation
-          _RNPM reports the OB verdict as \`rc-validation\` on the rc commit; GA requires success._"
+          $(mark "$R_VAL") piper Matrix validation
+          _piper reports the OB verdict as \`rc-validation\` on the rc commit; GA requires success._"
           links=(--link "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME|pre-release")
           [ -n "$BUILD_URL" ] && links+=(--link "$BUILD_URL|validation build")
           .release-kit/scripts/slack-notify.sh --color "$color" "${links[@]}" --details "$rows" \

@@ -1,7 +1,7 @@
 """Exercise OLM publishing without a registry or cluster (requires yq and jq).
 
 The real scripts and YAML edits run in a temporary checkout. Git, make,
-operator-sdk and regctl are local fakes; the RNPM HTTP client is intercepted.
+operator-sdk and regctl are local fakes; the piper HTTP client is intercepted.
 """
 
 import json
@@ -70,10 +70,10 @@ elif tool != "operator-sdk":
     sys.exit("unexpected tool: " + tool)
 '''
 
-RNPM_HTTP_STUB = r'''"""Intercept every HTTP request made by the real RNPM helper."""
+PIPER_HTTP_STUB = r'''"""Intercept every HTTP request made by the real piper helper."""
 import io, json, os, pathlib, urllib.parse, urllib.request
 root = pathlib.Path(os.environ["TEST_ROOT"])
-config = json.loads((root / ".github/scripts/rnpm-rc.json").read_text())
+config = json.loads((root / ".github/scripts/piper-rc.json").read_text())
 base = "/api/bundles/" + config["bundle_id"]
 pipeline = {
     "id": "fixture-pipeline", "key": "containerd-full", "enabled": True,
@@ -85,11 +85,11 @@ pipeline = {
 }
 def fake_open(self, request, **kwargs):
     url = urllib.parse.urlsplit(request.full_url)
-    if url.scheme != "https" or url.netloc != "rnpm.example.test":
+    if url.scheme != "https" or url.netloc != "piper.example.test":
         raise AssertionError("unexpected external URL: " + request.full_url)
     method, path = request.get_method(), url.path
     payload = json.loads(request.data) if request.data is not None else None
-    with (root / "rnpm-calls.jsonl").open("a") as out:
+    with (root / "piper-calls.jsonl").open("a") as out:
         out.write(json.dumps({"method": method, "path": path, "payload": payload}) + "\n")
     if method == "GET" and path == base:
         result = {"repository_id": "fixture-repository", "ob_pipeline": config["ob_pipeline"],
@@ -106,19 +106,19 @@ def fake_open(self, request, **kwargs):
     elif method == "GET" and path == base + "/builds":
         result = []
     elif method == "POST" and path == base + "/trigger":
-        (root / "rnpm-request.json").write_text(json.dumps(payload))
+        (root / "piper-request.json").write_text(json.dumps(payload))
         result = {"number": 42, "url": "https://ci.example.test/build/42",
-                  "env": {"RNPM_RUN": "fixture-run"}}
+                  "env": {"PIPER_RUN": "fixture-run"}}
     elif method == "GET" and path == base + "/builds/42":
-        result = {"number": 42, "state": os.environ.get("TEST_RNPM_STATE", "passed")}
+        result = {"number": 42, "state": os.environ.get("TEST_PIPER_STATE", "passed")}
     elif method == "GET" and path == "/api/runs/fixture-run":
-        payload = json.loads((root / "rnpm-request.json").read_text())
-        state = os.environ.get("TEST_RNPM_STATE", "passed")
+        payload = json.loads((root / "piper-request.json").read_text())
+        state = os.environ.get("TEST_PIPER_STATE", "passed")
         result = {"id": "fixture-run", "ob_build": 42, "status_delivery": {
             "target": payload["overrides"]["status_target"], "error": "",
             "sent": {"rc-validation": "success" if state == "passed" else "failure"}}}
     else:
-        raise AssertionError("unexpected RNPM request: " + method + " " + path)
+        raise AssertionError("unexpected piper request: " + method + " " + path)
     return io.BytesIO(json.dumps(result).encode())
 urllib.request.OpenerDirector.open = fake_open
 '''
@@ -134,7 +134,7 @@ class OLMPublishing(unittest.TestCase):
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / "hack/release" / name, dest)
         for name in ("config/manager/manager.yaml", "versions.mk",
-                     ".github/scripts/rnpm_rc.py", ".github/scripts/rnpm-rc.json"):
+                     ".github/scripts/piper_rc.py", ".github/scripts/piper-rc.json"):
             dest = self.root / name
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, dest)
@@ -153,10 +153,10 @@ class OLMPublishing(unittest.TestCase):
             "TEST_ROOT": str(self.root), "VERSION": "v1.2.3-rc1", "OLM_IMAGE_TAG": "v1.2.3-rc1",
             "REGISTRY": "registry.test/team", "HELM_CHART": "oci://registry.test/team/chart",
             "HELM_CHART_VERSION": "1.2.3-rc1", "GITHUB_OUTPUT": str(self.root / "outputs"),
-            "RNPM_URL": "https://rnpm.example.test", "RNPM_TOKEN": "offline-test-token",
+            "PIPER_URL": "https://piper.example.test", "PIPER_TOKEN": "offline-test-token",
             "PYTHONPATH": str(self.root),
         }
-        (self.root / "sitecustomize.py").write_text(RNPM_HTTP_STUB)
+        (self.root / "sitecustomize.py").write_text(PIPER_HTTP_STUB)
 
     def run_script(self, script, *args, success=True):
         result = subprocess.run(
@@ -241,7 +241,7 @@ class OLMPublishing(unittest.TestCase):
         pinned = "registry.test/team/catalog:v1.2.3-rc1@sha256:" + "b" * 64
         self.env["SENTINEL_CATALOG_IMAGE"] = pinned
         self.run_script("validate-rc.sh", "v1.2.3-rc1")
-        payload = json.loads((self.root / "rnpm-request.json").read_text())
+        payload = json.loads((self.root / "piper-request.json").read_text())
         overrides = payload["overrides"]
         self.assertEqual((payload["branch"], payload["commit"]), ("dev", "HEAD"))
         self.assertEqual(overrides["build"], {"enabled": False})
@@ -263,14 +263,14 @@ class OLMPublishing(unittest.TestCase):
         self.assertIn("run_id=fixture-run", (self.root / "outputs").read_text())
         del self.env["SENTINEL_CATALOG_IMAGE"]
         self.run_script("validate-rc.sh", "v1.2.3-rc1")
-        payload = json.loads((self.root / "rnpm-request.json").read_text())
+        payload = json.loads((self.root / "piper-request.json").read_text())
         self.assertEqual(payload["overrides"]["env"]["SENTINEL_CATALOG_IMAGE"],
                          "harbor.k8s.rebellions.in/rebellions/rbln-npu-operator-catalog:v1.2.3-rc1")
 
-    def test_rc_validation_returns_rnpm_failure(self):
-        self.env["TEST_RNPM_STATE"] = "failed"
+    def test_rc_validation_returns_piper_failure(self):
+        self.env["TEST_PIPER_STATE"] = "failed"
         result = self.run_script("validate-rc.sh", "v1.2.3-rc1", success=False)
-        self.assertIn("RNPM/OB result: failed", result.stdout)
+        self.assertIn("piper/OB result: failed", result.stdout)
         self.assertIn("rc-validation delivery: failure", result.stdout)
 
 
