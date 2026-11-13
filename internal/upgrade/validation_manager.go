@@ -40,7 +40,7 @@ func (m *ValidationManager) isPodReady(_ context.Context, p corev1.Pod) bool {
 }
 
 func (m *ValidationManager) Validate(ctx context.Context, n *corev1.Node, options ValidationOptions) (bool, error) {
-	if options.DeviceConfigManagerEnabled && !partitionRegistrationReady(n) {
+	if options.DeviceConfigManagerEnabled && !partitionTransitionComplete(n) {
 		return false, m.handleTimeout(ctx, n, DefaultValidationTimeoutSeconds)
 	}
 	if m.podSelector == "" {
@@ -68,7 +68,7 @@ func (m *ValidationManager) Validate(ctx context.Context, n *corev1.Node, option
 	return false, m.handleTimeout(ctx, n, DefaultValidationTimeoutSeconds)
 }
 
-func partitionRegistrationReady(node *corev1.Node) bool {
+func partitionTransitionComplete(node *corev1.Node) bool {
 	if node.Annotations["rebellions.ai/npu.partition.transition-pfs"] != "" || node.Annotations["rebellions.ai/npu.partition.cordoned-by"] != "" {
 		return false
 	}

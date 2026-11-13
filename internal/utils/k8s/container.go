@@ -117,11 +117,6 @@ func (b *ContainerBuilder) WithLivenessProbe(probe *corev1.Probe) *ContainerBuil
 	return b
 }
 
-func (b *ContainerBuilder) WithReadinessProbe(probe *corev1.Probe) *ContainerBuilder {
-	b.obj.ReadinessProbe = probe
-	return b
-}
-
 // Build returns the container with Kubernetes API server defaults populated.
 // This prevents spurious diffs when used with CreateOrPatch, since the API
 // server automatically sets these fields on persisted containers.

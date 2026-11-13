@@ -324,6 +324,11 @@ deviceConfigManager:
     tag: v0.1.0
     pullPolicy: IfNotPresent
   env: []
+  # Requires a device-config-manager image supporting the logging contract.
+  # Unset leaves the image's default info/json logging in place.
+  # logging:
+  #   level: debug
+  #   format: text
 
 # NPU Metrics Exporter configuration
 metricsExporter:

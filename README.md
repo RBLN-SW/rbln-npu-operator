@@ -144,9 +144,37 @@ native to discover that name, then validates before changing VF counts.
 
 The reconcile sequence is cordon, drain NPU workloads, release affected
 bindings, restore native PFs, resize VFs through SMD, bind final functions,
-restart device advertisers, verify, write `partition-ready`, wait for kubelet
-registration and published device inventory to match, then uncordon.
+stop device advertisers and wait for the inventory they published to
+disappear, verify, write `partition-ready`, then uncordon. Replacement
+advertisers start behind `partition-ready`, so the scheduler only ever sees
+devices enumerated after the transition; the manager does not wait for them.
 The node's `NPUPartitionReady` condition reports progress or failure.
+
+With a device-config-manager image implementing the current configuration
+contract, configure its logs and runtime overrides through Helm:
+
+```yaml
+deviceConfigManager:
+  enabled: true
+  logging:
+    level: info
+    format: json
+  env:
+    - name: RECONCILE_INTERVAL
+      value: "5m"
+    - name: NPU_POD_EVICTION_TIMEOUT_SECONDS
+      value: "0"
+```
+
+`logging` is optional; unset fields leave the image's defaults in place. An
+explicit logging field takes precedence over the same variable in `env`.
+CDM uses `NPU_POD_EVICTION_FORCE` and `NPU_POD_EVICTION_DELETE_EMPTYDIR_DATA`
+for eviction permissions (both default to false). Migrate `RESYNC_PERIOD` and
+the old `DRAIN_*` names to these names; `KUBECONFIG`,
+`DEVICE_PLUGIN_COMPONENTS`, and `SMD_RETRY_TIMEOUT` are no longer supported.
+CDM uses in-cluster credentials, a fixed advertiser set, and internal SMD
+inventory retries. These changes require a matching CDM image; setting Helm
+logging values does not add support to an older image.
 
 Consumer `component-gate` init containers read node labels on every poll:
 
@@ -167,9 +195,7 @@ device-config-manager refreshes running advertisers after a transition.
 The DRA init gate reads the current ClusterPolicy default using
 `CLUSTER_POLICY_NAME`; an explicit node workload label takes precedence. Changing
 the policy default does not roll the DRA Pod before existing claims can be
-unprepared. Its service account has `get` access to that policy. DRA readiness
-requires a matching plugin image with the registration-aware gRPC `readiness`
-service; deploy the operator and DRA readiness changes together.
+unprepared. Its service account has `get` access to that policy.
 
 The operator also creates `npu-vf1.rebellions.ai` and `npu-vf4.rebellions.ai`
 DeviceClasses for native SR-IOV claims (`type=npu-vf` and the selected partition

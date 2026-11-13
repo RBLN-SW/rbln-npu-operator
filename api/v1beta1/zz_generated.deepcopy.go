@@ -448,6 +448,11 @@ func (in *RBLNDeviceConfigManagerSpec) DeepCopyInto(out *RBLNDeviceConfigManager
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.Logging != nil {
+		in, out := &in.Logging, &out.Logging
+		*out = new(LoggingSpec)
+		**out = **in
+	}
 	in.PodSpec.DeepCopyInto(&out.PodSpec)
 }
 

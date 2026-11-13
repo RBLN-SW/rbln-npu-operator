@@ -99,6 +99,10 @@ spec:
     env:
       {{- toYaml .Values.deviceConfigManager.env | nindent 6 }}
     {{- end }}
+    {{- with .Values.deviceConfigManager.logging }}
+    logging:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
 
   metricsExporter:
     {{- with .Values.metricsExporter.updateStrategy }}

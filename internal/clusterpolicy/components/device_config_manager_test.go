@@ -181,8 +181,11 @@ func TestDeviceConfigManagerEnvOverride(t *testing.T) {
 	owner := newDeviceConfigManagerOwner()
 	owner.Spec.DeviceConfigManager.Env = []corev1.EnvVar{
 		{Name: "SMD_ADDRESS", Value: "127.0.0.1:50052"},
-		{Name: "DRAIN_TIMEOUT_SECONDS", Value: "300"},
+		{Name: "NPU_POD_EVICTION_TIMEOUT_SECONDS", Value: "300"},
+		{Name: "RECONCILE_INTERVAL", Value: "30s"},
+		{Name: "RBLN_DEVICE_CONFIG_MANAGER_LOG_LEVEL", Value: "error"},
 	}
+	owner.Spec.DeviceConfigManager.Logging = &rblnv1beta1.LoggingSpec{Level: "debug", Format: "text"}
 
 	name := consts.RBLNBaseName + "-" + consts.RBLNDeviceConfigManagerName
 	p := NewDeviceConfigManagerPatcher(c, logf.Log, testNamespace, &owner.Spec, scheme, "")
@@ -198,8 +201,23 @@ func TestDeviceConfigManagerEnvOverride(t *testing.T) {
 	if envValue(env, "SMD_ADDRESS") != "127.0.0.1:50052" {
 		t.Fatalf("SMD_ADDRESS = %q, want 127.0.0.1:50052", envValue(env, "SMD_ADDRESS"))
 	}
-	if envValue(env, "DRAIN_TIMEOUT_SECONDS") != "300" {
-		t.Fatalf("DRAIN_TIMEOUT_SECONDS = %q, want 300", envValue(env, "DRAIN_TIMEOUT_SECONDS"))
+	if envValue(env, "NPU_POD_EVICTION_TIMEOUT_SECONDS") != "300" {
+		t.Fatalf("NPU_POD_EVICTION_TIMEOUT_SECONDS = %q, want 300", envValue(env, "NPU_POD_EVICTION_TIMEOUT_SECONDS"))
+	}
+	if envValue(env, "RECONCILE_INTERVAL") != "30s" {
+		t.Fatalf("RECONCILE_INTERVAL = %q, want 30s", envValue(env, "RECONCILE_INTERVAL"))
+	}
+	if envValue(env, "RBLN_DEVICE_CONFIG_MANAGER_LOG_LEVEL") != "debug" || envValue(env, "RBLN_DEVICE_CONFIG_MANAGER_LOG_FORMAT") != "text" {
+		t.Fatalf("structured logging must override env: %+v", env)
+	}
+	count := 0
+	for _, variable := range env {
+		if variable.Name == "RBLN_DEVICE_CONFIG_MANAGER_LOG_LEVEL" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("logging level rendered %d times, want 1", count)
 	}
 	if ref := envFieldRef(env, "NODE_NAME"); ref == nil {
 		t.Fatal("spec env must merge with, not replace, the default Downward API env")

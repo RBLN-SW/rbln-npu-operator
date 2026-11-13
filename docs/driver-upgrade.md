@@ -29,7 +29,7 @@ label overrides the policy default). Container nodes wait for `operator-validato
 VM nodes wait for the enabled `dra-kubelet-plugin` or `sandbox-device-plugin`.
 Validation checks non-terminating, ready Pods in the operator namespace on the
 target node. With DCM enabled it also waits for `NPUPartitionReady=True` and the
-transition annotations to be cleared, after registration and inventory checks.
+transition annotations to be cleared.
 Missing/unready consumers or unfinished DCM work retain the existing validation
 timeout.
 
@@ -164,7 +164,7 @@ Each node advances through the states below one step at a time. The current stat
 | `wait-for-jobs-required` | Waits until no pod matching `waitForCompletion.podSelector` is Running or Pending. Skipped when the selector is empty | proceeds on timeout |
 | `pod-deletion-required` | Evicts the node's NPU pods, then moves to `pod-restart-required`. A pod the eviction cannot remove parks the node; see [Why a node is skipped](#why-a-node-is-skipped) | `upgrade-skipped` |
 | `pod-restart-required` | Deletes the driver pod and waits for the replacement to become Ready | `upgrade-failed` |
-| `validation-required` | Waits up to 600 seconds for DCM registration completion (when enabled) and the workload's validator/consumer on the node: `operator-validator` for containers, the enabled DRA or sandbox device plugin for VMs | `upgrade-failed` |
+| `validation-required` | Waits up to 600 seconds for the DCM transition to complete (when enabled) and the workload's validator/consumer on the node: `operator-validator` for containers, the enabled DRA or sandbox device plugin for VMs | `upgrade-failed` |
 | `uncordon-required` | Uncordons the node. A node that was already cordoned before the upgrade stays cordoned, unless that cordon was `k8s-driver-manager`'s own (see below) | retried |
 | `upgrade-done` | Terminal until the next driver revision | N/A |
 
