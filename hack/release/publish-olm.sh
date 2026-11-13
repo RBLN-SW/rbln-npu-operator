@@ -75,6 +75,18 @@ SANDBOX_DEVICE_PLUGIN RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN
 DRIVER_MANAGER RELATED_IMAGE_DRIVER_MANAGER
 IMAGES
 
+# Device Config Manager currently ships in dev only. Add its related image
+# when present in the lock without requiring it in existing release locks.
+if grep -q '^DEVICE_CONFIG_MANAGER=' "$digests"; then
+	DEVICE_CONFIG_MANAGER_REF=$(locked_image DEVICE_CONFIG_MANAGER)
+	export DEVICE_CONFIG_MANAGER_REF
+	yq -i '(select(.kind == "Deployment").spec.template.spec.containers[] |
+		select(.name == "manager").env) |=
+		(map(select(.name != "RELATED_IMAGE_RBLN_K8S_DEVICE_CONFIG_MANAGER")) +
+		[{"name": "RELATED_IMAGE_RBLN_K8S_DEVICE_CONFIG_MANAGER", "value": strenv(DEVICE_CONFIG_MANAGER_REF)}])' \
+		config/manager/manager.yaml
+fi
+
 make bundle VERSION="$VERSION" IMAGE="$operator" USE_IMAGE_DIGESTS=false
 export OCP_RANGE=${OCP_RANGE:-$(awk '/^OCP_RANGE / {print $3}' versions.mk)}
 export OPERATOR_REF="$operator"
