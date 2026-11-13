@@ -50,7 +50,12 @@ jobs:
       chart_rc_values: '.operator.image.registry = env(HARBOR_HOST) | .validator.image.registry = env(HARBOR_HOST)'
       release_notes_extra: hack/release/component-table.sh
       notify: false
-    secrets: inherit
+    secrets:
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+      SLACK_OAUTH_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
 
   # ---------------------------------------------------------------- rc path --
   #

@@ -36,13 +36,14 @@ jobs:
     env:
       OPERATOR_IMAGE: ${{ inputs.registry }}/rbln-npu-operator
       VALIDATOR_IMAGE: ${{ inputs.registry }}/rbln-npu-operator-validator
+      REGISTRY: ${{ inputs.registry }}
+      IMAGE_TAG: ${{ inputs.image-tag }}
     steps:
       - name: Set up Docker buildx
         uses: docker/setup-buildx-action@v3
       - name: Extract registry host
         id: registry
         run: |
-          REGISTRY="${{ inputs.registry }}"
           echo "host=${REGISTRY%%/*}" >> $GITHUB_OUTPUT
       - name: Login to container registry
         uses: docker/login-action@v3
@@ -53,27 +54,27 @@ jobs:
       - name: Create operator manifest
         run: |
           docker buildx imagetools create \
-            --tag "${OPERATOR_IMAGE}:${{ inputs.image-tag }}" \
-            "${OPERATOR_IMAGE}:${{ inputs.image-tag }}-amd64" \
-            "${OPERATOR_IMAGE}:${{ inputs.image-tag }}-arm64"
+            --tag "${OPERATOR_IMAGE}:${IMAGE_TAG}" \
+            "${OPERATOR_IMAGE}:${IMAGE_TAG}-amd64" \
+            "${OPERATOR_IMAGE}:${IMAGE_TAG}-arm64"
       - name: Create validator manifest
         run: |
           docker buildx imagetools create \
-            --tag "${VALIDATOR_IMAGE}:${{ inputs.image-tag }}" \
-            "${VALIDATOR_IMAGE}:${{ inputs.image-tag }}-amd64" \
-            "${VALIDATOR_IMAGE}:${{ inputs.image-tag }}-arm64"
+            --tag "${VALIDATOR_IMAGE}:${IMAGE_TAG}" \
+            "${VALIDATOR_IMAGE}:${IMAGE_TAG}-amd64" \
+            "${VALIDATOR_IMAGE}:${IMAGE_TAG}-arm64"
       - name: Create latest manifest
         if: ${{ inputs.latest-alias == 'true' }}
         run: |
           docker buildx imagetools create \
             --tag "${OPERATOR_IMAGE}:latest" \
-            "${OPERATOR_IMAGE}:${{ inputs.image-tag }}-amd64" \
-            "${OPERATOR_IMAGE}:${{ inputs.image-tag }}-arm64"
+            "${OPERATOR_IMAGE}:${IMAGE_TAG}-amd64" \
+            "${OPERATOR_IMAGE}:${IMAGE_TAG}-arm64"
           docker buildx imagetools create \
             --tag "${VALIDATOR_IMAGE}:latest" \
-            "${VALIDATOR_IMAGE}:${{ inputs.image-tag }}-amd64" \
-            "${VALIDATOR_IMAGE}:${{ inputs.image-tag }}-arm64"
+            "${VALIDATOR_IMAGE}:${IMAGE_TAG}-amd64" \
+            "${VALIDATOR_IMAGE}:${IMAGE_TAG}-arm64"
       - name: Verify manifests
         run: |
-          docker buildx imagetools inspect "${OPERATOR_IMAGE}:${{ inputs.image-tag }}"
-          docker buildx imagetools inspect "${VALIDATOR_IMAGE}:${{ inputs.image-tag }}"
+          docker buildx imagetools inspect "${OPERATOR_IMAGE}:${IMAGE_TAG}"
+          docker buildx imagetools inspect "${VALIDATOR_IMAGE}:${IMAGE_TAG}"
