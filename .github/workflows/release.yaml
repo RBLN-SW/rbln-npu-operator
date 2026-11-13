@@ -1,7 +1,8 @@
 name: release
 
 # Publish from a version tag: vX.Y.Z-rcN -> Harbor, vX.Y.Z -> docker.io by
-# digest. Tags are created by cut-release / tag-release only.
+# digest, with matching GA image tags retained in Harbor. Tags are created
+# by cut-release / tag-release only.
 #
 # The `release` job is the release kit's reusable workflow: it classifies the
 # tag, builds the operator and validator images and the chart for an rc, and
@@ -13,8 +14,8 @@ name: release
 #        pinned at the rc (the GA bundle reuses them), Red Hat preflight, and
 #        the test-infra matrix validation that posts the `rc-validation` commit
 #        status the kit reads before a GA is published.
-#   GA   the certified-operators bundle PR (merge: true) with the digests
-#        pinned at the rc.
+#   GA   matching operator/validator image tags in Harbor and the
+#        certified-operators bundle PR with the digests pinned at the rc.
 #
 # The kit's own Slack summary is off (notify: false); rc-notify / ga-notify
 # below report the whole run in one message.
@@ -298,6 +299,32 @@ jobs:
 
   # ---------------------------------------------------------------- GA path --
 
+  ga-harbor-images:
+    name: GA operator and validator images -> Harbor
+    needs: release
+    if: needs.release.outputs.kind == 'ga'
+    runs-on: rbln-sw-k8s-general
+    steps:
+      - uses: actions/checkout@v4
+      - name: Derive the Harbor host
+        run: echo "HARBOR_HOST=${HARBOR_REGISTRY%%/*}" >> "$GITHUB_ENV"
+      - name: Install regctl
+        run: |
+          mkdir -p "$HOME/.local/bin" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          REGCTL_VERSION=$(awk '/^REGCTL_VERSION / {print $3}' versions.mk)
+          curl -fsSL "https://github.com/regclient/regclient/releases/download/${REGCTL_VERSION}/regctl-linux-amd64" \
+            -o "$HOME/.local/bin/regctl"
+          chmod +x "$HOME/.local/bin/regctl"
+      - name: Login to Harbor
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: printf '%s' "$HARBOR_PASSWORD" | regctl registry login "$HARBOR_HOST" -u "$HARBOR_USERNAME" --pass-stdin
+      - name: Tag the promoted digests with the GA version in Harbor
+        env:
+          PROMOTED: ${{ needs.release.outputs.digests }}
+        run: hack/release/mirror-ga-images.sh "$GITHUB_REF_NAME"
+
   olm-bundle:
     name: GA OLM bundle PR (certified-operators)
     needs: release
@@ -549,7 +576,7 @@ jobs:
   # deleted the backport label (ga-finish runs with notify off as well).
   ga-notify:
     name: GA summary -> Slack
-    needs: [release, olm-bundle]
+    needs: [release, ga-harbor-images, olm-bundle]
     if: always() && !contains(github.ref_name, '-rc')
     runs-on: ubuntu-latest
     steps:
@@ -563,6 +590,7 @@ jobs:
           SLACK_OAUTH_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
           SLACK_CHANNEL_ID: ${{ vars.CLOUD_COMPONENT_SLACK_CHANNEL_ID }}
           R_KIT: ${{ needs.release.result }}
+          R_HARBOR: ${{ needs.ga-harbor-images.result }}
           R_OLM: ${{ needs.olm-bundle.result }}
           PR_URL: ${{ needs.olm-bundle.outputs.pr_url }}
           DRAFT_URL: ${{ needs.release.outputs.draft_url }}
@@ -571,12 +599,13 @@ jobs:
         run: |
           mark() { case "$1" in success) echo ":white_check_mark:";; failure) echo ":x:";; cancelled) echo ":no_entry_sign:";; skipped) echo ":fast_forward:";; *) echo ":grey_question:";; esac; }
           color=good
-          for r in "$R_KIT" "$R_OLM"; do
+          for r in "$R_KIT" "$R_HARBOR" "$R_OLM"; do
             case $r in failure|cancelled) color=danger;; esac
           done
           branch="release-${GITHUB_REF_NAME#v}"
           tags="\`$GITHUB_REF_NAME\`"; [ "$LATEST" = true ] && tags="$tags, \`latest\`"
           rows="$(mark "$R_KIT") Images promoted from \`${LAST_RC:-the newest rc}\` by digest → \`$DOCKERHUB_REGISTRY\` ($tags), Helm chart \`${GITHUB_REF_NAME#v}\` → docker.io OCI, release notes drafted, \`backport $branch\` label removed
+          $(mark "$R_HARBOR") Same operator/validator digests → \`$HARBOR_REGISTRY\` (\`$GITHUB_REF_NAME\`)
           $(mark "$R_OLM") certified-operators bundle PR"
           links=()
           [ -n "$DRAFT_URL" ] && links+=(--link "$DRAFT_URL|draft release")

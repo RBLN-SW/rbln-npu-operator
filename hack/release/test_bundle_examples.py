@@ -12,6 +12,7 @@ SCRIPT = Path(__file__).with_name("sync-bundle-examples.sh")
 COMPONENTS = {
     "validator": "rbln-npu-operator-validator",
     "devicePlugin": "rbln-k8s-device-plugin",
+    "deviceConfigManager": "rbln-k8s-device-config-manager",
     "metricsExporter": "rbln-metrics-exporter",
     "npuFeatureDiscovery": "rbln-npu-feature-discovery",
     "containerToolkit": "rbln-container-toolkit",
@@ -62,7 +63,7 @@ class BundleExamples(unittest.TestCase):
         return json.loads(subprocess.check_output(["yq", "-o=json", ".", str(self.csv)], text=True))
 
     def test_validator_tracks_dev_rc_and_ga_image_not_csv_version(self):
-        for registry, tag in (("harbor.example:5000", "a" * 40),
+        for registry, tag in (("harbor.example:5000", "dev"), ("harbor.example", "a" * 40),
                               ("harbor.example", "v0.6.0-rc5"), ("docker.io", "v0.6.0")):
             with self.subTest(registry=registry, tag=tag):
                 self.document["spec"]["relatedImages"][0]["image"] = (
@@ -98,6 +99,34 @@ class BundleExamples(unittest.TestCase):
         before = self.csv.read_bytes()
         self.assertIn("do not match", self.run_sync("--check", success=False).stderr)
         self.assertEqual(self.csv.read_bytes(), before)
+
+    def test_dev_images_preserve_toolkit_and_driver_releases(self):
+        for image in self.document["spec"]["relatedImages"]:
+            if image["name"] == "rbln-container-toolkit":
+                image["image"] = f"docker.io/rebellions/rbln-container-toolkit:v0.2.6@sha256:{'a' * 64}"
+            else:
+                image["image"] = f"harbor.example/rebellions/{image['name']}:dev@sha256:{'b' * 64}"
+        self.write()
+        self.run_sync()
+        self.run_sync("--check")
+        examples = json.loads(self.read()["metadata"]["annotations"]["alm-examples"])
+        for key in COMPONENTS:
+            expected = ("docker.io", "v0.2.6") if key == "containerToolkit" else ("harbor.example", "dev")
+            actual = examples[0]["spec"][key]
+            self.assertEqual((actual["registry"], actual["version"]), expected, key)
+        for original, example in zip(self.examples[1:], examples[1:]):
+            self.assertEqual(example["spec"]["version"], original["spec"]["version"])
+            self.assertEqual(example["spec"]["smd"], original["spec"]["smd"])
+            self.assertEqual(example["spec"]["manager"]["version"], "dev")
+
+    def test_older_release_without_device_config_manager_keeps_its_example(self):
+        self.document["spec"]["relatedImages"] = [image for image in self.document["spec"]["relatedImages"]
+                                                  if image["name"] != "rbln-k8s-device-config-manager"]
+        self.write()
+        self.run_sync()
+        self.run_sync("--check")
+        example = json.loads(self.read()["metadata"]["annotations"]["alm-examples"])[0]
+        self.assertEqual(example["spec"]["deviceConfigManager"], self.examples[0]["spec"]["deviceConfigManager"])
 
     def test_repeated_sync_is_a_noop(self):
         self.write()

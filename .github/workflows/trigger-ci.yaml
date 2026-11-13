@@ -80,26 +80,41 @@ jobs:
             -o /usr/local/bin/yq
           sudo chmod +x /usr/local/bin/yq
           command -v jq >/dev/null || { sudo apt-get update && sudo apt-get install -y jq; }
+      # helm resolves OCI chart tags as SemVer and drops the rest, so the moving
+      # dev chart is 0.0.0-dev, not dev. appVersion records the source commit;
+      # component images use Harbor's moving dev tags, except driver/smd and
+      # containerToolkit, which keep their release versions. Apply these values
+      # before resolving the OLM lock so the chart and bundle examples agree.
+      - name: Configure dev component images
+        run: |
+          export HARBOR_HOST="${REGISTRY%%/*}"
+          yq -i '(
+            .operator.image,
+            .validator.image,
+            .driver.manager.image,
+            .devicePlugin.image,
+            .draKubeletPlugin.image,
+            .deviceConfigManager.image,
+            .metricsExporter.image,
+            .npuFeatureDiscovery.image,
+            .sandboxDevicePlugin.image
+          ) |= (.registry = strenv(HARBOR_HOST) | .tag = "dev")' \
+            deployments/rbln-npu-operator/values.yaml
       - name: Resolve component digests (dev)
+        env:
+          INCLUDE_DEVICE_CONFIG_MANAGER: 'true'
         run: |
           mkdir -p dist
           hack/release/resolve-component-digests.sh \
-            "${OPERATOR_IMAGE}:${GITHUB_SHA}" "${VALIDATOR_IMAGE}:${GITHUB_SHA}" \
+            "${OPERATOR_IMAGE}:dev" "${VALIDATOR_IMAGE}:dev" \
             > dist/component-digests.env
-      # helm resolves OCI chart tags as SemVer and drops the rest, so the moving
-      # dev chart is 0.0.0-dev, not dev. appVersion = commit SHA: the chart's
-      # operator/validator tags are empty and fall back to it, so the dev chart
-      # resolves the immutable images pushed above; operands keep the
-      # values.yaml tags, exactly as the dev bundle does.
       - uses: azure/setup-helm@v5
       - name: Package and push Helm chart (dev)
         env:
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
           HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
         run: |
-          export HARBOR_HOST="${REGISTRY%%/*}"
-          yq -i '.operator.image.registry = env(HARBOR_HOST) | .validator.image.registry = env(HARBOR_HOST)' \
-            deployments/rbln-npu-operator/values.yaml
+          HARBOR_HOST="${REGISTRY%%/*}"
           echo "$HARBOR_PASSWORD" | helm registry login "$HARBOR_HOST" -u "$HARBOR_USERNAME" --password-stdin
           make helm-push-oci HELM_REGISTRY="oci://$REGISTRY" \
             CHART_VERSION=0.0.0-dev CHART_APP_VERSION="$GITHUB_SHA"

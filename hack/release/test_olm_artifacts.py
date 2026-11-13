@@ -19,6 +19,7 @@ KEYS = (
     "OPERATOR", "VALIDATOR", "DEVICE_PLUGIN", "METRICS_EXPORTER",
     "NPU_FEATURE_DISCOVERY", "CONTAINER_TOOLKIT",
     "DRA_KUBELET_PLUGIN", "SANDBOX_DEVICE_PLUGIN", "DRIVER_MANAGER",
+    "DEVICE_CONFIG_MANAGER",
 )
 
 FAKE_TOOL = r'''#!/usr/bin/env python3
@@ -207,6 +208,50 @@ class OLMPublishing(unittest.TestCase):
         self.env.update(VERSION="v0.0.0-dev", OLM_IMAGE_TAG="sha-" + SHA, FAIL_BUILD="catalog-build-image")
         self.run_script("publish-olm.sh", self.lock, success=False)
         self.assertFalse(any(c[:3] == ["regctl", "image", "copy"] for c in self.calls()))
+
+    def test_dev_workflow_locks_harbor_images_and_preserves_release_exceptions(self):
+        values = self.root / "deployments/rbln-npu-operator/values.yaml"
+        values.parent.mkdir(parents=True)
+        shutil.copy2(ROOT / "deployments/rbln-npu-operator/values.yaml", values)
+        original = json.loads(subprocess.check_output(["yq", "-o=json", ".", str(values)]))
+        steps = json.loads(subprocess.check_output([
+            "yq", "-o=json", ".jobs.dev-image.steps", str(ROOT / ".github/workflows/trigger-ci.yaml"),
+        ]))
+        registry = "harbor.example/team"
+        self.env.update(REGISTRY=registry, OPERATOR_IMAGE=registry + "/operator",
+                        VALIDATOR_IMAGE=registry + "/validator")
+        # Run the real preparation and resolution steps in workflow order.
+        for step in steps:
+            if step.get("name") in ("Configure dev component images", "Resolve component digests (dev)"):
+                result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.root,
+                                        env={**self.env, **step.get("env", {})}, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lock = self.root / "dist/component-digests.env"
+        images = dict(line.split("=", 1) for line in lock.read_text().splitlines())
+        self.assertEqual(set(images), set(KEYS))
+        for key, ref in images.items():
+            if key == "CONTAINER_TOOLKIT":
+                self.assertTrue(ref.startswith("docker.io/rebellions/rbln-container-toolkit:v0.2.6@sha256:"))
+            else:
+                self.assertTrue(ref.startswith("harbor.example/"), (key, ref))
+                self.assertIn(":dev@sha256:", ref, key)
+        updated = json.loads(subprocess.check_output(["yq", "-o=json", ".", str(values)]))
+        self.assertEqual(updated["containerToolkit"], original["containerToolkit"])
+        for key in original["driver"]:
+            if key != "manager":
+                self.assertEqual(updated["driver"][key], original["driver"][key], key)
+        self.env.update(VERSION="v0.0.0-dev", OLM_IMAGE_TAG="sha-" + SHA, HELM_CHART_VERSION="0.0.0-dev")
+        self.run_script("publish-olm.sh", lock)
+        manager = (self.root / "config/manager/manager.yaml").read_text()
+        for ref in images.values():
+            self.assertIn(ref, manager)
+
+    def test_release_lock_without_device_config_manager_still_publishes(self):
+        self.lock.write_text("".join(f"{key}={ref}\n" for key, ref in self.images.items()
+                                     if key != "DEVICE_CONFIG_MANAGER"))
+        self.run_script("publish-olm.sh", self.lock)
+        self.assertNotIn("RELATED_IMAGE_RBLN_K8S_DEVICE_CONFIG_MANAGER",
+                         (self.root / "config/manager/manager.yaml").read_text())
 
     def test_missing_or_duplicate_digest_prevents_publication(self):
         for contents in ("OPERATOR=registry.test/operator:v1\n", self.lock.read_text() + "OPERATOR=duplicate\n"):

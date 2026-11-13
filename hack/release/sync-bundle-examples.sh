@@ -42,8 +42,13 @@ yq -o=json '.' "$csv" | jq -e '
     {kind: "RBLNClusterPolicy", path: ["spec", "draKubeletPlugin"], name: "dra-kubelet-plugin"},
     {kind: "RBLNClusterPolicy", path: ["spec", "sandboxDevicePlugin"], name: "sandbox-device-plugin"},
     {kind: "RBLNDriver", path: ["spec", "manager"], name: "driver-manager"}
-  ] as $targets |
+  ] as $release_targets |
   .spec.relatedImages as $images |
+  # Device Config Manager is included in dev bundles. Older release bundles
+  # lack that related image and retain their existing sample configuration.
+  ($release_targets + if any($images[]; .name == "rbln-k8s-device-config-manager") then
+    [{kind: "RBLNClusterPolicy", path: ["spec", "deviceConfigManager"], name: "rbln-k8s-device-config-manager"}]
+  else [] end) as $targets |
   (.metadata.annotations."alm-examples" | fromjson) as $examples |
   if ($examples | type) != "array" then error("alm-examples must be an array")
   elif ($examples | any(.kind == "RBLNClusterPolicy") | not) then
