@@ -1,0 +1,6 @@
+{
+  "repository": "RBLN-SW/rbln-npu-operator",
+  "bundle_id": "36298b4f-f135-4d62-a85c-904e5abc1858",
+  "ob_pipeline": "pr-npu-operator",
+  "timeout_seconds": 10200
+}
