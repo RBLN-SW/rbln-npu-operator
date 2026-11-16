@@ -1,334 +1,59 @@
 # RBLN NPU Operator Helm Chart
 
-A Helm chart for deploying the Rebellions NPU Operator on Kubernetes clusters. This operator provides automated management and monitoring of Rebellions NPU devices, supporting both containerized workloads and VM passthrough scenarios.
+Deploy the NPU Operator and choose the components for your cluster.
 
-## Overview
+[Install](https://docs.rbln.ai/latest/software/system_management/kubernetes/install_npu_operator.html) · [Values](values.yaml) · [Upgrade](../../docs/guides/upgrade-chart.md) · [NPU Operator](../../README.md)
 
-The RBLN NPU Operator is designed to:
-- Automatically discover and manage Rebellions NPU devices in Kubernetes clusters
-- Provide device plugins for containerized AI workloads
-- Support VM passthrough for virtualized environments
-- Export metrics for monitoring and observability
-- Integrate with Node Feature Discovery (NFD) for hardware detection
+## Get started
 
-## Prerequisites
+Follow the [Kubernetes installation guide](https://docs.rbln.ai/latest/software/system_management/kubernetes/install_npu_operator.html)
+for supported environments, registry credentials, and a complete values file.
+For OpenShift OLM, use the [OpenShift guide](https://docs.rbln.ai/latest/software/system_management/openshift/about_openshift.html).
 
-- Kubernetes 1.19+
-- Helm 3.8+ (OCI support)
-- Node Feature Discovery (NFD) - can be installed via this chart
-- Rebellions NPU hardware (RBLN-CA12, RBLN-CA22, RBLN-CA25)
-- Driver images published under family-scoped registry paths (BREAKING since
-  this version): `{registry}/{org}/{family}/{name}:{version}-{kernel}-{os}`
-- For VM passthrough workloads: KubeVirt 0.50+ installed and configured
-
-## Installation
-
-### Quick Start
-
-1. **Inspect the OCI chart published on Docker Hub**:
-   ```bash
-   helm show chart oci://registry-1.docker.io/rebellions/rbln-npu-operator-chart
-   ```
-   The [published chart](https://hub.docker.com/r/rebellions/rbln-npu-operator-chart)
-   is used directly, without `helm repo add`. Use `--version <chart-version>`
-   to pin the release you want to install or upgrade to.
-
-2. **Install with default values**:
-   ```bash
-   helm install rbln-npu-operator \
-     oci://registry-1.docker.io/rebellions/rbln-npu-operator-chart \
-     --namespace rbln-system --create-namespace --wait
-   ```
-
-Driver deployment is disabled by default (`driver.enabled: false`). Set
-`--set driver.enabled=true` to deploy ATOM **3.4.1** and REBEL100 **3.5.1**
-through the built-in family instances (`driver.deployDefault: false`). The
-same configuration supports ATOM-only, REBEL100-only, and mixed clusters:
-an instance with no matching nodes stays Ready with no driver or SMD
-DaemonSet. NFD must supply the node labels used for routing.
-
-Override `driver.instances.atom.image.tag` or
-`driver.instances.rebel100.image.tag` to change these versions. Changing
-`driver.image.tag` alone does not override the family pins. Setting
-`driver.enabled: false` suppresses all driver CRs even with instances configured.
-
-When upgrading an existing default `rbln-driver` deployment, review the
-[migration guide](../../docs/rolling-driver-migration.md) before adopting
-these defaults: disabling the fallback CR changes node ownership and replaces
-its driver DaemonSets.
-
-### Using Sample Configurations
-
-This chart provides three pre-configured sample values files for different workload types:
-
-The local-chart examples below run from the repository's `deployments/`
-directory. For a published release, replace `./rbln-npu-operator` in the chart
-argument with `oci://registry-1.docker.io/rebellions/rbln-npu-operator-chart`;
-the sample values files still come from your checkout.
-
-#### Container Workloads
-For traditional containerized AI workloads:
-```bash
-helm install rbln-npu-operator ./rbln-npu-operator \
-  -f ./rbln-npu-operator/sample-values-ContainerWorkload.yaml \
-  --create-namespace \
-  --namespace rbln-system
-```
-
-#### VM Passthrough Workloads
-For virtualized environments with NPU passthrough:
-```bash
-helm install rbln-npu-operator ./rbln-npu-operator \
-  -f ./rbln-npu-operator/sample-values-SandboxWorkload.yaml \
-  --create-namespace \
-  --namespace rbln-system
-```
-
-#### Multi-Driver Deployments
-For clusters with multiple NPU families or versions, running per-node-group driver versions:
-```bash
-helm install rbln-npu-operator ./rbln-npu-operator \
-  -f ./rbln-npu-operator/sample-values-MultiDriver.yaml \
-  --create-namespace \
-  --namespace rbln-system
-```
-The `rebellions.ai/npu.family` labels used by the instance selectors are
-applied automatically by the operator's `NodeFeatureRule` (requires NFD).
-Each instance's image is pulled from that same family-scoped registry path
-(BREAKING; see [Driver image layout](../../README.md#driver-image-layout-breaking)).
-See the root README's [Multiple driver versions](../../README.md#multiple-driver-versions)
-section for the `driver.instances` inheritance rules, routing/tie behavior, and
-migration notes.
-
-### Custom Installation
-
-1. **Create a custom values file**:
-   ```bash
-   cp values.yaml my-values.yaml
-   # Edit my-values.yaml with your specific configuration
-   ```
-
-2. **Install with custom values**:
-   ```bash
-   helm install rbln-npu-operator ./rbln-npu-operator -f my-values.yaml
-   ```
-
-### Component update strategies
-
-Each of `devicePlugin`, `draKubeletPlugin`, `sandboxDevicePlugin`,
-`metricsExporter`, `npuFeatureDiscovery`, `containerToolkit`, `deviceConfigManager`,
-and `validator` accepts an optional `updateStrategy` in Helm values. The same
-field is available under `spec.<component>.updateStrategy` in an
-`RBLNClusterPolicy`.
-
-```yaml
-devicePlugin:
-  updateStrategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-metricsExporter:
-  updateStrategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: "10%"
-containerToolkit:
-  updateStrategy:
-    type: OnDelete
-```
-
-- The default is an empty map (`updateStrategy: {}` in Helm values), which
-  Helm treats as unset and does not render. An explicit `null` also leaves it unset.
-  In a direct `RBLNClusterPolicy` manifest, omit the field or use
-  `updateStrategy: null`; `{}` there explicitly selects RollingUpdate defaults.
-  Existing DaemonSet strategies, including manual overrides, are preserved.
-  New DaemonSets keep the existing Kubernetes defaults: `RollingUpdate`,
-  `maxUnavailable: 1`, and `maxSurge: 0`. Adding this feature alone does not
-  change pod templates or restart existing component pods.
-- An explicitly configured strategy defaults to `RollingUpdate` and
-  `maxUnavailable: 1`. `maxUnavailable` accepts a positive integer or a quoted
-  percentage from `"1%"` to `"100%"`, independently for each DaemonSet.
-  Surge updates are not exposed; configured rolling updates use `maxSurge: 0`.
-- `OnDelete` requires `rollingUpdate` to be omitted. When switching using
-  merged Helm values (including `--reuse-values`), set
-  `<component>.updateStrategy.rollingUpdate=null` to clear any previous block.
-  An image/template change then waits until the old pods are deleted before
-  taking effect. `Ready` reports running pod availability, not that every pod
-  uses the latest template.
-- Removing the setting stops managing the strategy and preserves its current
-  value. To restore automatic rolling updates, explicitly set
-  `updateStrategy: {type: RollingUpdate}` and clear any previous
-  `rollingUpdate` block. Pending template changes can roll out as soon as this
-  switch is applied.
-- Driver and SMD are excluded and retain `OnDelete`. Continue using
-  `driver.upgradePolicy` for the driver upgrade workflow.
-
-The updated CRD must be installed before using these fields; the hook below
-handles this for Helm upgrades by default. With externally managed CRDs,
-apply the new schema first. Old values without these keys remain valid.
-Rolling back to an operator version without this feature does not reset a
-strategy already applied to a DaemonSet. Restore the desired strategy before
-rollback if necessary.
-
-### Upgrades and CRDs
-
-Helm applies the CRDs under `crds/` only on the **first** `helm install` and, by
-design, never updates them on `helm upgrade`. Because the operator's CRD schema
-evolves across releases, this chart keeps the CRDs in sync automatically via a
-`pre-install`/`pre-upgrade` hook Job (`crds.upgrade.enabled`, default `true`):
+Use a [release-matched chart and images](../../docs/guides/choose-release.md).
+Inspect the chosen chart's defaults with:
 
 ```bash
-helm upgrade rbln-npu-operator \
-  oci://registry-1.docker.io/rebellions/rbln-npu-operator-chart \
-  --version <chart-version> -n rbln-system -f my-values.yaml
+export CHART_VERSION='<chart-version>'
+helm show values oci://registry-1.docker.io/rebellions/rbln-npu-operator-chart \
+  --version "$CHART_VERSION"
 ```
 
-The hook runs the operator image's `crd-apply` binary, which server-side-applies
-the CRDs baked into the image at `/opt/rbln/crds`. There is no separate `kubectl`
-image to pin, no ConfigMap size limit, and no manual `kubectl apply` step. Because
-the operator image is non-root by default and sets no fixed UID, the hook runs on
-both vanilla Kubernetes and OpenShift (whose SCC assigns an in-range UID).
+This checkout disables driver deployment by default. To install drivers through
+operator-managed containers, follow [Configure driver versions](../../docs/guides/configure-drivers.md).
+That guide covers family selectors, image paths, and instance-specific version overrides.
 
-If you deploy via a GitOps tool (Argo CD / Flux) that already reconciles the
-`crds/` directory, you can disable the hook:
+## Choose a configuration
 
-```yaml
-crds:
-  upgrade:
-    enabled: false
+Use sample values from the same release as your chart and merge the settings you
+need into your installation values. Review image versions and enabled components
+before applying a sample.
+
+| Task | Start here |
+| --- | --- |
+| Configure container workloads | [Container sample](sample-values-ContainerWorkload.yaml) |
+| Configure VM passthrough | [Sandbox sample](sample-values-SandboxWorkload.yaml) |
+| Use multiple driver versions or node groups | [Multi-driver sample](sample-values-MultiDriver.yaml) · [Driver guide](../../docs/guides/configure-drivers.md) |
+| Control component Pod replacement | [Update strategies](../../docs/guides/configure-update-strategies.md) |
+| Change component log levels | [Collect logs](../../docs/guides/collect-logs.md) |
+| Upgrade the chart and CRDs | [Upgrade guide](../../docs/guides/upgrade-chart.md) |
+| Move an existing default driver to family instances | [Migration guide](../../docs/rolling-driver-migration.md) |
+
+For all keys and defaults, read [values.yaml](values.yaml). DRA and either device
+plugin are alternative allocation methods; the operator rejects enabling them together.
+
+## Preview a local chart change
+
+From the repository root:
+
+```bash
+make helm-deps
+helm template rbln-npu-operator ./deployments/rbln-npu-operator \
+  --namespace rbln-system -f <values-file>
 ```
 
-CRDs are **preserved** on `helm uninstall` (never deleted), so custom resources
-are not lost.
+Inspect the rendered policy, driver selectors, and images before deployment.
+A successful render does not check image availability or node readiness.
 
-## Configuration
-
-### Workload Types
-
-The operator supports two main workload configurations:
-
-#### Container Workloads (`container`)
-- **Components**: Device Plugin, Metrics Exporter, NPU Feature Discovery
-- **Use Case**: Traditional containerized AI applications
-- **Resource Types**: `rebellions.ai/npu`
-
-#### VM Passthrough Workloads (`vm-passthrough`)
-- **Components**: Sandbox Device Plugin (or DRA), Device Config Manager, native PF driver and SMD
-- **Use Case**: Virtualized environments with NPU passthrough using KubeVirt
-- **Resource Types**: One per (model, function) auto-discovered from `sysfs` + `pci.ids` — e.g. `rebellions.ai/RBLN-CA22_PF`, `rebellions.ai/RBLN-CA25_VF`
-- **Requirements**: KubeVirt must be installed and VFIO-PCI driver configuration required
-
-### KubeVirt Integration for VM Passthrough
-
-The VM passthrough mode is specifically designed to work with KubeVirt, providing NPU device passthrough to virtual machines running on Kubernetes. This enables running AI workloads inside VMs while maintaining direct access to NPU hardware.
-
-#### Prerequisites for VM Passthrough:
-1. **KubeVirt Installation**: Ensure KubeVirt operator is installed and configured
-2. **IOMMU Support**: Enable IOMMU on the host system (Intel VT-d or AMD-Vi)
-3. **VFIO Modules**: Load required VFIO kernel modules (`vfio-pci`, `vfio_iommu_type1`)
-
-## Usage Examples
-
-### Basic Container Workload Deployment
-
-```yaml
-# values.yaml
-devicePlugin:
-  enabled: true
-```
-
-The plugin always advertises non-partitioned NPUs as `rebellions.ai/npu`.
-SR-IOV VFs use `rebellions.ai/npu-vf1` or `rebellions.ai/npu-vf4` according to
-their partition mode. These names are fixed and have no configuration option.
-
-### VM Passthrough Deployment
-
-```yaml
-# values.yaml
-workloadType: vm-passthrough
-sandboxDevicePlugin:
-  enabled: true
-deviceConfigManager:
-  enabled: true
-```
-
-Use a device-config-manager image containing continuous PCI/SR-IOV reconciliation.
-VM nodes require the native PF driver and SMD for VF creation; choose PF-only or VF-only per node. VF1 and
-VF4 may coexist. Container nodes may mix PFs and VFs.
-
-The sandbox device plugin runs in per-model mode: each `(model, function)`
-discovered via `sysfs` + `pci.ids` becomes its own kubelet resource (e.g.
-`rebellions.ai/RBLN-CA22_PF`). KubeVirt `permittedHostDevices` must whitelist
-each resource name actually consumed by VMs.
-
-### Using NPU Resources in Pods
-
-#### Container Workloads
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: npu-workload
-spec:
-  containers:
-  - name: app
-    image: your-ai-app:latest
-    resources:
-      requests:
-        rebellions.ai/npu: 1
-      limits:
-        rebellions.ai/npu: 1
-```
-
-#### VM Passthrough Workloads
-```yaml
----
-apiVersion: kubevirt.io/v1
-kind: VirtualMachine
-metadata:
-  name: vm-npu-workload
-spec:
-  runStrategy: Always
-  template:
-    metadata:
-      labels:
-        kubevirt.io/size: large
-    spec:
-      domain:
-        devices:
-          ...
-          hostDevices:
-            - name: rbln0
-              deviceName: rebellions.ai/RBLN-CA22_PF
-              tag: "pci"
-            - name: rbln1
-              deviceName: rebellions.ai/RBLN-CA22_PF
-              tag: "pci"
-            - name: rbln2
-              deviceName: rebellions.ai/RBLN-CA22_PF
-              tag: "pci"
-            - name: rbln3
-              deviceName: rebellions.ai/RBLN-CA22_PF
-              tag: "pci"
-            - name: rbln4
-              deviceName: rebellions.ai/RBLN-CA22_PF
-              tag: "pci"
-            - name: rbln5
-              deviceName: rebellions.ai/RBLN-CA22_PF
-              tag: "pci"
-            - name: rbln6
-              deviceName: rebellions.ai/RBLN-CA22_PF
-              tag: "pci"
-            - name: rbln7
-              deviceName: rebellions.ai/RBLN-CA22_PF
-              tag: "pci"
-        resources:
-          requests:
-            rebellions.ai/RBLN-CA22_PF: 8
-            cpu: "4"
-            memory: 50Gi
-          limits:
-            rebellions.ai/RBLN-CA22_PF: 8
-            cpu: "4"
-            memory: 50Gi
-```
+Next: [check the deployment](../../docs/guides/check-deployment.md), then choose
+an [NPU workload guide](../../README.md#guides).
