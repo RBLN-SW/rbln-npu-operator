@@ -62,8 +62,9 @@ jobs:
 
       - name: Extract registry host
         id: registry
+        env:
+          REGISTRY: ${{ inputs.registry }}
         run: |
-          REGISTRY="${{ inputs.registry }}"
           echo "host=${REGISTRY%%/*}" >> "$GITHUB_OUTPUT"
 
       - name: Login to container registry
@@ -92,11 +93,14 @@ jobs:
       - name: Build and push multi-arch image
         env:
           VERSION: ${{ inputs.version }}
+          MAKE_TARGET: ${{ inputs.make-target }}
+          VERSION_VAR: ${{ inputs.version-var }}
+          REGISTRY: ${{ inputs.registry }}
         run: |
-          make ${{ inputs.make-target }} \
+          make "$MAKE_TARGET" \
             BUILD_MULTI_PLATFORM=true PUSH_ON_BUILD=true \
-            REGISTRY="${{ inputs.registry }}" \
-            ${{ inputs.version-var }}="$VERSION"
+            REGISTRY="$REGISTRY" \
+            "${VERSION_VAR}=$VERSION"
 
       - name: Verify both platforms are present
         run: |
