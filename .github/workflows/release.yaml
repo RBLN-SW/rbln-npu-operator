@@ -308,27 +308,14 @@ jobs:
     name: GA operator and validator images -> Harbor
     needs: release
     if: needs.release.outputs.kind == 'ga'
-    runs-on: rbln-sw-k8s-general
-    steps:
-      - uses: actions/checkout@v4
-      - name: Derive the Harbor host
-        run: echo "HARBOR_HOST=${HARBOR_REGISTRY%%/*}" >> "$GITHUB_ENV"
-      - name: Install regctl
-        run: |
-          mkdir -p "$HOME/.local/bin" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          REGCTL_VERSION=$(awk '/^REGCTL_VERSION / {print $3}' versions.mk)
-          curl -fsSL "https://github.com/regclient/regclient/releases/download/${REGCTL_VERSION}/regctl-linux-amd64" \
-            -o "$HOME/.local/bin/regctl"
-          chmod +x "$HOME/.local/bin/regctl"
-      - name: Login to Harbor
-        env:
-          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-        run: printf '%s' "$HARBOR_PASSWORD" | regctl registry login "$HARBOR_HOST" -u "$HARBOR_USERNAME" --pass-stdin
-      - name: Tag the promoted digests with the GA version in Harbor
-        env:
-          PROMOTED: ${{ needs.release.outputs.digests }}
-        run: hack/release/mirror-ga-images.sh "$GITHUB_REF_NAME"
+    uses: RBLN-SW/cloud-component-release-kit/.github/workflows/mirror-ga-images.yaml@v1
+    with:
+      images: rbln-npu-operator rbln-npu-operator-validator
+      tag: ${{ github.ref_name }}
+      digests: ${{ needs.release.outputs.digests }}
+    secrets:
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
 
   olm-bundle:
     name: GA OLM bundle PR (certified-operators)
@@ -595,7 +582,7 @@ jobs:
           SLACK_OAUTH_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
           SLACK_CHANNEL_ID: ${{ vars.CLOUD_COMPONENT_SLACK_CHANNEL_ID }}
           R_KIT: ${{ needs.release.result }}
-          R_HARBOR: ${{ needs.ga-harbor-images.result }}
+          R_HARBOR: ${{ needs.ga-harbor-images.outputs.outcome || (needs.ga-harbor-images.result == 'skipped' && 'skipped' || 'warning') }}
           R_OLM: ${{ needs.olm-bundle.result }}
           PR_URL: ${{ needs.olm-bundle.outputs.pr_url }}
           DRAFT_URL: ${{ needs.release.outputs.draft_url }}
@@ -604,13 +591,20 @@ jobs:
         run: |
           mark() { case "$1" in success) echo ":white_check_mark:";; failure) echo ":x:";; cancelled) echo ":no_entry_sign:";; skipped) echo ":fast_forward:";; *) echo ":grey_question:";; esac; }
           color=good
-          for r in "$R_KIT" "$R_HARBOR" "$R_OLM"; do
+          for r in "$R_KIT" "$R_OLM"; do
             case $r in failure|cancelled) color=danger;; esac
           done
+          harbor="$(mark "$R_HARBOR") Same operator/validator digests → \`$HARBOR_REGISTRY\` (\`$GITHUB_REF_NAME\`)"
+          case "$R_HARBOR" in
+            warning|failure|cancelled)
+              harbor=":warning: Harbor GA image copy incomplete → \`$HARBOR_REGISTRY\` (\`$GITHUB_REF_NAME\`); public release unaffected"
+              if [ "$color" = good ]; then color=warning; fi
+              ;;
+          esac
           branch="release-${GITHUB_REF_NAME#v}"
           tags="\`$GITHUB_REF_NAME\`"; [ "$LATEST" = true ] && tags="$tags, \`latest\`"
           rows="$(mark "$R_KIT") Images promoted from \`${LAST_RC:-the newest rc}\` by digest → \`$DOCKERHUB_REGISTRY\` ($tags), Helm chart \`${GITHUB_REF_NAME#v}\` → docker.io OCI, release notes drafted, \`backport $branch\` label removed
-          $(mark "$R_HARBOR") Same operator/validator digests → \`$HARBOR_REGISTRY\` (\`$GITHUB_REF_NAME\`)
+          $harbor
           $(mark "$R_OLM") certified-operators bundle PR"
           links=()
           [ -n "$DRAFT_URL" ] && links+=(--link "$DRAFT_URL|draft release")
