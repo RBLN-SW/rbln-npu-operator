@@ -44,7 +44,7 @@ jobs:
       - name: Extract registry host
         id: registry
         run: |
-          echo "host=${REGISTRY%%/*}" >> $GITHUB_OUTPUT
+          echo "host=${REGISTRY%%/*}" >> "$GITHUB_OUTPUT"
       - name: Login to container registry
         uses: docker/login-action@v3
         with:
