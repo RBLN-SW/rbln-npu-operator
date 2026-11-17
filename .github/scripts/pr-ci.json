@@ -4,5 +4,13 @@
   "ob_pipeline": "pr-npu-operator",
   "timeout_seconds": 10200,
   "status_context": "[OP] PR CI",
-  "workflow_file": ".github/workflows/trigger-pr.yaml"
+  "workflow_file": ".github/workflows/trigger-pr.yaml",
+  "gate_jobs": [
+    "code-check",
+    "go-build",
+    "go-tests",
+    "manifests-check",
+    "olm-bundle-check",
+    "pr-title-validation"
+  ]
 }
