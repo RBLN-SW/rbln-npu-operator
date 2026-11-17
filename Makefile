@@ -138,8 +138,13 @@ cmd-crd-apply: ## Build the crd-apply executable
 		go build -o crd-apply $(BUILD_FLAGS) $(MODULE)/cmd/crd-apply
 	@echo "crd-apply executable built successfully."
 
+.PHONY: cmd-system-probe
+cmd-system-probe:
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
+		go build -o rbln-system-probe $(BUILD_FLAGS) $(MODULE)/cmd/rbln-system-probe
+
 .PHONY: cmds
-cmds: cmd cmd-validator cmd-crd-apply ## Build all executables
+cmds: cmd cmd-validator cmd-crd-apply cmd-system-probe ## Build all executables
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.

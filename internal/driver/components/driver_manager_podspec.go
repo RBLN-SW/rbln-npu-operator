@@ -182,11 +182,28 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath strin
 		},
 	}
 	volumes = append(volumes, corev1.Volume{Name: systemProbeVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
-	initContainer.VolumeMounts = append(initContainer.VolumeMounts, corev1.VolumeMount{Name: systemProbeVolumeName, MountPath: "/opt/rbln-system-probe"})
 	driverContainer.VolumeMounts = append(driverContainer.VolumeMounts, corev1.VolumeMount{Name: systemProbeVolumeName, MountPath: "/opt/rbln-system-probe", ReadOnly: true})
 	volumes = append(volumes, additionalVolumes...)
 
-	initContainers := []*corev1.Container{initContainer}
+	initContainers := []*corev1.Container{initContainer, {
+		Name: "install-system-probe", Image: h.systemProbe.Reference, ImagePullPolicy: h.systemProbe.PullPolicy,
+		Command:         []string{"/usr/bin/rbln-system-probe", "install"},
+		SecurityContext: &corev1.SecurityContext{RunAsUser: ptr(int64(0))},
+		VolumeMounts:    []corev1.VolumeMount{{Name: systemProbeVolumeName, MountPath: "/opt/rbln-system-probe"}},
+	}}
+	pullSecrets := append([]string(nil), h.desiredSpec.ImagePullSecrets...)
+	for _, secret := range h.systemProbe.PullSecrets {
+		found := false
+		for _, existing := range pullSecrets {
+			if existing == secret.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			pullSecrets = append(pullSecrets, secret.Name)
+		}
+	}
 	if pool.rds {
 		volumes = append(volumes, h.rdsBindVolumes()...)
 		// Appended (not prepended): handleDaemonSet injects DRIVER_CONFIG_DIGEST
@@ -207,7 +224,7 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath strin
 		WithNodeSelector(pool.nodeSelector).
 		WithAffinity(affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
-		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithImagePullSecrets(pullSecrets).
 		WithPriorityClassName(h.desiredSpec.PriorityClassName).
 		WithVolumes(volumes).
 		WithInitContainers(initContainers).
@@ -242,8 +259,8 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 			h.desiredSpec.Manager.Version,
 			h.desiredSpec.Manager.ImagePullPolicy,
 		).
-		WithCommands([]string{driverShellCommand, "-ec"}).
-		WithArgs([]string{"cp /usr/local/bin/rbln-system-probe /opt/rbln-system-probe/rbln-system-probe; exec " + driverManagerCommand + " " + driverManagerSyncDriverLabel}).
+		WithCommands([]string{driverManagerCommand}).
+		WithArgs([]string{driverManagerSyncDriverLabel}).
 		WithEnvs(driverManagerInitEnv(h.evictionPolicy)).
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged:     ptr(true),

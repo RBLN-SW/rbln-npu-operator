@@ -143,3 +143,5 @@ func emulateForegroundGC(ctx context.Context) {
 		}
 	}
 }
+
+var _ = BeforeEach(func() { GinkgoT().Setenv("RBLN_SYSTEM_PROBE_IMAGE", "operator:test") })

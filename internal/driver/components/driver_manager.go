@@ -20,8 +20,15 @@ import (
 
 // ─── Struct ──────────────────────────────────────────────────────────────────
 
+type SystemProbeImage struct {
+	Reference   string
+	PullPolicy  corev1.PullPolicy
+	PullSecrets []corev1.LocalObjectReference
+}
+
 type driverManagerPatcher struct {
 	basePatcher
+	systemProbe        SystemProbeImage
 	desiredSpec        *rebellionsaiv1alpha1.RBLNDriverSpec
 	checker            ImageChecker
 	evictionPolicy     drivermanager.NPUPodEvictionPolicy
@@ -50,7 +57,11 @@ func NewDriverManagerPatcher(
 	evictionPolicy drivermanager.NPUPodEvictionPolicy,
 	rdsBindingEnabled bool,
 	rdsDeviceSelection map[string][]string,
+	probeImage SystemProbeImage,
 ) (DriverPatcher, error) {
+	if probeImage.Reference == "" {
+		return nil, fmt.Errorf("system probe image is required")
+	}
 	if driver == nil {
 		return nil, fmt.Errorf("driver is nil")
 	}
@@ -68,6 +79,7 @@ func NewDriverManagerPatcher(
 			namespace:        namespace,
 			openshiftVersion: openshiftVersion,
 		},
+		systemProbe:        probeImage,
 		desiredSpec:        &driver.Spec,
 		checker:            checker,
 		evictionPolicy:     evictionPolicy,

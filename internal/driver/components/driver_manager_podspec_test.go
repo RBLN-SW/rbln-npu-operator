@@ -18,11 +18,14 @@ import (
 	k8sutil "github.com/RBLN-SW/rbln-npu-operator/internal/utils/k8s"
 )
 
+const testSystemProbeImage = "operator:test"
+
 func newTestPatcher(t *testing.T, openshiftVersion string) *driverManagerPatcher {
 	t.Helper()
 	scheme := newTestScheme(t)
 	c := newFakeClient(t, scheme)
 	return &driverManagerPatcher{
+		systemProbe: SystemProbeImage{Reference: testSystemProbeImage},
 		basePatcher: basePatcher{
 			client:           c,
 			log:              logf.Log,
@@ -742,5 +745,28 @@ func TestBuildDriverManagerInitContainerEnvOrder(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Fatalf("init container env order changed (-want +got):\n%s", diff)
+	}
+}
+
+func TestSystemProbeDoesNotChangeLegacyManagerEntrypoint(t *testing.T) {
+	const legacyRegistry = "docker.io"
+	const sharedSecret = "shared"
+	h := newTestPatcher(t, "")
+	h.desiredSpec.Manager.Registry = legacyRegistry
+	h.desiredSpec.Manager.Image = "rebellions/rbln-k8s-driver-manager"
+	h.desiredSpec.Manager.Version = "latest"
+	h.systemProbe = SystemProbeImage{Reference: "private/operator:new", PullPolicy: corev1.PullAlways, PullSecrets: []corev1.LocalObjectReference{{Name: "probe-secret"}, {Name: sharedSecret}}}
+	h.desiredSpec.ImagePullSecrets = []string{sharedSecret}
+	spec := h.buildDriverPodSpec(nodePool{}, "driver:old")
+	manager := spec.InitContainers[0]
+	if manager.Image != "docker.io/rebellions/rbln-k8s-driver-manager:latest" || len(manager.Command) != 1 || manager.Command[0] != "driver-manager" || len(manager.Args) != 1 || manager.Args[0] != "reconcile-driver-state" {
+		t.Fatalf("legacy manager contract changed: %+v", manager)
+	}
+	helper := spec.InitContainers[1]
+	if helper.Image != "private/operator:new" || helper.Name != "install-system-probe" || helper.Command[0] != "/usr/bin/rbln-system-probe" {
+		t.Fatalf("probe not supplied by operator: %+v", helper)
+	}
+	if len(spec.ImagePullSecrets) != 2 || spec.ImagePullSecrets[0].Name != sharedSecret || spec.ImagePullSecrets[1].Name != "probe-secret" {
+		t.Fatalf("pull secrets not merged: %v", spec.ImagePullSecrets)
 	}
 }
