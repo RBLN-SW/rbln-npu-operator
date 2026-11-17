@@ -258,7 +258,7 @@ func TestHandleConfigMap(t *testing.T) {
 	// Verify the probe wires kernel-module + marker-file checks, both env
 	// vars/defaults, and the component-ready publication helper.
 	for _, needle := range []string{
-		"/sys/module/rebellions/refcnt",
+		"/opt/rbln-system-probe/rbln-system-probe",
 		driverReadyDirEnvName,
 		driverReadyFileEnvName,
 		defaultDriverReadyDir,

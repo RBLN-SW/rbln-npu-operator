@@ -15,6 +15,11 @@ import (
 	k8sutil "github.com/RBLN-SW/rbln-npu-operator/internal/utils/k8s"
 )
 
+const (
+	driverShellCommand    = "/bin/sh"
+	systemProbeVolumeName = "rbln-system-probe"
+)
+
 type mountPathToVolumeSource map[string]corev1.VolumeSource
 
 var subscriptionPathMap = map[string]mountPathToVolumeSource{
@@ -82,7 +87,7 @@ fi
 # finished the install pipeline". Either alone has a failure mode
 # (module true mid-fw-update; stale marker from a botched cleanup), so
 # require both.
-if [ ! -f /sys/module/rebellions/refcnt ]; then
+if ! /opt/rbln-system-probe/rbln-system-probe; then
   rm -f "${COMPONENT_READY_FILE}"
   echo "Rebellions kernel module not loaded"
   exit 1
@@ -176,6 +181,9 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath strin
 			}},
 		},
 	}
+	volumes = append(volumes, corev1.Volume{Name: systemProbeVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
+	initContainer.VolumeMounts = append(initContainer.VolumeMounts, corev1.VolumeMount{Name: systemProbeVolumeName, MountPath: "/opt/rbln-system-probe"})
+	driverContainer.VolumeMounts = append(driverContainer.VolumeMounts, corev1.VolumeMount{Name: systemProbeVolumeName, MountPath: "/opt/rbln-system-probe", ReadOnly: true})
 	volumes = append(volumes, additionalVolumes...)
 
 	initContainers := []*corev1.Container{initContainer}
@@ -234,8 +242,8 @@ func (h *driverManagerPatcher) buildDriverManagerInitContainer() *corev1.Contain
 			h.desiredSpec.Manager.Version,
 			h.desiredSpec.Manager.ImagePullPolicy,
 		).
-		WithCommands([]string{driverManagerCommand}).
-		WithArgs([]string{driverManagerSyncDriverLabel}).
+		WithCommands([]string{driverShellCommand, "-ec"}).
+		WithArgs([]string{"cp /usr/local/bin/rbln-system-probe /opt/rbln-system-probe/rbln-system-probe; exec " + driverManagerCommand + " " + driverManagerSyncDriverLabel}).
 		WithEnvs(driverManagerInitEnv(h.evictionPolicy)).
 		WithSecurityContext(&corev1.SecurityContext{
 			Privileged:     ptr(true),
@@ -334,7 +342,7 @@ func (h *driverManagerPatcher) buildDriverContainer(
 
 	container := k8sutil.NewContainerBuilder().
 		WithName(driverManagerContainer).
-		WithCommands([]string{"/bin/sh", "-ec"}).
+		WithCommands([]string{driverShellCommand, "-ec"}).
 		WithArgs([]string{
 			"rm -f " + driverEntrypointStartedFile + " " + consts.ValidationsMountPath + "/" + driverCtrReadyFile +
 				" " + defaultDriverReadyDir + "/" + defaultDriverReadyFile + "\n" +
@@ -346,7 +354,7 @@ func (h *driverManagerPatcher) buildDriverContainer(
 		WithLifeCycle(&corev1.Lifecycle{
 			PreStop: &corev1.LifecycleHandler{
 				Exec: &corev1.ExecAction{
-					Command: []string{"/bin/sh", "-c", "rm -f " + consts.ValidationsMountPath + "/.driver-ctr-ready"},
+					Command: []string{driverShellCommand, "-c", "rm -f " + consts.ValidationsMountPath + "/.driver-ctr-ready"},
 				},
 			},
 		}).
@@ -363,7 +371,7 @@ func (h *driverManagerPatcher) buildDriverContainer(
 	container.StartupProbe = &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
 			Exec: &corev1.ExecAction{
-				Command: []string{"/bin/sh", "-c", startupProbeScriptPath},
+				Command: []string{driverShellCommand, "-c", startupProbeScriptPath},
 			},
 		},
 		TimeoutSeconds:   driverManagerStartupProbeTimeoutSeconds,

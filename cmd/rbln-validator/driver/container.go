@@ -7,21 +7,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
+
+	host "github.com/rbln-sw/rblnlib-go/pkg/host/v1"
 
 	"github.com/RBLN-SW/rbln-npu-operator/internal/driverready"
 )
-
-var driverLibrarySearchPaths = []string{
-	"/usr/lib",
-	"/usr/lib64",
-	"/usr/lib/x86_64-linux-gnu",
-	"/usr/lib/aarch64-linux-gnu",
-	"/lib64",
-	"/lib/x86_64-linux-gnu",
-	"/lib/aarch64-linux-gnu",
-}
 
 func validateDriverContainer(cfg Config, silent bool) error {
 	checker, err := driverready.New(cfg.NodeName, cfg.Namespace, nil)
@@ -103,25 +94,4 @@ func waitForFile(path string, interval time.Duration, sleep func(time.Duration),
 	}
 }
 
-func findDriverLibraryPath(root string) (string, error) {
-	return findFileUnderRoot(root, "librbln-ml.so", driverLibrarySearchPaths...)
-}
-
-func findFileUnderRoot(root string, name string, searchIn ...string) (string, error) {
-	paths := make([]string, 0, len(searchIn)+1)
-	paths = append(paths, "")
-	paths = append(paths, searchIn...)
-
-	for _, dir := range paths {
-		relative := strings.TrimPrefix(dir, "/")
-		candidate := filepath.Join(root, relative, name)
-
-		resolved, err := filepath.EvalSymlinks(candidate)
-		if err != nil {
-			continue
-		}
-		return resolved, nil
-	}
-
-	return "", fmt.Errorf("error locating %q under %q", name, root)
-}
+func findDriverLibraryPath(root string) (string, error) { return host.FindManagementLibrary(root) }

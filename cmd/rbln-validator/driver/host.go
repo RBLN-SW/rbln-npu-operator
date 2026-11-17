@@ -2,36 +2,23 @@ package driver
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"os/exec"
-	"strings"
 	"time"
+
+	host "github.com/rbln-sw/rblnlib-go/pkg/host/v1"
 )
 
 const hostDriverProbeTimeout = 10 * time.Second
 
 func validateHostDriver() error {
-	slog.Info("Attempting to validate a pre-installed driver on the host")
-
-	ctx, cancel := context.WithTimeout(context.Background(), hostDriverProbeTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx,
-		"nsenter", "--target", "1", "--mount", "--uts", "--ipc",
-		"--", "env", "TMPDIR=/tmp", hostSmiBinary, "--version")
-	out, err := cmd.CombinedOutput()
+	c, err := host.New(host.Options{HostPID: 1, CommandTimeout: hostDriverProbeTimeout})
 	if err != nil {
-		slog.Info("RBLN-SMI execution failed, host driver not detected",
-			"error", err, "output", strings.TrimSpace(string(out)))
-		return fmt.Errorf("host driver not detected via %s: %w", hostSmiBinary, err)
+		return err
 	}
-
-	version := strings.TrimSpace(string(out))
-	if version == "" {
-		return fmt.Errorf("host driver not detected: %s produced empty output", hostSmiBinary)
+	version, err := c.ProbeHostDriver(context.Background())
+	if err != nil {
+		return err
 	}
-
 	slog.Info("Host driver detected", "version", version)
 	return nil
 }
