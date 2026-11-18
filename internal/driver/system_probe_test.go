@@ -27,6 +27,7 @@ func TestSystemProbeUsesRunningOperatorImage(t *testing.T) {
 		t.Fatal("accepted missing operator Pod")
 	}
 }
+
 func TestSystemProbeLocalImageOverride(t *testing.T) {
 	t.Setenv("RBLN_SYSTEM_PROBE_IMAGE", "local/operator:test")
 	result, err := resolveSystemProbeImage(context.Background(), nil, "system")

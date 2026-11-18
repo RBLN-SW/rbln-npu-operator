@@ -15,6 +15,7 @@ var errDriverNotBound = errors.New("device has no driver symlink")
 func hostClient(root string) (*host.Client, error) {
 	return host.New(host.Options{PCIDevicesRoot: root})
 }
+
 func scanDevices(root string) ([]string, error) {
 	c, err := hostClient(root)
 	if err != nil {
@@ -33,6 +34,7 @@ func scanDevices(root string) ([]string, error) {
 	}
 	return out, nil
 }
+
 func currentDriver(devPath string) (string, error) {
 	c, err := hostClient(filepath.Dir(devPath))
 	if err != nil {
@@ -40,6 +42,7 @@ func currentDriver(devPath string) (string, error) {
 	}
 	return c.CurrentDriver(context.Background(), filepath.Base(devPath))
 }
+
 func verifyVFIOBinding(devPath string) error {
 	driver, err := currentDriver(devPath)
 	if err != nil {

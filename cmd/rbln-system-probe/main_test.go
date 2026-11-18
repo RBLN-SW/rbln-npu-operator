@@ -50,7 +50,7 @@ func TestInstallCopiesExecutable(t *testing.T) {
 		t.Fatal("installed probe differs from its executable")
 	}
 	info, err := os.Stat(destination)
-	if err != nil || info.Mode().Perm() != 0755 {
+	if err != nil || info.Mode().Perm() != 0o755 {
 		t.Fatalf("mode=%v err=%v", info, err)
 	}
 }
