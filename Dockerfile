@@ -23,7 +23,18 @@ COPY internal/ internal/
 
 RUN make cmds GOOS=$TARGETOS GOARCH=$TARGETARCH
 
-FROM redhat/ubi9-minimal:9.8
+# Install runtime RPMs in a UBI Micro filesystem, keeping the package
+# manager and its networking dependencies in the build stage.
+FROM redhat/ubi9-micro:9.9 AS runtime-base
+FROM redhat/ubi9:9.9 AS runtime-rootfs
+COPY --from=runtime-base / /mnt/rootfs/
+RUN dnf -y --installroot=/mnt/rootfs --releasever=9 \
+        --setopt=install_weak_deps=False --setopt=tsflags=nodocs \
+        install ca-certificates util-linux-core && \
+    dnf --installroot=/mnt/rootfs clean all
+
+FROM runtime-base
+COPY --from=runtime-rootfs /mnt/rootfs/ /
 ARG VERSION
 
 LABEL \
@@ -36,11 +47,6 @@ LABEL \
     maintainer="Rebellions sw_devops@rebellions.ai" \
     io.k8s.display-name="Rebellions NPU Operator" \
     com.redhat.component="rbln-npu-operator"
-
-# Pick up OpenSSL errata that may not yet be included in the UBI base image.
-RUN microdnf update -y openssl-libs && \
-    microdnf install -y util-linux-core && \
-    microdnf clean all -y
 
 COPY --from=builder /workspace/npu-operator /usr/bin/
 COPY --from=builder /workspace/rbln-validator /usr/bin/
