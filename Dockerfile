@@ -23,18 +23,18 @@ COPY internal/ internal/
 
 RUN make cmds GOOS=$TARGETOS GOARCH=$TARGETARCH
 
-# Install runtime RPMs in a UBI Micro filesystem, keeping the package
-# manager and its networking dependencies in the build stage.
 FROM redhat/ubi9-micro:9.9 AS runtime-base
-FROM redhat/ubi9:9.9 AS runtime-rootfs
-COPY --from=runtime-base / /mnt/rootfs/
-RUN dnf -y --installroot=/mnt/rootfs --releasever=9 \
-        --setopt=install_weak_deps=False --setopt=tsflags=nodocs \
-        install ca-certificates util-linux-core && \
-    dnf --installroot=/mnt/rootfs clean all
+FROM redhat/ubi9:9.9 AS runtime-packages
+COPY --from=runtime-base /var/lib/rpm/ /mnt/rootfs/var/lib/rpm/
+RUN dnf -y --installroot=/mnt/rootfs --releasever=9 --setopt=install_weak_deps=False \
+    --downloadonly --destdir=/rpms install ca-certificates util-linux-core
 
 FROM runtime-base
-COPY --from=runtime-rootfs /mnt/rootfs/ /
+# Run RPM scriptlets in the target image itself so buildx can emulate them.
+# The mounted package manager and downloaded RPMs stay out of the image.
+RUN --mount=from=runtime-packages,target=/build-tools \
+    LD_LIBRARY_PATH=/build-tools/usr/lib64 RPM_CONFIGDIR=/build-tools/usr/lib/rpm \
+    /build-tools/usr/bin/rpm -U --excludedocs /build-tools/rpms/*.rpm
 ARG VERSION
 
 LABEL \
