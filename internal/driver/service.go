@@ -76,8 +76,12 @@ func NewDriverService(
 	if clusterPolicy != nil {
 		policySpec = &clusterPolicy.Spec
 	}
+	probeImage, err := resolveSystemProbeImage(ctx, apiReader, s.namespace)
+	if err != nil {
+		return nil, err
+	}
 	dmp, err := components.NewDriverManagerPatcher(client, apiReader, log, s.namespace, driver, scheme, checker, s.openshiftVersion,
-		ownedNodes, drivermanager.ResolveNPUPodEvictionPolicy(policySpec), rdsEnabled, rdsDeviceSelection)
+		ownedNodes, drivermanager.ResolveNPUPodEvictionPolicy(policySpec), rdsEnabled, rdsDeviceSelection, probeImage)
 	if err != nil {
 		return nil, err
 	}

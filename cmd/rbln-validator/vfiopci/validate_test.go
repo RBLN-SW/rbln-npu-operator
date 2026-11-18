@@ -27,6 +27,12 @@ func writeFakeSysfs(t *testing.T, root string, devices []fakeDevice) {
 		if err := os.MkdirAll(devPath, 0o750); err != nil {
 			t.Fatalf("mkdir dev %s: %v", d.bdf, err)
 		}
+		if err := os.WriteFile(filepath.Join(devPath, "driver_override"), []byte("\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(devPath, "device"), []byte("0x2130"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(devPath, "vendor"), []byte(d.vendor+"\n"), 0o600); err != nil {
 			t.Fatalf("write vendor: %v", err)
 		}

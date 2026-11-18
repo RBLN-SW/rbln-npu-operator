@@ -92,7 +92,7 @@ func TestStartupProbeRejectsStaleReadyMarkers(t *testing.T) {
 			}
 			script := strings.NewReplacer(consts.ValidationsMountPath, shared,
 				driverEntrypointStartedFile, filepath.Join(root, "started"),
-				"/sys/module/rebellions/refcnt", filepath.Join(root, "module")).Replace(cm.Data[startupProbeScriptName])
+				"/opt/rbln-system-probe/rbln-system-probe", "test -f "+filepath.Join(root, "module")).Replace(cm.Data[startupProbeScriptName])
 			cmd := exec.Command("/bin/sh", "-c", script)
 			cmd.Env = append(os.Environ(), driverReadyDirEnvName+"="+installDir, driverReadyFileEnvName+"="+defaultDriverReadyFile)
 			output, err := cmd.CombinedOutput()

@@ -1,69 +1,58 @@
 package vfiopci
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
+
+	host "github.com/rbln-sw/rblnlib-go/pkg/host/v1"
+	system "github.com/rbln-sw/rblnlib-go/pkg/system/v1"
 )
 
 var errDriverNotBound = errors.New("device has no driver symlink")
 
-func scanDevices(root string) ([]string, error) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", root, err)
-	}
-
-	matched := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		devPath := filepath.Join(root, entry.Name())
-
-		vendor, vendorErr := readSysfsField(devPath, "vendor")
-		if vendorErr != nil || vendor != rblnVendorID {
-			continue
-		}
-		class, classErr := readSysfsField(devPath, "class")
-		if classErr != nil || class != rblnDeviceClassNPU {
-			continue
-		}
-		matched = append(matched, devPath)
-	}
-	return matched, nil
+func hostClient(root string) (*host.Client, error) {
+	return host.New(host.Options{PCIDevicesRoot: root})
 }
 
-func verifyVFIOBinding(devPath string) error {
-	target, err := os.Readlink(filepath.Join(devPath, "driver"))
+func scanDevices(root string) ([]string, error) {
+	c, err := hostClient(root)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("%s: %w", devPath, errDriverNotBound)
-		}
-		return fmt.Errorf("readlink %s/driver: %w", devPath, err)
+		return nil, err
 	}
-	driverName := filepath.Base(target)
-	if driverName != vfioPCIDriverName {
-		return fmt.Errorf("device %s bound to %q, want %q", devPath, driverName, vfioPCIDriverName)
+	s, err := c.ListDevices(context.Background())
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	if err := system.IssuesError(s.Issues); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(s.Devices))
+	for _, d := range s.Devices {
+		out = append(out, filepath.Join(root, d.PCIAddress))
+	}
+	return out, nil
 }
 
 func currentDriver(devPath string) (string, error) {
-	target, err := os.Readlink(filepath.Join(devPath, "driver"))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
-		}
-		return "", fmt.Errorf("readlink %s/driver: %w", devPath, err)
-	}
-	return filepath.Base(target), nil
-}
-
-func readSysfsField(devPath, field string) (string, error) {
-	// #nosec G304 -- devPath comes from os.ReadDir under the sysfs root and field is a package-internal constant.
-	data, err := os.ReadFile(filepath.Join(devPath, field))
+	c, err := hostClient(filepath.Dir(devPath))
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(data)), nil
+	return c.CurrentDriver(context.Background(), filepath.Base(devPath))
+}
+
+func verifyVFIOBinding(devPath string) error {
+	driver, err := currentDriver(devPath)
+	if err != nil {
+		return err
+	}
+	if driver == "" {
+		return fmt.Errorf("%s: %w", devPath, errDriverNotBound)
+	}
+	if driver != system.VFIODriver {
+		return fmt.Errorf("device %s bound to %q, want %q", devPath, driver, system.VFIODriver)
+	}
+	return nil
 }

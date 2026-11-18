@@ -9,10 +9,10 @@ nightly run repeats the scan against `main` and reports to Slack.
 
 | image | Dockerfile | base |
 | --- | --- | --- |
-| `rbln-npu-operator` | `Dockerfile` | `redhat/ubi9-minimal` |
+| `rbln-npu-operator` | `Dockerfile` | `redhat/ubi9-micro` |
 
-The operator image carries three binaries — `npu-operator`, `rbln-validator`
-and `crd-apply` — each analysed separately for Go dependencies.
+The operator image carries four binaries — `npu-operator`, `rbln-validator`,
+`rbln-system-probe` and `crd-apply` — each analysed separately for Go dependencies.
 
 ### What is not scanned, and why
 
