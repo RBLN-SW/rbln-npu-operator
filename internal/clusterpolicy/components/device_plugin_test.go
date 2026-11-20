@@ -44,8 +44,8 @@ func TestDevicePluginPatch(t *testing.T) {
 	mainContainer := ds.Spec.Template.Spec.Containers[0]
 	assertContainerImage(t, mainContainer, "rebellions/k8s-device-plugin", "latest")
 	assertPrivileged(t, mainContainer)
-	if len(mainContainer.Env) != 1 {
-		t.Fatalf("expected only NODE_NAME in the default environment, got %v", mainContainer.Env)
+	if got := envValue(mainContainer.Env, "USE_GENERIC_RESOURCE_NAME"); got != "true" {
+		t.Fatalf("USE_GENERIC_RESOURCE_NAME = %q, want true for older device plugins", got)
 	}
 	if len(mainContainer.Args) != 0 {
 		t.Fatalf("container-mode device-plugin must not override args, got %v", mainContainer.Args)

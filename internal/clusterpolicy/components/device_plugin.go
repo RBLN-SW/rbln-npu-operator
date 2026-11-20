@@ -83,6 +83,8 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 	initContainer := buildGateInitContainer(consts.RBLNDevicePluginName, owner.Spec.Validator)
 
 	envs := []corev1.EnvVar{
+		// Older plugins require this setting to advertise rebellions.ai/npu.
+		{Name: "USE_GENERIC_RESOURCE_NAME", Value: "true"},
 		{
 			Name: "NODE_NAME",
 			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
