@@ -1,7 +1,17 @@
-## Motivation
-<!-- Why are we making this change? What problem does it solve or feature does it add? -->
+## Summary
 
-## Summary of Changes
-<!-- A high-level summary of what this PR does. Reference any related issues: “Closes #123” -->
--
--
+<!-- What problem prompted this PR? What changes for the affected user,
+component, or contributor? Link the relevant issue or design if available. -->
+
+## Validation
+
+<!-- For each important behavior change, give the test or command and what
+you observed. Link the relevant CI job or run when available.
+For hardware or cluster tests, identify the environment and tested revision
+or image digest. Call out relevant checks that failed or were skipped and why. -->
+
+## Rollout & review notes
+
+<!-- Optional. Remove this section if empty.
+Describe any compatibility impact, required operator action, companion PR,
+or deployment order. If a decision needs review, state the specific question. -->
