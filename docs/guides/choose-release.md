@@ -53,3 +53,30 @@ documented development workflow instead of combining it with older chart default
 
 Next: [install the operator](https://docs.rbln.ai/latest/software/system_management/kubernetes/install_npu_operator.html)
 or [upgrade an existing chart](upgrade-chart.md).
+
+## Release composition
+
+The release runner reads [the artifact declaration](../../.piper/release.yaml)
+from the release commit. By default it selects the highest SemVer base in
+Harbor and then the highest numeric RC for that base. To select another base,
+set an entry such as `componentVersions: {devicePlugin: v0.6.0}`. Set an
+operand to `stable` to reuse its chart default. The driver container, SMD and
+Container Toolkit keep their existing version policy.
+
+The release asset `release-input.json` records the exact selected image tags,
+digests and chart OCI digest. The Helm default values, OLM related images and
+CR examples, and component table derive from that input. A new operand set can
+receive a new Operator RC on the same source commit. GA requires the matching
+RC's Piper status and the same image digests at the public release tags.
+
+To package just the chart locally from the frozen input, use a separate job
+directory for the result and package:
+
+```sh
+make release-artifact ARTIFACT_NAME=chart ARTIFACT_KIND=helm-chart \
+  RELEASE_INPUT=/work/release-input.json RELEASE_RESULT=/work/chart-result.json
+```
+
+The package target changes values in a temporary copy. The registry publisher
+uses the returned path and verifies the uploaded chart layer before attaching
+the same bytes to the release.

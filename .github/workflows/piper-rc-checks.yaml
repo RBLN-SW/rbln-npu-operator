@@ -2,6 +2,9 @@ name: piper RC contract
 on:
   pull_request:
     paths:
+      - '.piper/*'
+      - 'hack/release/artifact.py'
+      - 'hack/release/test_artifact.py'
       - '.github/scripts/piper*'
       - '.github/scripts/test_piper_rc.py'
       - '.github/workflows/release.yaml'
@@ -9,6 +12,9 @@ on:
   push:
     branches: [main]
     paths:
+      - '.piper/*'
+      - 'hack/release/artifact.py'
+      - 'hack/release/test_artifact.py'
       - '.github/scripts/piper*'
       - '.github/scripts/test_piper_rc.py'
       - '.github/workflows/release.yaml'
@@ -22,3 +28,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check RC request and result handling without external calls
         run: python3 -m unittest discover -s .github/scripts -p 'test_piper_rc.py' -v
+      - name: Check release composition rules
+        run: python3 -m unittest discover -s hack/release -p 'test_artifact.py' -v

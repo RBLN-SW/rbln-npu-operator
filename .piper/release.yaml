@@ -1,0 +1,26 @@
+schemaVersion: 1
+validationContext: per-rc
+makeTarget: release-artifact
+imagePlatforms: [linux/amd64, linux/arm64]
+artifacts:
+  - name: operator
+    kind: image
+    repository: rbln-npu-operator
+  - name: validator
+    kind: image
+    repository: rbln-npu-operator-validator
+  - name: chart
+    kind: helm-chart
+    repository: rbln-npu-operator-chart
+    dependsOn: [operator, validator]
+  - name: bundle
+    kind: olm-bundle
+    repository: rbln-npu-operator-bundle
+    dependsOn: [operator, validator]
+  - name: catalog
+    kind: olm-catalog
+    repository: rbln-npu-operator-catalog
+    dependsOn: [bundle]
+# Optional base-version overrides for managed operands, e.g. {devicePlugin: v0.6.0}.
+# "stable" explicitly selects the chart's existing GA image for that operand.
+componentVersions: {}

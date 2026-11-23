@@ -4,8 +4,7 @@
 #
 #   hack/release/component-table.sh      # markdown on stdout
 #
-# Lists the images the Helm chart pins at the checked-out commit. The OLM
-# bundle pins the same images by digest (rc-digests in release.yaml).
+# Contract releases read the frozen input; older callers use checkout defaults.
 
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -15,22 +14,32 @@ values=deployments/rbln-npu-operator/values.yaml
 
 echo "## Component versions"
 echo
-echo "Images pinned by the Helm chart at this tag (\`$values\`). The OLM bundle pins the same images by digest."
-echo
-echo "| Component | Image |"
-echo "|---|---|"
-for entry in \
-	"Device plugin|.devicePlugin.image" \
-	"Metrics exporter|.metricsExporter.image" \
-	"NPU feature discovery|.npuFeatureDiscovery.image" \
-	"Container toolkit|.containerToolkit.image" \
-	"DRA kubelet plugin|.draKubeletPlugin.image" \
-	"Sandbox device plugin|.sandboxDevicePlugin.image" \
-	"Driver manager|.driver.manager.image"; do
-	name=${entry%%|*}
-	path=${entry#*|}
-	echo "| $name | \`$(yq "${path}.registry" "$values")/$(yq "${path}.repository" "$values"):$(yq "${path}.tag" "$values")\` |"
-done
+lock=${RELEASE_INPUT:-dist/release-input.json}
+if [ -n "${RELEASE_INPUT:-}" ] || [ -f "$lock" ]; then
+	echo "Images in the published Helm chart and OLM bundle."
+	echo
+	echo "| Component | Image |"
+	echo "|---|---|"
+	jq -er '.components | to_entries[] | "| \(.key) | `\(.value.registry)/\(.value.repository):\(.value.tag)@\(.value.digest)` |"' "$lock"
+else
+	echo "Images pinned by the Helm chart at this tag (\`$values\`). The OLM bundle pins the same images by digest."
+	echo
+	echo "| Component | Image |"
+	echo "|---|---|"
+	for entry in \
+		"Device plugin|.devicePlugin.image" \
+		"Metrics exporter|.metricsExporter.image" \
+		"NPU feature discovery|.npuFeatureDiscovery.image" \
+		"Container toolkit|.containerToolkit.image" \
+		"DRA kubelet plugin|.draKubeletPlugin.image" \
+		"Sandbox device plugin|.sandboxDevicePlugin.image" \
+		"Driver manager|.driver.manager.image"; do
+		name=${entry%%|*}
+		path=${entry#*|}
+		echo "| $name | \`$(yq "${path}.registry" "$values")/$(yq "${path}.repository" "$values"):$(yq "${path}.tag" "$values")\` |"
+	done
+	echo
+fi
 echo
 echo "### Default driver versions"
 echo

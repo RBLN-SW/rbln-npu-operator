@@ -108,6 +108,7 @@ def request_payload(config, env, pipelines):
         common.update(image_env(image["prefix"], host, project + "/" + image["name"], tag))
     matrix = config.get("matrix", False)
     chart = None
+    context = "rc-validation"
     if matrix:
         # RC chart values select Operator, Validator and released operand images.
         # Kernel-driver/SMD/compiler pins remain hardware-specific piper settings.
@@ -123,6 +124,12 @@ def request_payload(config, env, pipelines):
             "SENTINEL_HELM_CHART": f"oci://{registry}/rbln-npu-operator-chart",
             "SENTINEL_HELM_CHART_VERSION": tag.removeprefix("v"),
         })
+        digest = env.get("RC_CHART_DIGEST", "")
+        if digest:
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+                raise ValueError("invalid RC chart digest")
+            common["SENTINEL_HELM_CHART"] += "@" + digest
+            context = f"rc-validation/{tag}"
         chart = {"source": "oci", "oci": common["SENTINEL_HELM_CHART"],
                  "version": common["SENTINEL_HELM_CHART_VERSION"]}
     elif env.get("OPERATOR_REF", "").strip():
@@ -132,7 +139,7 @@ def request_payload(config, env, pipelines):
 
     overrides = {
         "build": {"enabled": False}, "force_env": True, "env": common,
-        "commit_status": {"enabled": True, "context": "rc-validation"},
+        "commit_status": {"enabled": True, "context": context},
         "status_target": {"repository": config["repository"], "sha": sha},
     }
     members = []
@@ -235,8 +242,8 @@ def wait_result(client, root, build, payload, timeout, poll=15, clock=time.monot
         if (actual_target.get("repository", "").lower() == target["repository"].lower()
                 and actual_target.get("sha", "").lower() == target["sha"]):
             sent = delivery.get("sent") or {}
-            delivered = sent.get("rc-validation") or sent.get(
-                target["repository"].lower() + "@" + target["sha"] + ":rc-validation")
+            context = payload["overrides"].get("commit_status", {}).get("context", "rc-validation")
+            delivered = sent.get(context) or sent.get(target["repository"].lower() + "@" + target["sha"] + ":" + context)
             verdict = FINAL_STATES.get(state)
             if verdict and delivered == verdict and not delivery.get("error"):
                 return state, verdict

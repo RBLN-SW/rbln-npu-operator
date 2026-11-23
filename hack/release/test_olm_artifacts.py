@@ -130,7 +130,7 @@ class OLMPublishing(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for name in ("lib.sh", "resolve-component-digests.sh", "publish-olm.sh", "validate-rc.sh"):
+        for name in ("lib.sh", "resolve-component-digests.sh", "publish-olm.sh", "prepare-bundle.sh", "validate-rc.sh"):
             dest = self.root / "hack/release" / name
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / "hack/release" / name, dest)
