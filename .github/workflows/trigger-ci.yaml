@@ -28,6 +28,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         name: Checkout code
+      - name: Recover this run's dev inputs on retry
+        if: github.run_attempt != '1'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dev-olm-inputs-${{ github.run_id }}
+          merge-multiple: true
+          path: dist
+      - name: Check for a completed dev input snapshot
+        id: inputs
+        run: |
+          if [ -e dist/dev-chart.digest ] || [ -e dist/component-digests.env ] || [ -e dist/rbln-npu-operator-chart-0.0.0-dev.tgz ]; then
+            test -s dist/component-digests.env
+            test -s dist/rbln-npu-operator-chart-0.0.0-dev.tgz
+            grep -Eq '^sha256:[0-9a-f]{64}$' dist/dev-chart.digest
+            echo "recovered=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: ./.github/actions/setup-go
         name: Setup Go
       - name: Install prerequisites
@@ -54,18 +70,21 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
       - name: Build and push operator image
+        if: steps.inputs.outputs.recovered != 'true'
         env:
           VERSION: ${{ github.sha }}
           PUSH_ON_BUILD: 'true'
           PLATFORM: linux/amd64
         run: make build-image
       - name: Build and push validator image
+        if: steps.inputs.outputs.recovered != 'true'
         env:
           VERSION: ${{ github.sha }}
           PUSH_ON_BUILD: 'true'
           PLATFORM: linux/amd64
         run: make build-image IMAGE_NAME="$VALIDATOR_IMAGE"
       - name: Tag dev (alias of the immutable commit SHA)
+        if: steps.inputs.outputs.recovered != 'true'
         run: |
           docker buildx imagetools create --tag "${OPERATOR_IMAGE}:dev" "${OPERATOR_IMAGE}:${GITHUB_SHA}"
           docker buildx imagetools create --tag "${VALIDATOR_IMAGE}:dev" "${VALIDATOR_IMAGE}:${GITHUB_SHA}"
@@ -86,6 +105,7 @@ jobs:
       # containerToolkit, which keep their release versions. Apply these values
       # before resolving the OLM lock so the chart and bundle examples agree.
       - name: Configure dev component images
+        if: steps.inputs.outputs.recovered != 'true'
         run: |
           export HARBOR_HOST="${REGISTRY%%/*}"
           yq -i '(
@@ -101,6 +121,7 @@ jobs:
           ) |= (.registry = strenv(HARBOR_HOST) | .tag = "dev")' \
             deployments/rbln-npu-operator/values.yaml
       - name: Resolve component digests (dev)
+        if: steps.inputs.outputs.recovered != 'true'
         env:
           INCLUDE_DEVICE_CONFIG_MANAGER: 'true'
         run: |
@@ -110,6 +131,7 @@ jobs:
             > dist/component-digests.env
       - uses: azure/setup-helm@v5
       - name: Package and push Helm chart (dev)
+        if: steps.inputs.outputs.recovered != 'true'
         env:
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
           HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
@@ -118,14 +140,28 @@ jobs:
           echo "$HARBOR_PASSWORD" | helm registry login "$HARBOR_HOST" -u "$HARBOR_USERNAME" --password-stdin
           make helm-push-oci HELM_REGISTRY="oci://$REGISTRY" \
             CHART_VERSION=0.0.0-dev CHART_APP_VERSION="$GITHUB_SHA"
+          regctl image digest "$REGISTRY/rbln-npu-operator-chart:0.0.0-dev" > dist/dev-chart.digest
           echo "chart: oci://$REGISTRY/rbln-npu-operator-chart:0.0.0-dev (appVersion $GITHUB_SHA)"
+      - name: Save frozen dev inputs before publishing OLM
+        if: steps.inputs.outputs.recovered != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-olm-inputs-${{ github.run_id }}
+          path: |
+            dist/component-digests.env
+            dist/dev-chart.digest
+            dist/rbln-npu-operator-chart-0.0.0-dev.tgz
+          if-no-files-found: error
       - name: Publish OLM bundle and catalog snapshots (dev)
         env:
           VERSION: v0.0.0-dev
           OLM_IMAGE_TAG: sha-${{ github.sha }}
           HELM_CHART: oci://${{ env.REGISTRY }}/rbln-npu-operator-chart
           HELM_CHART_VERSION: 0.0.0-dev
-        run: hack/release/publish-olm.sh dist/component-digests.env
+        run: |
+          export EXPECTED_CHART_DIGEST
+          EXPECTED_CHART_DIGEST=$(cat dist/dev-chart.digest)
+          hack/release/publish-olm.sh dist/component-digests.env
       - name: Upload OLM test artifacts (dev)
         uses: actions/upload-artifact@v4
         with:

@@ -23,13 +23,15 @@ KEYS = (
 )
 
 FAKE_TOOL = r'''#!/usr/bin/env python3
-import hashlib, json, os, pathlib, sys
+import hashlib, json, os, pathlib, subprocess, sys
 tool, args = pathlib.Path(sys.argv[0]).name, sys.argv[1:]
 root = pathlib.Path(os.environ["TEST_ROOT"])
 with (root / "calls.jsonl").open("a") as f:
     f.write(json.dumps([tool, *args]) + "\n")
 state_path = root / "registry.json"
 state = json.loads(state_path.read_text())
+files_path = root / "image-files.json"
+files = json.loads(files_path.read_text()) if files_path.exists() else {}
 digest = lambda ref: "sha256:" + hashlib.sha256(ref.encode()).hexdigest()
 if tool == "git":
     print("a" * 40)
@@ -38,14 +40,21 @@ elif tool == "regctl" and args[:2] == ["image", "digest"]:
     if os.environ.get("FAIL_RESOLVE") and "/metrics:" in ref:
         sys.exit(1)
     if "-bundle:" in ref or "-catalog:" in ref:
+        if os.environ.get("LOOKUP_DENIED"):
+            sys.exit("unauthorized [http 401]")
         if ref not in state:
-            sys.exit(1)
+            sys.exit("manifest not found [http 404]")
         print(state[ref])
     else:
         print(digest(ref))
 elif tool == "regctl" and args[:2] == ["image", "copy"]:
+    if os.environ.get("FAIL_CATALOG_ALIAS") and args[3].endswith("-catalog:dev"):
+        sys.exit("could not publish alias")
     state[args[3]] = args[2].split("@", 1)[1]
     state_path.write_text(json.dumps(state))
+elif tool == "regctl" and args[:2] == ["image", "get-file"]:
+    ref, path = args[-2:]
+    sys.stdout.write(files[ref.split("@", 1)[1]][path])
 elif tool == "make":
     target = args[0]
     opts = dict(arg.split("=", 1) for arg in args[1:] if "=" in arg)
@@ -53,15 +62,32 @@ elif tool == "make":
         version = opts["VERSION"].removeprefix("v")
         csv = root / "bundle/manifests/rbln-npu-operator.clusterserviceversion.yaml"
         csv.parent.mkdir(parents=True, exist_ok=True)
-        csv.write_text(f"metadata:\n  name: rbln-npu-operator.v{version}\nspec:\n  version: {version}\n")
+        manager = json.loads(subprocess.check_output(
+            ["yq", "-o=json", 'select(.kind == "Deployment")', root / "config/manager/manager.yaml"]))
+        csv.write_text(json.dumps({
+            "metadata": {"name": "rbln-npu-operator.v" + version,
+                         "annotations": {"createdAt": os.environ.get("GENERATED_AT", "first")}},
+            "spec": {"version": version, "install": manager["spec"]}}))
         metadata = root / "bundle/metadata/annotations.yaml"
         metadata.parent.mkdir(parents=True, exist_ok=True)
         metadata.write_text("annotations: {}\n")
+        (root / "bundle/tests/scorecard").mkdir(parents=True, exist_ok=True)
+    if target == "catalog":
+        catalog = root / "catalog/index.yaml"
+        catalog.parent.mkdir(exist_ok=True)
+        catalog.write_text("image: " + opts["CATALOG_BUNDLE"] + "\n")
     if target in ("build-bundle-image", "catalog-build-image"):
         if target == os.environ.get("FAIL_BUILD"):
             sys.exit(1)
         ref = opts["BUNDLE_IMAGE" if target == "build-bundle-image" else "CATALOG_IMAGE"]
         state[ref] = digest(ref)
+        if target == "build-bundle-image":
+            bundle = root / "bundle"
+            files[state[ref]] = {"/" + str(p.relative_to(bundle)): p.read_text()
+                                 for p in bundle.rglob("*") if p.is_file()}
+        else:
+            files[state[ref]] = {"/configs/index.yaml": (root / "catalog/index.yaml").read_text()}
+        files_path.write_text(json.dumps(files))
         state_path.write_text(json.dumps(state))
 elif tool == "curl":
     payload = args[args.index("-d") + 1]
@@ -208,6 +234,101 @@ class OLMPublishing(unittest.TestCase):
         self.env.update(VERSION="v0.0.0-dev", OLM_IMAGE_TAG="sha-" + SHA, FAIL_BUILD="catalog-build-image")
         self.run_script("publish-olm.sh", self.lock, success=False)
         self.assertFalse(any(c[:3] == ["regctl", "image", "copy"] for c in self.calls()))
+
+    def test_dev_retry_finishes_catalog_from_original_bundle_on_a_fresh_runner(self):
+        self.env.update(VERSION="v0.0.0-dev", OLM_IMAGE_TAG="sha-" + SHA, FAIL_BUILD="catalog-build-image")
+        self.run_script("publish-olm.sh", self.lock, success=False)
+        shutil.rmtree(self.root / "bundle")
+        shutil.rmtree(self.root / "catalog")
+        del self.env["FAIL_BUILD"]
+        self.env["GENERATED_AT"] = "later"
+        self.run_script("publish-olm.sh", self.lock)
+        saved = json.loads((self.root / "dist/olm/olm-artifacts.json").read_text())
+        self.assertEqual(sum(c[:2] == ["make", "build-bundle-image"] for c in self.calls()), 1)
+        self.assertEqual(sum(c[:2] == ["make", "catalog-build-image"] for c in self.calls()), 2)
+        catalogs = [c for c in self.calls() if c[:2] == ["make", "catalog"]]
+        self.assertTrue(all("CATALOG_BUNDLE=" + saved["images"]["bundle"] in c for c in catalogs))
+        # A retry after both pushes can finish metadata/aliases without rebuilding either image.
+        self.run_script("publish-olm.sh", self.lock)
+        self.assertEqual(sum(c[:2] == ["make", "build-bundle-image"] for c in self.calls()), 1)
+        self.assertEqual(sum(c[:2] == ["make", "catalog-build-image"] for c in self.calls()), 2)
+        for kind in ("bundle", "catalog"):
+            self.assertIn(["regctl", "image", "copy", saved["images"][kind],
+                           f"registry.test/team/rbln-npu-operator-{kind}:dev"], self.calls())
+
+    def test_dev_retry_rejects_changed_component_inputs(self):
+        self.env.update(VERSION="v0.0.0-dev", OLM_IMAGE_TAG="sha-" + SHA, FAIL_BUILD="catalog-build-image")
+        self.run_script("publish-olm.sh", self.lock, success=False)
+        del self.env["FAIL_BUILD"]
+        self.lock.write_text(self.lock.read_text().replace("b" * 64, "c" * 64))
+        result = self.run_script("publish-olm.sh", self.lock, success=False)
+        self.assertIn("published dev bundle differs", result.stderr)
+        self.assertEqual(sum(c[:2] == ["make", "catalog-build-image"] for c in self.calls()), 1)
+        self.assertFalse(any(c[:3] == ["regctl", "image", "copy"] for c in self.calls()))
+
+    def test_dev_retry_refuses_wrong_catalog_and_retains_aliases(self):
+        self.env.update(VERSION="v0.0.0-dev", OLM_IMAGE_TAG="sha-" + SHA)
+        self.run_script("publish-olm.sh", self.lock)
+        saved = json.loads((self.root / "dist/olm/olm-artifacts.json").read_text())
+        files_path = self.root / "image-files.json"
+        files = json.loads(files_path.read_text())
+        files[saved["images"]["catalog"].split("@")[1]]["/configs/index.yaml"] = "wrong bundle"
+        files_path.write_text(json.dumps(files))
+        before = len(self.calls())
+        result = self.run_script("publish-olm.sh", self.lock, success=False)
+        self.assertIn("published dev catalog differs", result.stderr)
+        self.assertFalse(any(c[:3] == ["regctl", "image", "copy"] for c in self.calls()[before:]))
+
+    def test_failed_catalog_alias_is_repaired_without_rebuilding(self):
+        self.env.update(VERSION="v0.0.0-dev", OLM_IMAGE_TAG="sha-" + SHA, FAIL_CATALOG_ALIAS="true")
+        self.run_script("publish-olm.sh", self.lock, success=False)
+        registry = self.root / "registry.json"
+        alias = "registry.test/team/rbln-npu-operator-catalog:dev"
+        self.assertNotIn(alias, json.loads(registry.read_text()))
+        before = len(self.calls())
+        del self.env["FAIL_CATALOG_ALIAS"]
+        self.run_script("publish-olm.sh", self.lock)
+        images = json.loads(registry.read_text())
+        self.assertEqual(images[alias], images[alias[:-3] + "sha-" + SHA])
+        builds = (["make", "build-bundle-image"], ["make", "catalog-build-image"])
+        self.assertFalse(any(c[:2] in builds for c in self.calls()[before:]))
+
+    def test_failed_lookup_or_stale_chart_does_not_publish(self):
+        self.env.update(VERSION="v0.0.0-dev", OLM_IMAGE_TAG="sha-" + SHA, LOOKUP_DENIED="true")
+        result = self.run_script("publish-olm.sh", self.lock, success=False)
+        self.assertIn("cannot check", result.stderr)
+        del self.env["LOOKUP_DENIED"]
+        self.env["EXPECTED_CHART_DIGEST"] = "sha256:" + "c" * 64
+        result = self.run_script("publish-olm.sh", self.lock, success=False)
+        self.assertIn("no longer matches", result.stderr)
+        self.assertFalse(any(c[0] == "make" for c in self.calls()))
+
+    def test_dev_workflow_reuses_complete_inputs_before_olm_on_retry(self):
+        steps = json.loads(subprocess.check_output([
+            "yq", "-o=json", ".jobs.dev-image.steps", str(ROOT / ".github/workflows/trigger-ci.yaml"),
+        ]))
+        names = [step.get("name") for step in steps]
+        checkpoint = steps[names.index("Save frozen dev inputs before publishing OLM")]
+        restore = steps[names.index("Recover this run's dev inputs on retry")]
+        self.assertEqual(restore["with"]["pattern"], checkpoint["with"]["name"])
+        self.assertLess(names.index(checkpoint["name"]), names.index("Publish OLM bundle and catalog snapshots (dev)"))
+        for name in ("Build and push operator image", "Build and push validator image",
+                     "Tag dev (alias of the immutable commit SHA)", "Configure dev component images",
+                     "Resolve component digests (dev)", "Package and push Helm chart (dev)"):
+            self.assertEqual(steps[names.index(name)]["if"], "steps.inputs.outputs.recovered != 'true'")
+
+        check = steps[names.index("Check for a completed dev input snapshot")]["run"]
+        def check_inputs():
+            return subprocess.run(["bash", "-e", "-c", check], cwd=self.root, env=self.env).returncode
+        self.assertEqual(check_inputs(), 0)
+        paths = [self.root / line for line in checkpoint["with"]["path"].splitlines()]
+        for path in paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("content")
+        self.assertNotEqual(check_inputs(), 0)
+        (self.root / "dist/dev-chart.digest").write_text("sha256:" + "a" * 64 + "\n")
+        self.assertEqual(check_inputs(), 0)
+        self.assertIn("recovered=true", (self.root / "outputs").read_text())
 
     def test_dev_workflow_locks_harbor_images_and_preserves_release_exceptions(self):
         values = self.root / "deployments/rbln-npu-operator/values.yaml"
