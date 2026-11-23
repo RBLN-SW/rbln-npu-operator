@@ -140,6 +140,20 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(member["timeout_minutes"], 180)
         self.assertNotIn("repository_id", member)
 
+    def test_locked_operator_chart_is_tested_by_digest_and_rc_context(self):
+        digest = "sha256:" + "a" * 64
+        env = dict(ENV, RC_CHART_DIGEST=digest, SENTINEL_CATALOG_IMAGE="registry.example/catalog@" + digest)
+        config = dict(CONFIG, matrix=True, images=[], execution_branch="dev")
+        req = rc.request_payload(config, env, [PIPELINE])
+        overrides = req["overrides"]
+        self.assertEqual(overrides["commit_status"]["context"], "rc-validation/" + ENV["RC_TAG"])
+        chart = overrides["members"][0]["pipeline"]["chart"]
+        self.assertTrue(chart["oci"].endswith("@" + digest))
+        self.assertEqual(chart["oci"], overrides["env"]["SENTINEL_HELM_CHART"])
+        self.assertEqual(chart["version"], ENV["RC_TAG"][1:])
+        with self.assertRaisesRegex(ValueError, "invalid RC chart digest"):
+            rc.request_payload(config, dict(env, RC_CHART_DIGEST="bad"), [PIPELINE])
+
     def test_optional_refs_use_member_settings_not_reserved_env(self):
         env = dict(ENV, OPERATOR_REF="operator-sha", SENTINEL_REF="harness-tag")
         o = rc.request_payload(CONFIG, env, [PIPELINE])["overrides"]

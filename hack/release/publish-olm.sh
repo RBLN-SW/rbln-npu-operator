@@ -3,6 +3,8 @@
 # Required env: VERSION, OLM_IMAGE_TAG, REGISTRY, HELM_CHART, HELM_CHART_VERSION.
 # publish-olm.sh <component-digests.env> [output directory]
 # Run after publishing the matching chart. GA uses certified-operators instead.
+# On dev retries, verify existing SHA snapshots against the frozen inputs.
+# EXPECTED_CHART_DIGEST binds a workflow retry to its original chart.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 # shellcheck source=hack/release/lib.sh
@@ -27,13 +29,28 @@ else
 fi
 bundle_image="$REGISTRY/rbln-npu-operator-bundle:$OLM_IMAGE_TAG"
 catalog_image="$REGISTRY/rbln-npu-operator-catalog:$OLM_IMAGE_TAG"
-# These are versioned snapshots, never moving aliases. Refuse a full rerun
-# which would silently replace artifacts that another organization may test.
-for image in "$bundle_image" "$catalog_image"; do
-	if regctl image digest "$image" >/dev/null 2>&1; then
-		fail "$image already exists; refusing to overwrite a published OLM artifact"
+# Only a missing manifest permits a build. A failed authenticated lookup does
+# not establish whether the previous attempt already pushed the snapshot.
+snapshot_digest() {
+	local image=$1 result
+	if result=$(regctl image digest "$image" 2>&1); then
+		[[ $result =~ ^sha256:[0-9a-f]{64}$ ]] || fail "invalid digest for $image: $result"
+		echo "$result"
+	else
+		case "$result" in
+			*"[http 404]"*|*"manifest unknown"*|*"MANIFEST_UNKNOWN"*) return 0 ;;
+			*) fail "cannot check $image: $result" ;;
+		esac
 	fi
-done
+}
+bundle_digest=$(snapshot_digest "$bundle_image")
+catalog_digest=$(snapshot_digest "$catalog_image")
+if [ "$kind" = rc ] && [ -n "$bundle_digest$catalog_digest" ]; then
+	fail "RC snapshot already exists; refusing to overwrite a published OLM artifact"
+fi
+if [ -z "$bundle_digest" ] && [ -n "$catalog_digest" ]; then
+	fail "catalog snapshot exists without its bundle: $catalog_image"
+fi
 
 pin() {
 	local image=$1 digest
@@ -43,75 +60,51 @@ pin() {
 }
 chart_image="${HELM_CHART#oci://}:$HELM_CHART_VERSION"
 chart_ref=$(pin "$chart_image")
-
-locked_image() {
-	local key=$1 value
-	value=$(awk -F= -v key="$key" '$1 == key {print $2}' "$digests")
-	# Missing, duplicate and unpinned entries all fail; never source this file.
-	[[ $value =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] || fail "invalid or missing $key in $digests"
-	printf '%s\n' "$value"
-}
-operator=$(locked_image OPERATOR)
-validator=$(locked_image VALIDATOR)
-while read -r key env_name; do
-	export RELATED_NAME="$env_name"
-	RELATED_REF=$(locked_image "$key")
-	export RELATED_REF
-	yq -e 'select(.kind == "Deployment").spec.template.spec.containers[] |
-		select(.name == "manager").env[] | select(.name == strenv(RELATED_NAME))' \
-		config/manager/manager.yaml >/dev/null
-	yq -i '(select(.kind == "Deployment").spec.template.spec.containers[] |
-		select(.name == "manager").env[] | select(.name == strenv(RELATED_NAME))).value = strenv(RELATED_REF)' \
-		config/manager/manager.yaml
-done <<'IMAGES'
-OPERATOR RELATED_IMAGE_RBLN_NPU_OPERATOR
-VALIDATOR RELATED_IMAGE_RBLN_NPU_OPERATOR_VALIDATOR
-DEVICE_PLUGIN RELATED_IMAGE_RBLN_K8S_DEVICE_PLUGIN
-METRICS_EXPORTER RELATED_IMAGE_RBLN_METRICS_EXPORTER
-NPU_FEATURE_DISCOVERY RELATED_IMAGE_RBLN_NPU_FEATURE_DISCOVERY
-CONTAINER_TOOLKIT RELATED_IMAGE_RBLN_CONTAINER_TOOLKIT
-DRA_KUBELET_PLUGIN RELATED_IMAGE_DRA_KUBELET_PLUGIN
-SANDBOX_DEVICE_PLUGIN RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN
-DRIVER_MANAGER RELATED_IMAGE_DRIVER_MANAGER
-IMAGES
-
-# Device Config Manager currently ships in dev only. Add its related image
-# when present in the lock without requiring it in existing release locks.
-if grep -q '^DEVICE_CONFIG_MANAGER=' "$digests"; then
-	DEVICE_CONFIG_MANAGER_REF=$(locked_image DEVICE_CONFIG_MANAGER)
-	export DEVICE_CONFIG_MANAGER_REF
-	yq -i '(select(.kind == "Deployment").spec.template.spec.containers[] |
-		select(.name == "manager").env) |=
-		(map(select(.name != "RELATED_IMAGE_RBLN_K8S_DEVICE_CONFIG_MANAGER")) +
-		[{"name": "RELATED_IMAGE_RBLN_K8S_DEVICE_CONFIG_MANAGER", "value": strenv(DEVICE_CONFIG_MANAGER_REF)}])' \
-		config/manager/manager.yaml
+if [ -n "${EXPECTED_CHART_DIGEST:-}" ] && [ "$chart_ref" != "$chart_image@$EXPECTED_CHART_DIGEST" ]; then
+	fail "$chart_image no longer matches the chart published for this run"
 fi
 
-make bundle VERSION="$VERSION" IMAGE="$operator" USE_IMAGE_DIGESTS=false
-export OCP_RANGE=${OCP_RANGE:-$(awk '/^OCP_RANGE / {print $3}' versions.mk)}
-export OPERATOR_REF="$operator"
-yq -i '.annotations."com.redhat.openshift.versions" = strenv(OCP_RANGE)' bundle/metadata/annotations.yaml
+bash hack/release/prepare-bundle.sh "$digests" "$VERSION" "$kind"
+operator=$(awk -F= '$1 == "OPERATOR" {print $2}' "$digests")
+validator=$(awk -F= '$1 == "VALIDATOR" {print $2}' "$digests")
 csv=bundle/manifests/rbln-npu-operator.clusterserviceversion.yaml
-yq -i '.metadata.annotations.containerImage = strenv(OPERATOR_REF)' "$csv"
-make operator-sdk
-# make may select a system operator-sdk instead of bin/operator-sdk.
-sdk=./bin/operator-sdk
-[ -x "$sdk" ] || sdk="operator-sdk"
-"$sdk" bundle validate ./bundle
-if [ "$kind" = rc ]; then
-	"$sdk" bundle validate ./bundle --select-optional suite=operatorframework
-	"$sdk" bundle validate ./bundle --select-optional name=operatorhub
-fi
 csv_name=$(yq -er '.metadata.name' "$csv")
 csv_version=$(yq -er '.spec.version' "$csv")
-[ "$csv_name" = "rbln-npu-operator.v${VERSION#v}" ] && [ "$csv_version" = "${VERSION#v}" ] ||
-	fail "generated CSV does not match $VERSION: $csv_name ($csv_version)"
 
-make build-bundle-image BUNDLE_IMAGE="$bundle_image" PLATFORM=linux/amd64 PUSH_ON_BUILD=true
-bundle_ref=$(pin "$bundle_image")
+if [ -n "$bundle_digest$catalog_digest" ]; then
+	remote_file=$(mktemp)
+	trap 'rm -f "$remote_file"' EXIT
+fi
+if [ -n "$bundle_digest" ]; then
+	bundle_ref="$bundle_image@$bundle_digest"
+	# Verify the files copied by bundle.Dockerfile against the original inputs.
+	# operator-sdk regenerates only the CSV createdAt timestamp on a retry.
+	find bundle/manifests bundle/metadata bundle/tests/scorecard -type f -print0 |
+	while IFS= read -r -d '' file; do
+		regctl image get-file --platform linux/amd64 "$bundle_ref" "/${file#bundle/}" > "$remote_file"
+		if [ "$file" = "$csv" ]; then
+			expected=$(yq -o=json 'del(.metadata.annotations.createdAt)' "$file" | jq -cS .)
+			actual=$(yq -o=json 'del(.metadata.annotations.createdAt)' "$remote_file" | jq -cS .)
+			[ "$expected" = "$actual" ] || fail "published dev bundle differs from the requested inputs: $file"
+		else
+			cmp -s "$remote_file" "$file" || fail "published dev bundle differs from the requested inputs: $file"
+		fi
+	done
+	note "Reusing verified dev bundle $bundle_ref"
+else
+	make build-bundle-image BUNDLE_IMAGE="$bundle_image" PLATFORM=linux/amd64 PUSH_ON_BUILD=true
+	bundle_ref=$(pin "$bundle_image")
+fi
 make catalog VERSION="$VERSION" CATALOG_BUNDLE="$bundle_ref"
-make catalog-build-image CATALOG_IMAGE="$catalog_image" PLATFORM=linux/amd64 PUSH_ON_BUILD=true
-catalog_ref=$(pin "$catalog_image")
+if [ -n "$catalog_digest" ]; then
+	catalog_ref="$catalog_image@$catalog_digest"
+	regctl image get-file --platform linux/amd64 "$catalog_ref" /configs/index.yaml > "$remote_file"
+	cmp -s "$remote_file" catalog/index.yaml || fail "published dev catalog differs from the expected bundle $bundle_ref"
+	note "Reusing verified dev catalog $catalog_ref"
+else
+	make catalog-build-image CATALOG_IMAGE="$catalog_image" PLATFORM=linux/amd64 PUSH_ON_BUILD=true
+	catalog_ref=$(pin "$catalog_image")
+fi
 
 mkdir -p "$out"
 jq -n \
@@ -131,6 +124,7 @@ cp "$digests" "$out/component-digests.env"
 # Preserve the existing convenience aliases only after both snapshots exist.
 # Catalog contents always refer to the immutable bundle digest, never :dev.
 if [ "$kind" = dev ]; then
+	[ "$(pin "$chart_image")" = "$chart_ref" ] || fail "dev chart moved during OLM publication"
 	regctl image copy "$bundle_ref" "$REGISTRY/rbln-npu-operator-bundle:dev"
 	regctl image copy "$catalog_ref" "$REGISTRY/rbln-npu-operator-catalog:dev"
 fi

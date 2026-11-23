@@ -480,3 +480,34 @@ catalog-build-image: ## Build the FBC catalog image (run `make catalog` first).
 .PHONY: catalog-push
 catalog-push: ## Push the catalog image.
 	$(CONTAINER_TOOL) push $(CATALOG_IMAGE)
+
+# Release runner contract. Registry is a host/project prefix; Make builds only RC images.
+.PHONY: release-artifact
+release-artifact:
+ifeq ($(ARTIFACT_KIND),image)
+	@set -eu; \
+	test -n "$(RELEASE_RESULT)"; \
+	sha=$$(jq -er '.sourceSha | strings' "$(RELEASE_INPUT)"); \
+	test "$$sha" = "$$(git rev-parse HEAD)" || { echo "release source SHA differs from checkout" >&2; exit 1; }; \
+	repo=$$(NAME="$(ARTIFACT_NAME)" yq -er '.artifacts[] | select(.kind == "image" and .name == strenv(NAME)) | .repository' .piper/release.yaml); \
+	version=$$(jq -er 'select(.schemaVersion == 1 and .phase == "rc") | .version | strings | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+-rc[0-9]+$$"))' "$(RELEASE_INPUT)"); \
+	platforms=$$(yq -er '.imagePlatforms | join(",") | select(length > 0)' .piper/release.yaml); \
+	registry=$$(jq -er '.targetRegistry | strings | select(length > 0)' "$(RELEASE_INPUT)"); \
+	$(MAKE) build-image IMAGE_NAME="$$registry/$$repo" IMAGE_TAG="$$version" VERSION="$$version" PLATFORM="$$platforms" BUILD_MULTI_PLATFORM=true PUSH_ON_BUILD=true; \
+	ref="$$registry/$$repo:$$version"; \
+	digest=$$(regctl image digest "$$ref"); \
+	jq -ne --arg name "$(ARTIFACT_NAME)" --arg ref "$$ref" --arg digest "$$digest" \
+	  'select($$digest | test("^sha256:[a-f0-9]{64}$$")) | {schemaVersion:1, name:$$name, kind:"image", output:{type:"registry", ref:$$ref, digest:$$digest}}' > "$(RELEASE_RESULT)"
+else
+	@python3 hack/release/artifact.py build "$(ARTIFACT_NAME)" "$(ARTIFACT_KIND)" "$(RELEASE_INPUT)" "$(RELEASE_RESULT)"
+endif
+
+.PHONY: release-input
+release-input:
+ifeq ($(RELEASE_PHASE),rc)
+	@python3 hack/release/artifact.py resolve "$(RELEASE_INPUT)" "$(RELEASE_RESULT)"
+else ifeq ($(RELEASE_PHASE),ga)
+	@python3 hack/release/artifact.py promote "$(RELEASE_INPUT)" "$(VERSION)" "$(PUBLIC_REGISTRY)" "$(RELEASE_RESULT)"
+else
+	@echo "Unsupported release phase: $(RELEASE_PHASE)" >&2; exit 1
+endif
