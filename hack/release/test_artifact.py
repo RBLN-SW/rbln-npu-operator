@@ -25,7 +25,7 @@ class ArtifactTest(unittest.TestCase):
         for key in artifact.BINDINGS:
             tag = self.plan["version"] if key in artifact.OWN else "v0.6.0-rc10"
             self.plan["components"][key] = pinned("harbor.test/team/" + key.lower(), tag)
-        self.plan["components"]["containerToolkit"] = pinned("docker.io/external/toolkit", "v0.2.6")
+        self.plan["components"]["containerToolkit"] = pinned("docker.io/external/toolkit", "v1.2.3")
 
     @patch("artifact.registry_image", side_effect=pinned)
     def test_ga_uses_frozen_rc_and_preserves_external(self, registry):

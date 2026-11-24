@@ -133,7 +133,7 @@ spec:
     enabled: true
     registry: docker.io
     image: rebellions/rbln-container-toolkit
-    version: v0.2.6
+    version: v0.2.7
     imagePullPolicy: IfNotPresent
   sandboxDevicePlugin:
     # Leave null to preserve the existing strategy. New DaemonSets default to
