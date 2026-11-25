@@ -79,7 +79,7 @@ spec:
           - name: RELATED_IMAGE_RBLN_NPU_OPERATOR_VALIDATOR
             value: docker.io/rebellions/rbln-npu-operator-validator:v0.4.4@sha256:a9a11ff93665337630f42f783bb6fc93502c5076926b4096d5c81a9505c80bfc
           - name: RELATED_IMAGE_RBLN_CONTAINER_TOOLKIT
-            value: docker.io/rebellions/rbln-container-toolkit:v0.2.6@sha256:6a95bd83b3ff256eadb3ece2794c6de4b452457a7bbbe378a7f5e59529e80482
+            value: docker.io/rebellions/rbln-container-toolkit:v0.2.7@sha256:b9587563cc58fec6d2d820274e36a89a38cc44c20e8520568a4c436bc3227ae6
           - name: RELATED_IMAGE_DRA_KUBELET_PLUGIN
             value: docker.io/rebellions/k8s-dra-driver-npu:v0.2.1@sha256:9a47e3d594833df034d33ab76cd7fdaba7270747827dcf21286b89c6b7b1e7fe
           - name: RELATED_IMAGE_SANDBOX_DEVICE_PLUGIN

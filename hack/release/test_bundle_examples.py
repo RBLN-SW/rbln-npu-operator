@@ -9,6 +9,7 @@ import unittest
 
 
 SCRIPT = Path(__file__).with_name("sync-bundle-examples.sh")
+EXAMPLE_RELEASE_TAG = "v1.2.3"
 COMPONENTS = {
     "validator": "rbln-npu-operator-validator",
     "devicePlugin": "rbln-k8s-device-plugin",
@@ -45,7 +46,7 @@ class BundleExamples(unittest.TestCase):
                 "alm-examples": json.dumps(self.examples), "containerImage": "operator-image",
             }},
             "spec": {"version": "0.6.0-rc5", "relatedImages": [
-                {"name": name, "image": f"docker.io/rebellions/{name}:v1.2.3@sha256:{'a' * 64}"}
+                {"name": name, "image": f"docker.io/rebellions/{name}:{EXAMPLE_RELEASE_TAG}@sha256:{'a' * 64}"}
                 for name in [*COMPONENTS.values(), "driver-manager"]
             ]},
         }
@@ -86,12 +87,14 @@ class BundleExamples(unittest.TestCase):
         for key, name in COMPONENTS.items():
             image = actual[0]["spec"][key]
             self.assertEqual((image["registry"], image["image"], image["version"]),
-                             ("docker.io", f"rebellions/{name}", "v1.2.3"))
+                             ("docker.io", f"rebellions/{name}", EXAMPLE_RELEASE_TAG))
             self.assertEqual(image["enabled"], self.examples[0]["spec"][key]["enabled"])
             self.assertEqual(image["imagePullPolicy"], "IfNotPresent")
         for before, after in zip(self.examples[1:], actual[1:]):
             expected = copy.deepcopy(before)
-            expected["spec"]["manager"] = {"registry": "docker.io", "image": "rebellions/driver-manager", "version": "v1.2.3"}
+            expected["spec"]["manager"] = {
+                "registry": "docker.io", "image": "rebellions/driver-manager", "version": EXAMPLE_RELEASE_TAG,
+            }
             self.assertEqual(after, expected)
 
     def test_check_detects_stale_examples_without_writing(self):
@@ -102,16 +105,14 @@ class BundleExamples(unittest.TestCase):
 
     def test_dev_images_preserve_toolkit_and_driver_releases(self):
         for image in self.document["spec"]["relatedImages"]:
-            if image["name"] == "rbln-container-toolkit":
-                image["image"] = f"docker.io/rebellions/rbln-container-toolkit:v0.2.6@sha256:{'a' * 64}"
-            else:
+            if image["name"] != "rbln-container-toolkit":
                 image["image"] = f"harbor.example/rebellions/{image['name']}:dev@sha256:{'b' * 64}"
         self.write()
         self.run_sync()
         self.run_sync("--check")
         examples = json.loads(self.read()["metadata"]["annotations"]["alm-examples"])
         for key in COMPONENTS:
-            expected = ("docker.io", "v0.2.6") if key == "containerToolkit" else ("harbor.example", "dev")
+            expected = ("docker.io", EXAMPLE_RELEASE_TAG) if key == "containerToolkit" else ("harbor.example", "dev")
             actual = examples[0]["spec"][key]
             self.assertEqual((actual["registry"], actual["version"]), expected, key)
         for original, example in zip(self.examples[1:], examples[1:]):

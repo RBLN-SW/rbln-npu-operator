@@ -352,7 +352,8 @@ class OLMPublishing(unittest.TestCase):
         self.assertEqual(set(images), set(KEYS))
         for key, ref in images.items():
             if key == "CONTAINER_TOOLKIT":
-                self.assertTrue(ref.startswith("docker.io/rebellions/rbln-container-toolkit:v0.2.6@sha256:"))
+                toolkit_ref = "{registry}/{repository}:{tag}".format(**original["containerToolkit"]["image"])
+                self.assertTrue(ref.startswith(f"{toolkit_ref}@sha256:"), ref)
             else:
                 self.assertTrue(ref.startswith("harbor.example/"), (key, ref))
                 self.assertIn(":dev@sha256:", ref, key)
