@@ -80,7 +80,7 @@ func (h *npuFeatureDiscoveryPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.npu-feature-discovery": "true"}).
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
-		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithImagePullSecrets(operandPullSecrets(h.desiredSpec.ImagePullSecrets, owner.Spec.Validator.ImagePullSecrets)).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume("features-dir", "/etc/kubernetes/node-feature-discovery/features.d", corev1.HostPathDirectoryOrCreate),

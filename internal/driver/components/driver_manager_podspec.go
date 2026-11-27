@@ -191,19 +191,11 @@ func (h *driverManagerPatcher) buildDriverPodSpec(pool nodePool, imagePath strin
 		SecurityContext: &corev1.SecurityContext{RunAsUser: ptr(int64(0))},
 		VolumeMounts:    []corev1.VolumeMount{{Name: systemProbeVolumeName, MountPath: "/opt/rbln-system-probe"}},
 	}}
-	pullSecrets := append([]string(nil), h.desiredSpec.ImagePullSecrets...)
+	probeSecrets := make([]string, 0, len(h.systemProbe.PullSecrets))
 	for _, secret := range h.systemProbe.PullSecrets {
-		found := false
-		for _, existing := range pullSecrets {
-			if existing == secret.Name {
-				found = true
-				break
-			}
-		}
-		if !found {
-			pullSecrets = append(pullSecrets, secret.Name)
-		}
+		probeSecrets = append(probeSecrets, secret.Name)
 	}
+	pullSecrets := k8sutil.MergeImagePullSecrets(h.desiredSpec.ImagePullSecrets, h.desiredSpec.Manager.ImagePullSecrets, probeSecrets)
 	if pool.rds {
 		volumes = append(volumes, h.rdsBindVolumes()...)
 		// Appended (not prepended): handleDaemonSet injects DRIVER_CONFIG_DIGEST

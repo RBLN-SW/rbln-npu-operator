@@ -757,6 +757,7 @@ func TestSystemProbeDoesNotChangeLegacyManagerEntrypoint(t *testing.T) {
 	h.desiredSpec.Manager.Version = "latest"
 	h.systemProbe = SystemProbeImage{Reference: "private/operator:new", PullPolicy: corev1.PullAlways, PullSecrets: []corev1.LocalObjectReference{{Name: "probe-secret"}, {Name: sharedSecret}}}
 	h.desiredSpec.ImagePullSecrets = []string{sharedSecret}
+	h.desiredSpec.Manager.ImagePullSecrets = []string{"manager-secret", sharedSecret}
 	spec := h.buildDriverPodSpec(nodePool{}, "driver:old")
 	manager := spec.InitContainers[0]
 	if manager.Image != "docker.io/rebellions/rbln-k8s-driver-manager:latest" || len(manager.Command) != 1 || manager.Command[0] != "driver-manager" || len(manager.Args) != 1 || manager.Args[0] != "reconcile-driver-state" {
@@ -766,7 +767,8 @@ func TestSystemProbeDoesNotChangeLegacyManagerEntrypoint(t *testing.T) {
 	if helper.Image != "private/operator:new" || helper.Name != "install-system-probe" || helper.Command[0] != "/usr/bin/rbln-system-probe" {
 		t.Fatalf("probe not supplied by operator: %+v", helper)
 	}
-	if len(spec.ImagePullSecrets) != 2 || spec.ImagePullSecrets[0].Name != sharedSecret || spec.ImagePullSecrets[1].Name != "probe-secret" {
-		t.Fatalf("pull secrets not merged: %v", spec.ImagePullSecrets)
+	wantSecrets := []corev1.LocalObjectReference{{Name: sharedSecret}, {Name: "manager-secret"}, {Name: "probe-secret"}}
+	if diff := cmp.Diff(wantSecrets, spec.ImagePullSecrets); diff != "" {
+		t.Fatalf("driver Pod pull secrets (-want +got):\n%s", diff)
 	}
 }

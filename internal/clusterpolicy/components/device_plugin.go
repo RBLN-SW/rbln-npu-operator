@@ -100,7 +100,7 @@ func (h *devicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPolicy)
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.device-plugin": "true"}).
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
-		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithImagePullSecrets(operandPullSecrets(h.desiredSpec.ImagePullSecrets, owner.Spec.Validator.ImagePullSecrets)).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume("devicesock", "/var/lib/kubelet/device-plugins", corev1.HostPathDirectory),

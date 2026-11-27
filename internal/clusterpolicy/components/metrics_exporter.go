@@ -115,7 +115,7 @@ func (h *metricsExporterPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPoli
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.metrics-exporter": "true"}).
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
-		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithImagePullSecrets(operandPullSecrets(h.desiredSpec.ImagePullSecrets, owner.Spec.Validator.ImagePullSecrets)).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),
 			hostPathVolume("pod-resources", "/var/lib/kubelet/pod-resources", corev1.HostPathDirectory),

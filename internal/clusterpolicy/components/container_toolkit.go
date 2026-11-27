@@ -395,7 +395,7 @@ func (h *containerToolkitPatcher) buildPodSpec(owner *rblnv1beta1.RBLNClusterPol
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.container-toolkit": "true"}).
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
-		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithImagePullSecrets(operandPullSecrets(h.desiredSpec.ImagePullSecrets, owner.Spec.Validator.ImagePullSecrets)).
 		WithPriorityClassName(podDefaultsPriorityClassName(h.podDefaults)).
 		WithHostPID(true).
 		WithVolumes(toolkitVolumes).

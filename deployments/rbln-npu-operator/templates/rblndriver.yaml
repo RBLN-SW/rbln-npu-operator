@@ -18,7 +18,7 @@ metadata:
     {{- include "rbln-npu-operator.labels" $ | nindent 4 }}
   name: rbln-driver
 spec:
-  {{- include "rbln-npu-operator.driverSpec" .Values.driver | nindent 2 }}
+  {{- include "rbln-npu-operator.driverSpec" (dict "driver" .Values.driver "global" ($.Values.global).imagePullSecrets) | nindent 2 }}
 {{- end }}
 {{- /* nodeSelector MUST stay omitted: instances never inherit the base
      selector — a deep-merged selector would silently corrupt targeting.
@@ -53,6 +53,6 @@ metadata:
     {{- include "rbln-npu-operator.labels" $ | nindent 4 }}
   name: rbln-driver-{{ $key }}
 spec:
-  {{- include "rbln-npu-operator.driverSpec" $spec | nindent 2 }}
+  {{- include "rbln-npu-operator.driverSpec" (dict "driver" $spec "global" ($.Values.global).imagePullSecrets) | nindent 2 }}
 {{- end }}
 {{- end }}

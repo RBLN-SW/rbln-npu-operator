@@ -84,10 +84,7 @@ spec:
     spec:
       serviceAccountName: {{ $name }}
       restartPolicy: OnFailure
-      {{- with .Values.crds.upgrade.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- include "rbln-npu-operator.imagePullSecrets" (dict "lists" (list (.Values.global).imagePullSecrets .Values.operator.imagePullSecrets .Values.crds.upgrade.imagePullSecrets) "pod" true "indent" 6) }}
       {{- with .Values.crds.upgrade.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

@@ -57,3 +57,5 @@ jobs:
           must_fail --set driver.enabled=true --set driver.instances.a.nodeSelector.family=atom --set driver.instances.a.bogus=x
           must_fail --set driver.enabled=true --set driver.instances.Bad.nodeSelector.family=atom
           must_fail --set driver.enabled=true --set driver.instances.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nodeSelector.family=atom
+      - name: Check private registry pull secrets
+        run: bash hack/test-helm-pull-secrets.sh
