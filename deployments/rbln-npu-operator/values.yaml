@@ -8,6 +8,13 @@ nameOverride: rbln-npu-operator
 # Workload type: "container" (default) or "vm-passthrough".
 workloadType: container
 
+# Create these secrets in the release namespace before installation. Each RBLN
+# component combines them with its own pull secrets (driver defaults to drivercred).
+# Include any pull credentials the Pod previously inherited from its ServiceAccount.
+# Configure upstream NFD separately with node-feature-discovery.imagePullSecrets.
+global:
+  imagePullSecrets: []  # e.g. [{name: harbor-pull}]
+
 # Node Feature Discovery dependency
 nfd:
   enabled: false
@@ -54,6 +61,8 @@ podDefaults:
 
 # Operator configuration
 operator:
+  # Also used by the CRD upgrade Job, which pulls the same operator image.
+  imagePullSecrets: []
   # Operator image configuration
   image:
     registry: docker.io
@@ -256,6 +265,7 @@ driver:
 
 # NPU Device Plugin configuration
 devicePlugin:
+  imagePullSecrets: []
   # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
   # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
   # Replace updateStrategy: {} with one of the examples below to configure it.
@@ -287,6 +297,7 @@ devicePlugin:
 
 # NPU DRA kubelet plugin configuration
 draKubeletPlugin:
+  imagePullSecrets: []
   # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
   # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
   # Replace updateStrategy: {} with one of the examples below to configure it.
@@ -317,6 +328,7 @@ draKubeletPlugin:
 
 # NPU Device Config Manager configuration
 deviceConfigManager:
+  imagePullSecrets: []
   enabled: false
   image:
     registry: docker.io
@@ -332,6 +344,7 @@ deviceConfigManager:
 
 # NPU Metrics Exporter configuration
 metricsExporter:
+  imagePullSecrets: []
   # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
   # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
   # Replace updateStrategy: {} with one of the examples below to configure it.
@@ -359,6 +372,7 @@ metricsExporter:
 
 # NPU Feature Discovery configuration
 npuFeatureDiscovery:
+  imagePullSecrets: []
   # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
   # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
   # Replace updateStrategy: {} with one of the examples below to configure it.
@@ -415,6 +429,7 @@ containerToolkit:
 
 # Sandbox Device Plugin for VM workloads
 sandboxDevicePlugin:
+  imagePullSecrets: []
   # Leave empty to preserve the existing DaemonSet strategy. New DaemonSets use
   # RollingUpdate with maxUnavailable: 1 and maxSurge: 0.
   # Replace updateStrategy: {} with one of the examples below to configure it.

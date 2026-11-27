@@ -31,6 +31,7 @@ before applying a sample.
 
 | Task | Start here |
 | --- | --- |
+| Pull images from a private registry | [Shared and component-specific pull secrets](values.yaml) |
 | Configure container workloads | [Container sample](sample-values-ContainerWorkload.yaml) |
 | Configure VM passthrough | [Sandbox sample](sample-values-SandboxWorkload.yaml) |
 | Use multiple driver versions or node groups | [Multi-driver sample](sample-values-MultiDriver.yaml) · [Driver guide](../../docs/guides/configure-drivers.md) |

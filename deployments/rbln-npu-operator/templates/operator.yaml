@@ -21,6 +21,7 @@ spec:
         control-plane: controller-manager
     spec:
       serviceAccountName: {{ include "rbln-npu-operator.fullname" . }}
+      {{- include "rbln-npu-operator.imagePullSecrets" (dict "lists" (list (.Values.global).imagePullSecrets .Values.operator.imagePullSecrets) "pod" true "indent" 6) }}
       terminationGracePeriodSeconds: 10
       {{- if .Values.operator.affinity }}
       affinity:

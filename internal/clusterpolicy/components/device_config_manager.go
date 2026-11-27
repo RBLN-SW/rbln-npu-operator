@@ -2,7 +2,6 @@ package components
 
 import (
 	"context"
-	"slices"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -162,12 +161,7 @@ func (h *deviceConfigManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 	// Only driver readiness: toolkit and partition readiness depend on work
 	// this manager performs and would create a circular startup dependency.
 	initContainer := buildGateInitContainer(consts.RBLNDeviceConfigManagerName, owner.Spec.Validator)
-	pullSecrets := slices.Clone(h.desiredSpec.ImagePullSecrets)
-	for _, secret := range owner.Spec.Validator.ImagePullSecrets {
-		if !slices.Contains(pullSecrets, secret) {
-			pullSecrets = append(pullSecrets, secret)
-		}
-	}
+
 	defaultWorkload := owner.Spec.WorkloadType
 	if defaultWorkload == "" {
 		defaultWorkload = consts.RBLNWorkloadConfigContainer
@@ -223,7 +217,7 @@ func (h *deviceConfigManagerPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.device-config-manager": "true"}).
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
-		WithImagePullSecrets(pullSecrets).
+		WithImagePullSecrets(k8sutil.MergeImagePullSecrets(h.desiredSpec.ImagePullSecrets, owner.Spec.Validator.ImagePullSecrets)).
 		WithPriorityClassName(podDefaultsPriorityClassName(h.podDefaults)).
 		WithVolumes([]corev1.Volume{
 			hostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),

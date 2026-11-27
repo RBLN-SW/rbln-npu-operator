@@ -47,6 +47,15 @@ func TestKeychainFromPullSecrets(t *testing.T) {
 			wantUsername: "u",
 			wantPassword: "p",
 		},
+		"DriverCredentialAfterSharedMirrorForSameHost": {
+			secrets: []corev1.Secret{
+				dockerConfigJSONSecret(`{"registry.example.com":{"username":"mirror","password":"mirror"}}`),
+				dockerConfigJSONSecret(`{"registry.example.com":{"username":"driver","password":"driver"}}`),
+			},
+			host:         "registry.example.com",
+			wantUsername: "driver",
+			wantPassword: "driver",
+		},
 		"UnknownHostIsAnonymous": {
 			secrets: []corev1.Secret{dockerConfigJSONSecret(`{"registry.example.com":{"username":"u","password":"p"}}`)},
 			host:    "other.example.com",

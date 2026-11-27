@@ -1,6 +1,8 @@
 package k8sutil
 
 import (
+	"slices"
+
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -24,6 +26,19 @@ func (b *PodSpecBuilder) WithAffinity(affinity *corev1.Affinity) *PodSpecBuilder
 func (b *PodSpecBuilder) WithTolerations(tolerations []corev1.Toleration) *PodSpecBuilder {
 	b.obj.Tolerations = tolerations
 	return b
+}
+
+// MergeImagePullSecrets combines credentials for containers sharing a Pod.
+func MergeImagePullSecrets(groups ...[]string) []string {
+	var names []string
+	for _, group := range groups {
+		for _, name := range group {
+			if !slices.Contains(names, name) {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }
 
 func (b *PodSpecBuilder) WithImagePullSecrets(secrets []string) *PodSpecBuilder {

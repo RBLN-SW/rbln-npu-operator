@@ -98,7 +98,7 @@ func (h *sandboxDevicePluginPatcher) buildPodSpec(owner *rblnv1beta1.RBLNCluster
 		WithNodeSelector(map[string]string{"rebellions.ai/npu.deploy.sandbox-device-plugin": "true"}).
 		WithAffinity(h.desiredSpec.Affinity).
 		WithTolerations(h.desiredSpec.Tolerations).
-		WithImagePullSecrets(h.desiredSpec.ImagePullSecrets).
+		WithImagePullSecrets(operandPullSecrets(h.desiredSpec.ImagePullSecrets, owner.Spec.Validator.ImagePullSecrets)).
 		WithVolumes(h.buildVolumes()).
 		WithInitContainers([]*corev1.Container{initContainer}).
 		WithContainers([]*corev1.Container{

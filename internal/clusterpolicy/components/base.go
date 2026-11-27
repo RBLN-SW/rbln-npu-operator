@@ -111,6 +111,16 @@ func (b *basePatcher) IsReady(ctx context.Context, nodeCountForType int32) Readi
 // Shared init container builders
 // ---------------------------------------------------------------------------
 
+// Pods without explicit operand credentials inherit the ServiceAccount's pull
+// secrets at admission. Once credentials are explicit, include the validator
+// image used by the init container as well.
+func operandPullSecrets(operand, validator []string) []string {
+	if len(operand) == 0 {
+		return nil
+	}
+	return k8sutil.MergeImagePullSecrets(operand, validator)
+}
+
 // buildGateInitContainer blocks an operand pod until `rbln-validator gate`
 // confirms this node's readiness files for the component (see the gate table
 // in cmd/rbln-validator/gate.go). Device advertisers resolve partition

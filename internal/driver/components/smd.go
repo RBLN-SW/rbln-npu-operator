@@ -3,7 +3,6 @@ package components
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -198,12 +197,6 @@ func (h *SmdPatcher) handleDaemonSet(ctx context.Context, owner *rebellionsaiv1a
 
 func (h *SmdPatcher) buildPodSpec(version string) *corev1.PodSpec {
 	initContainer := h.buildDriverReadyInitContainer()
-	pullSecrets := append([]string(nil), h.desiredSpec.ImagePullSecrets...)
-	for _, name := range h.validatorSpec.ImagePullSecrets {
-		if !slices.Contains(pullSecrets, name) {
-			pullSecrets = append(pullSecrets, name)
-		}
-	}
 
 	// No command override: every rbln-smd image ships an ENTRYPOINT pointing at
 	// its own binary, so leaving it unset keeps the operator out of the way when
@@ -237,7 +230,7 @@ func (h *SmdPatcher) buildPodSpec(version string) *corev1.PodSpec {
 		WithHostNetwork(true).
 		WithNodeSelector(h.smdNodeSelector()).
 		WithTolerations(h.desiredSpec.Tolerations).
-		WithImagePullSecrets(pullSecrets).
+		WithImagePullSecrets(k8sutil.MergeImagePullSecrets(h.desiredSpec.ImagePullSecrets, h.validatorSpec.ImagePullSecrets)).
 		WithPriorityClassName(h.desiredSpec.PriorityClassName).
 		WithVolumes([]corev1.Volume{
 			smdHostPathVolume(consts.ValidationsVolumeName, consts.ValidationsMountPath, corev1.HostPathDirectoryOrCreate),

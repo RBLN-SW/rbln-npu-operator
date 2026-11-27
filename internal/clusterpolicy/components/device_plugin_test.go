@@ -2,6 +2,7 @@ package components
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -65,6 +66,21 @@ func TestDevicePluginPatch(t *testing.T) {
 
 	assertGateInitContainer(t, ds, consts.RBLNDevicePluginName)
 	assertNodeViewerRBAC(t, c, name, owner.Name)
+}
+
+func TestDevicePluginPodPullSecrets(t *testing.T) {
+	owner := newTestOwner()
+	owner.Spec.Validator.ImagePullSecrets = []string{"shared", "validator"}
+	plugin := &devicePluginPatcher{desiredSpec: &owner.Spec.DevicePlugin}
+	if got := plugin.buildPodSpec(owner).ImagePullSecrets; len(got) != 0 {
+		t.Fatalf("expected ServiceAccount pull secret inheritance, got %v", got)
+	}
+
+	plugin.desiredSpec.ImagePullSecrets = []string{"shared", "plugin"}
+	want := []corev1.LocalObjectReference{{Name: "shared"}, {Name: "plugin"}, {Name: "validator"}}
+	if got := plugin.buildPodSpec(owner).ImagePullSecrets; !slices.Equal(got, want) {
+		t.Fatalf("imagePullSecrets = %v, want %v", got, want)
+	}
 }
 
 func TestDevicePluginPatch_Disabled(t *testing.T) {
